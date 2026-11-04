@@ -507,23 +507,23 @@ test("login inspector reveals, copies, refreshes TOTP, and shows history", async
   expect(app.texts()).toContain("hunter2");
 
   await app.press("id:copy-password");
-  expect(app.texts()).toContain("Copied secret.");
+  expect(app.texts()).toContain("Copied password to clipboard (clears in 30s).");
 
   expect(app.shows("id:inspector-totp")).toBe(true);
   await app.press("id:copy-totp");
-  expect(app.texts()).toContain("Copied secret.");
+  expect(app.texts()).toContain("Copied TOTP code to clipboard (clears in 30s).");
   await app.press("id:refresh-totp");
   expect(app.shows("id:inspector-totp")).toBe(true);
 
   expect(app.texts()).toContain("github.com");
   await app.press("id:copy-uri-github.com");
-  expect(app.texts()).toContain("Copied.");
+  expect(app.texts()).toContain("Copied website URL to clipboard.");
 
   await app.press("id:open-password-history");
   expect(app.shows("id:password-history-modal")).toBe(true);
   expect(app.texts()).toContain("old-password");
   await app.press("id:copy-history-password-0");
-  expect(app.texts()).toContain("Copied.");
+  expect(app.texts()).toContain("Copied previous password to clipboard (clears in 30s).");
   await app.press("id:password-history-close");
   expect(app.shows("id:password-history-modal")).toBe(false);
 
@@ -532,7 +532,7 @@ test("login inspector reveals, copies, refreshes TOTP, and shows history", async
   await app.press("id:reveal-field-0");
   expect(app.texts()).toContain("token-abc-123");
   await app.press("id:copy-field-0");
-  expect(app.texts()).toContain("Copied secret.");
+  expect(app.texts()).toContain("Copied API Token to clipboard (clears in 30s).");
 
   await app.press("id:preview-attachment-att1");
   expect(app.shows("id:attachment-preview")).toBe(true);
@@ -553,13 +553,13 @@ test("live TOTP ticks down and auto-refreshes when the period ends", async () =>
 
   await app.press("id:cipher-row-login1");
   expect(app.shows("id:inspector-totp")).toBe(true);
-  expect(app.texts()).toContain("2s / 30s");
+  expect(app.texts()).toContain("2s");
 
   await app.wait(1000);
-  expect(app.texts()).toContain("1s / 30s");
+  expect(app.texts()).toContain("1s");
 
   await app.wait(1000);
-  expect(app.texts()).toContain("30s / 30s");
+  expect(app.texts()).toContain("30s");
 });
 
 test("master password re-prompt hides secrets until confirmed", async () => {
@@ -608,16 +608,16 @@ test("card inspector masks, reveals, and copies card fields", async () => {
   expect(app.texts()).toContain("4111 1111 1111 1111");
 
   await app.press("id:copy-card-number");
-  expect(app.texts()).toContain("Copied secret.");
+  expect(app.texts()).toContain("Copied card number to clipboard (clears in 30s).");
 
   await app.press("id:reveal-cvv");
   expect(app.texts()).toContain("123");
   await app.press("id:copy-cvv");
-  expect(app.texts()).toContain("Copied secret.");
+  expect(app.texts()).toContain("Copied card security code to clipboard (clears in 30s).");
 
   expect(app.texts()).toContain("05 / 2030");
   await app.press("id:copy-expiration");
-  expect(app.texts()).toContain("Copied.");
+  expect(app.texts()).toContain("Copied expiration to clipboard.");
 });
 
 test("identity inspector shows fields and copies sensitive numbers", async () => {
@@ -630,10 +630,10 @@ test("identity inspector shows fields and copies sensitive numbers", async () =>
   expect(app.texts()).toContain("111-22-3333");
 
   await app.press("id:copy-ssn");
-  expect(app.texts()).toContain("Copied.");
+  expect(app.texts()).toContain("Copied SSN to clipboard (clears in 30s).");
 
   await app.press("id:copy-identity-email");
-  expect(app.texts()).toContain("Copied.");
+  expect(app.texts()).toContain("Copied email to clipboard.");
 });
 
 test("secure note inspector copies the note body", async () => {
@@ -644,7 +644,7 @@ test("secure note inspector copies the note body", async () => {
   expect(app.texts()).toContain("code-one\ncode-two");
 
   await app.press("id:copy-notes");
-  expect(app.texts()).toContain("Copied value.");
+  expect(app.texts()).toContain("Copied secure note to clipboard (clears in 30s).");
 });
 
 test("SSH inspector reveals, copies, and exports the private key", async () => {
@@ -660,7 +660,7 @@ test("SSH inspector reveals, copies, and exports the private key", async () => {
   );
 
   await app.press("id:copy-private-key");
-  expect(app.texts()).toContain("Copied secret.");
+  expect(app.texts()).toContain("Copied private key to clipboard (clears in 30s).");
 
   await app.press("id:export-ssh-key");
   expect(app.shows("id:ssh-key-modal")).toBe(true);
@@ -709,7 +709,7 @@ test("password generator rejects out-of-range lengths without clamping", async (
 
   await app.press("id:generator-copy-close");
   expect(app.shows("id:password-generator-modal")).toBe(false);
-  expect(app.texts()).toContain("Copied.");
+  expect(app.texts()).toContain("Copied generated secret to clipboard (clears in 30s).");
 });
 
 test("passphrase generator rejects out-of-range word counts without clamping", async () => {
@@ -794,6 +794,90 @@ test("action palette lists context actions, filters, syncs, and opens modals", a
   expect(app.texts()).toContain("Vault locked.");
 });
 
+test("action palette selects with arrows, runs with enter, and honors direct shortcuts", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:cipher-row-login1");
+  await app.keyboard.press("mod+k");
+  expect(app.shows("id:action-palette-modal")).toBe(true);
+  expect(app.texts()).not.toContain("Run");
+
+  await app.keyboard.press("down");
+  await app.keyboard.press("enter");
+  expect(app.shows("id:action-palette-modal")).toBe(false);
+  expect(app.texts()).toContain("Copied username to clipboard.");
+
+  await app.keyboard.press("mod+k");
+  await app.keyboard.press("mod+enter");
+  expect(app.shows("id:action-palette-modal")).toBe(false);
+  expect(app.texts()).toContain("Copied TOTP code to clipboard (clears in 30s).");
+
+  await app.keyboard.press("mod+k");
+  await app.type("id:action-palette-search", "sync");
+  await app.keyboard.press("enter");
+  expect(app.shows("id:action-palette-modal")).toBe(false);
+  expect(app.texts()).toContain("Vault synchronized.");
+});
+
+test("global shortcuts copy TOTP, username, and toggle the password reveal", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:cipher-row-login1");
+
+  await app.keyboard.press("mod+enter");
+  expect(app.texts()).toContain("Copied TOTP code to clipboard (clears in 30s).");
+
+  await app.keyboard.press("mod+u");
+  expect(app.texts()).toContain("Copied username to clipboard.");
+
+  expect(app.texts()).not.toContain("hunter2");
+  await app.keyboard.press("mod+t");
+  expect(app.texts()).toContain("hunter2");
+  await app.keyboard.press("mod+t");
+  expect(app.texts()).not.toContain("hunter2");
+
+  await app.keyboard.press("mod+o");
+  expect(app.texts()).not.toContain("This URL is not safe to open.");
+});
+
+test("a failed sync keeps the vault unlocked and surfaces the error", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+    syncError: "Network unavailable.",
+  });
+
+  await app.press("id:cipher-row-login1");
+  expect(app.shows("id:item-inspector")).toBe(true);
+
+  await app.press("id:sync-vault");
+  expect(app.texts()).toContain("Network unavailable.");
+  expect(app.shows("id:item-inspector")).toBe(true);
+  expect(app.shows("id:auth-view-locked")).toBe(false);
+});
+
+test("TOTP reads as a normal inspector field and SSH primary copy uses the public key", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM, SSH_ITEM] });
+
+  await app.press("id:cipher-row-login1");
+  expect(app.texts()).toContain("TOTP Code");
+  expect(app.texts()).not.toContain("Live TOTP");
+
+  await app.press("id:category-sshKey");
+  await app.press("id:cipher-row-ssh1");
+  await app.keyboard.press("enter");
+  expect(app.texts()).toContain("Copied public key to clipboard.");
+});
+
+test("SSH quick actions live on the SSH tab, not the search header", async () => {
+  const app = await openMock({ phase: "unlocked", items: [SSH_ITEM] });
+
+  expect(app.shows("id:open-ssh-key")).toBe(false);
+  await app.press("id:category-sshKey");
+  expect(app.shows("id:open-ssh-key")).toBe(true);
+  expect(app.shows("id:import-ssh-key")).toBe(true);
+});
+
 test("tab moves focus between action controls and enter activates them", async () => {
   const app = await openMock({ phase: "unlocked", items: VAULT_ITEMS });
 
@@ -814,7 +898,7 @@ test("keyboard shortcuts navigate, copy, open modals, and lock", async () => {
   await app.keyboard.press("down");
   expect(app.shows("id:item-inspector")).toBe(true);
   await app.keyboard.press("enter");
-  expect(app.texts()).toContain("Copied secret.");
+  expect(app.texts()).toContain("Copied password to clipboard (clears in 30s).");
 
   await app.keyboard.press("mod+g");
   expect(app.shows("id:password-generator-modal")).toBe(true);
@@ -876,7 +960,7 @@ test("settings modal exposes general, security, diagnose, and about tabs", async
   expect(app.texts()).toContain("https://vault.example.com");
   await app.press("id:refresh-health");
   await app.press("id:copy-diagnostics");
-  expect(app.texts()).toContain("Copied.");
+  expect(app.texts()).toContain("Copied diagnostic report to clipboard.");
 
   await app.press("id:settings-tab-about");
   expect(app.shows("id:settings-about")).toBe(true);
@@ -957,6 +1041,7 @@ test("release notes load when an update is available", async () => {
 test("SSH key modal previews, reveals, copies, and saves a generated key", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
+  await app.press("id:category-sshKey");
   await app.press("id:open-ssh-key");
   expect(app.shows("id:ssh-key-modal")).toBe(true);
   expect(app.shows("id:ssh-create-panel")).toBe(true);
@@ -972,7 +1057,7 @@ test("SSH key modal previews, reveals, copies, and saves a generated key", async
   expect(app.texts().join("\n")).toContain("-----BEGIN OPENSSH PRIVATE KEY-----");
 
   await app.press("id:ssh-copy-public-key");
-  expect(app.texts()).toContain("Copied.");
+  expect(app.texts()).toContain("Copied public key to clipboard.");
 
   await app.press("id:ssh-save");
   expect(app.shows("id:ssh-key-modal")).toBe(false);
@@ -982,6 +1067,7 @@ test("SSH key modal previews, reveals, copies, and saves a generated key", async
 test("SSH key modal rejects an invalid imported key and blocks empty export", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
+  await app.press("id:category-sshKey");
   await app.press("id:open-ssh-key");
   await app.press("id:ssh-mode-import");
   expect(app.shows("id:ssh-private-key-input")).toBe(true);
@@ -1007,6 +1093,7 @@ test("SSH key modal rejects an invalid imported key and blocks empty export", as
 test("SSH key modal imports a key file and picks an export directory", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
+  await app.press("id:category-sshKey");
   await app.press("id:open-ssh-key");
   await app.press("id:ssh-mode-import");
   await app.press("id:ssh-import-browse");
@@ -1072,8 +1159,13 @@ test("footer shows shortcut hints, theme, and engine version", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
   expect(app.shows("id:footer-bar")).toBe(true);
-  expect(app.texts()).toContain("Ctrl+K Actions");
-  expect(app.texts()).toContain("Ctrl+, Settings");
+  expect(app.shows("id:open-actions")).toBe(true);
+  expect(app.shows("id:open-generator")).toBe(true);
+  expect(app.shows("id:sync-vault")).toBe(true);
+  expect(app.shows("id:lock-vault")).toBe(true);
+  expect(app.shows("id:open-settings")).toBe(true);
+  expect(app.texts()).toContain("Ctrl+K");
+  expect(app.texts()).toContain("Ctrl+,");
   expect(app.texts()).toContain("Theme: Dark");
   expect(app.texts()).toContain("Engine 0.3.0");
 });

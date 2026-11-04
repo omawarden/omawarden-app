@@ -4,6 +4,7 @@ import type { CategoryCountsView, ItemCategory } from "omawarden-app/native";
 import * as store from "../store/appStore";
 import { tint } from "../theme/palette";
 import { actionID, focusOutline, useAction } from "./ui";
+import { GhostIconButton } from "./GhostIconButton";
 
 const TABS: Array<{ category: ItemCategory; label: string; count: keyof CategoryCountsView }> = [
   { category: "all", label: "All", count: "all" },
@@ -34,6 +35,23 @@ export function CategoryTabBar() {
       <Each of={TABS} key="index">
         {(tab) => <CategoryTab tab={tab()} />}
       </Each>
+      <View style={{ flex: 1 }} />
+      {store.category() === "sshKey" ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+          <GhostIconButton
+            testID="open-ssh-key"
+            label="Create SSH key"
+            icon="\uf067"
+            onPress={() => store.openSshKey("create")}
+          />
+          <GhostIconButton
+            testID="import-ssh-key"
+            label="Import SSH key"
+            icon="\uf019"
+            onPress={() => store.openSshKey("import")}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }

@@ -1,5 +1,6 @@
 import { effect, host, keymap, mount, setColorScheme, View } from "nsh";
 import * as store from "./store/appStore";
+import * as palette from "./store/actionPalette";
 import { ActionPaletteModal } from "./components/ActionPaletteModal";
 import { AuthView } from "./components/AuthView";
 import { CategoryTabBar } from "./components/CategoryTabBar";
@@ -114,10 +115,47 @@ const hasOpenModal = () =>
 const canUseVaultShortcuts = () =>
   store.phase() === "unlocked" && !hasOpenModal();
 
+const paletteOpen = () => store.activeModal() === "actionPalette";
+
 keymap.bind({
   "mod+k": () => {
     if (canUseVaultShortcuts()) {
-      store.openActionPalette();
+      palette.openPalette();
+    }
+  },
+  "mod+enter": () => {
+    if (canUseVaultShortcuts()) {
+      store.copyField("totp");
+    }
+  },
+  "ctrl+enter": () => {
+    if (canUseVaultShortcuts()) {
+      store.copyField("totp");
+    }
+  },
+  "mod+u": () => {
+    if (canUseVaultShortcuts()) {
+      store.copyField("username");
+    }
+  },
+  "mod+t": () => {
+    if (canUseVaultShortcuts()) {
+      store.toggleReveal("password");
+    }
+  },
+  "mod+o": () => {
+    if (canUseVaultShortcuts()) {
+      store.openFirstUrl();
+    }
+  },
+  "mod+h": () => {
+    if (canUseVaultShortcuts()) {
+      store.openPasswordHistory();
+    }
+  },
+  "mod+e": () => {
+    if (canUseVaultShortcuts() && store.selectedCipher()?.category === "sshKey") {
+      store.openSshKey("export");
     }
   },
   "mod+g": () => {
@@ -136,19 +174,31 @@ keymap.bind({
     }
   },
   "mod+,": () => {
-    store.openSettings();
+    if (!paletteOpen()) {
+      store.openSettings();
+    }
   },
   up: () => {
+    // The palette owns its own key bindings while it is open.
+    if (paletteOpen()) {
+      return;
+    }
     if (canUseVaultShortcuts()) {
       store.moveSelection(-1);
     }
   },
   down: () => {
+    if (paletteOpen()) {
+      return;
+    }
     if (canUseVaultShortcuts()) {
       store.moveSelection(1);
     }
   },
   enter: () => {
+    if (paletteOpen()) {
+      return;
+    }
     if (store.activateFocusedAction()) {
       return;
     }

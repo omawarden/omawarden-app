@@ -136,6 +136,8 @@ export const selectedIndex = signal(0);
 export const selectedProvider = signal(0);
 export const focusedAction = signal<string | null>(null);
 export const isSubmitting = signal(false);
+/** Whether a vault sync is in flight (kept separate from auth submission). */
+export const isSyncing = signal(false);
 /** The cipher whose master-password re-prompt grant is active. */
 export const repromptCipherId = signal<string | null>(null);
 export const repromptError = signal<string | null>(null);
@@ -682,18 +684,23 @@ export function query(): void {
 }
 
 export function sync(): void {
-  if (isSubmitting()) {
+  if (isSyncing()) {
     return;
   }
-  isSubmitting.set(true);
+  isSyncing.set(true);
   notify("Syncing vault…", "info");
   defer(() => {
     try {
       const next = OmawardenBridge.syncVault(currentFilter());
       applySnapshot(next);
-      notify(next.error ? "Sync failed." : "Vault synchronized.", next.error ? "error" : "success");
+      // applySnapshot already surfaces `next.error`; only announce success.
+      if (!next.error) {
+        notify("Vault synchronized.", "success");
+      }
+    } catch (error) {
+      notify(`Sync failed: ${String(error)}`, "error");
     } finally {
-      isSubmitting.set(false);
+      isSyncing.set(false);
     }
   });
 }
@@ -957,6 +964,16 @@ export function openUrl(rawUrl: string): void {
   if (!ok) {
     notify("This URL is not safe to open.", "error");
   }
+}
+
+/** Opens the selected item's first website URI. */
+export function openFirstUrl(): void {
+  const uris = inspector()?.uris ?? [];
+  if (uris.length === 0) {
+    notify("This item has no website URL.", "error");
+    return;
+  }
+  openUrl(uris[0].uri);
 }
 
 export function openAttachment(cipherId: string, attachmentId: string, mode: string): void {

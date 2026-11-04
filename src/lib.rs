@@ -1696,6 +1696,8 @@ struct MockState {
     update_available: bool,
     last_sync: Option<String>,
     error: Option<String>,
+    /// A sync failure the mock reports while keeping the unlocked view.
+    sync_error: Option<String>,
     filter: VaultFilterInput,
     selected_cipher_id: Option<String>,
     master_password: String,
@@ -1731,6 +1733,7 @@ impl Default for MockState {
             update_available: false,
             last_sync: None,
             error: None,
+            sync_error: None,
             filter: VaultFilterInput::default(),
             selected_cipher_id: None,
             master_password: "correct horse battery staple".to_string(),
@@ -2199,6 +2202,7 @@ fn configure_mock_from_json(state: &mut MockState, value: &Value) {
     }
     state.last_sync = json_string(value, "lastSync").or(state.last_sync.clone());
     state.error = json_string(value, "error");
+    state.sync_error = json_string(value, "syncError");
     if let Some(missing) = value.get("dependenciesMissing").and_then(|v| v.as_array()) {
         state.dependencies_missing = missing
             .iter()
@@ -2583,6 +2587,33 @@ fn clear_cached_vault() {
     if let Ok(mut guard) = cached_vault().lock() {
         *guard = None;
     }
+}
+
+/// Builds an unlocked snapshot from the in-memory cache, carrying `error` when
+/// the daemon could not refresh the vault.
+///
+/// A failed sync or query must never drop the user back to the locked screen:
+/// the cache is the last known good unlocked view, so it wins over a status
+/// probe that happens to see the daemon mid-restart.
+fn cached_snapshot(filter: &VaultFilterInput, error: Option<String>) -> Option<VaultSnapshotView> {
+    let guard = cached_vault().lock().ok()?;
+    let cached = guard.as_ref()?;
+    Some(build_snapshot(
+        AppPhase::Unlocked,
+        cached.email.clone(),
+        cached.server_url.clone(),
+        cached.identity_url.clone(),
+        cached.quick_unlock_ready,
+        cached.quick_unlock_usable,
+        None,
+        error,
+        cached.rows.clone(),
+        filter,
+        cached.last_sync.clone(),
+        None,
+        None,
+        cached.engine_version.clone(),
+    ))
 }
 
 /// Reads the daemon status and builds a real snapshot.
@@ -3025,6 +3056,15 @@ fn clipboard_copy(text: &str, sensitive: bool) -> bool {
     copied
 }
 
+/// The toast for a successful copy, naming what was copied and its clipboard TTL.
+fn clipboard_message(label: &str, sensitive: bool, ttl: u32) -> String {
+    if sensitive && ttl > 0 {
+        format!("Copied {label} to clipboard (clears in {ttl}s).")
+    } else {
+        format!("Copied {label} to clipboard.")
+    }
+}
+
 // ---------------------------------------------------------------------------
 // The native module
 // ---------------------------------------------------------------------------
@@ -3330,25 +3370,8 @@ impl OmawardenBridge {
                 state.snapshot()
             });
         }
-        if let Ok(guard) = cached_vault().lock() {
-            if let Some(cached) = guard.as_ref() {
-                return build_snapshot(
-                    AppPhase::Unlocked,
-                    cached.email.clone(),
-                    cached.server_url.clone(),
-                    cached.identity_url.clone(),
-                    cached.quick_unlock_ready,
-                    cached.quick_unlock_usable,
-                    None,
-                    None,
-                    cached.rows.clone(),
-                    &filter,
-                    cached.last_sync.clone(),
-                    None,
-                    None,
-                    cached.engine_version.clone(),
-                );
-            }
+        if let Some(snapshot) = cached_snapshot(&filter, None) {
+            return snapshot;
         }
         real_snapshot(filter)
     }
@@ -3358,26 +3381,43 @@ impl OmawardenBridge {
         if with_mock(|state| state.enabled) {
             return with_mock(|state| {
                 state.filter = filter;
-                state.last_sync = Some(chrono::Local::now().format("%Y-%m-%d %H:%M").to_string());
-                state.error = None;
+                match state.sync_error.clone() {
+                    Some(error) => state.error = Some(error),
+                    None => {
+                        state.last_sync =
+                            Some(chrono::Local::now().format("%Y-%m-%d %H:%M").to_string());
+                        state.error = None;
+                    }
+                }
                 state.snapshot()
             });
         }
-        clear_cached_vault();
         push_log("vault sync requested");
+        ensure_app_daemon_running();
         let response = daemon(json!({ "action": "sync", "touch": true }));
-        let mut snapshot = real_snapshot(filter);
-        if let Some(response) = response {
-            if response.get("ok").and_then(|value| value.as_bool()) != Some(true) {
-                snapshot.error = response
+        let failure = match response {
+            Some(response) if response.get("ok").and_then(|value| value.as_bool()) == Some(true) => {
+                None
+            }
+            Some(response) => Some(
+                response
                     .get("error")
                     .and_then(|value| value.as_str())
                     .map(str::to_string)
-                    .or_else(|| Some("Sync failed.".to_string()));
-            }
-        } else {
-            snapshot.error = Some("The Omawarden daemon is not running.".to_string());
+                    .unwrap_or_else(|| "Sync failed.".to_string()),
+            ),
+            None => Some("The Omawarden daemon is not running.".to_string()),
+        };
+        let Some(error) = failure else {
+            // Only replace the cache once the daemon reports a successful sync.
+            return real_snapshot(filter);
+        };
+        // Keep the unlocked view and surface the failure instead of locking.
+        if let Some(snapshot) = cached_snapshot(&filter, Some(error.clone())) {
+            return snapshot;
         }
+        let mut snapshot = real_snapshot(filter);
+        snapshot.error = Some(error);
         snapshot
     }
 
@@ -3527,14 +3567,15 @@ impl OmawardenBridge {
                         error: Some("Item not found.".to_string()),
                     };
                 };
-                let (text, sensitive) = match field.as_str() {
-                    "username" => (item.username.clone().unwrap_or_default(), false),
-                    "password" => (item.password.clone().unwrap_or_default(), true),
+                let (text, sensitive, label) = match field.as_str() {
+                    "username" => (item.username.clone().unwrap_or_default(), false, "username"),
+                    "password" => (item.password.clone().unwrap_or_default(), true, "password"),
                     "totp" => (
                         totp_view(item.totp.as_deref())
                             .map(|view| view.code)
                             .unwrap_or_default(),
                         true,
+                        "TOTP code",
                     ),
                     "card_number" => (
                         item.card
@@ -3542,6 +3583,7 @@ impl OmawardenBridge {
                             .map(|card| card.number.clone())
                             .unwrap_or_default(),
                         true,
+                        "card number",
                     ),
                     "cvv" => (
                         item.card
@@ -3549,6 +3591,7 @@ impl OmawardenBridge {
                             .map(|card| card.code.clone())
                             .unwrap_or_default(),
                         true,
+                        "card security code",
                     ),
                     "private_key" => (
                         item.ssh
@@ -3556,16 +3599,29 @@ impl OmawardenBridge {
                             .map(|ssh| ssh.private_key.clone())
                             .unwrap_or_default(),
                         true,
+                        "private key",
                     ),
-                    "notes" => (item.notes.clone().unwrap_or_default(), false),
+                    "public_key" => (
+                        item.ssh
+                            .as_ref()
+                            .map(|ssh| ssh.public_key.clone())
+                            .unwrap_or_default(),
+                        false,
+                        "public key",
+                    ),
+                    "notes" => (item.notes.clone().unwrap_or_default(), true, "secure note"),
                     "custom" => {
                         let index = custom_index.unwrap_or(0) as usize;
                         match item.fields.get(index) {
-                            Some(field) => (field.value.clone(), field.kind == "hidden"),
-                            None => (String::new(), false),
+                            Some(entry) => (
+                                entry.value.clone(),
+                                entry.kind == "hidden",
+                                entry.name.as_str(),
+                            ),
+                            None => (String::new(), false, "custom field"),
                         }
                     }
-                    _ => (String::new(), false),
+                    _ => (String::new(), false, "value"),
                 };
                 if text.is_empty() {
                     return CopyOutcomeView {
@@ -3577,12 +3633,17 @@ impl OmawardenBridge {
                         error: Some("Nothing to copy.".to_string()),
                     };
                 }
+                let ttl = if sensitive {
+                    state.settings.clipboard_clear_seconds.max(0) as u32
+                } else {
+                    0
+                };
                 CopyOutcomeView {
                     ok: true,
                     label: field,
-                    message: format!("Copied {}.", if sensitive { "secret" } else { "value" }),
+                    message: clipboard_message(label, sensitive, ttl),
                     sensitive,
-                    cleared_after_seconds: if sensitive { state.settings.clipboard_clear_seconds.max(0) as u32 } else { 0 },
+                    cleared_after_seconds: ttl,
                     error: None,
                 }
             });
@@ -3623,7 +3684,7 @@ impl OmawardenBridge {
                 item
             }
         };
-        let (text, sensitive) = match field.as_str() {
+        let (text, sensitive, label) = match field.as_str() {
             "username" => (
                 item.login
                     .as_ref()
@@ -3632,6 +3693,7 @@ impl OmawardenBridge {
                     .unwrap_or_default()
                     .to_string(),
                 false,
+                "username",
             ),
             "password" => (
                 item.login
@@ -3641,6 +3703,7 @@ impl OmawardenBridge {
                     .unwrap_or_default()
                     .to_string(),
                 true,
+                "password",
             ),
             "totp" => {
                 let seed = item
@@ -3651,6 +3714,7 @@ impl OmawardenBridge {
                 (
                     totp_view(seed).map(|view| view.code).unwrap_or_default(),
                     true,
+                    "TOTP code",
                 )
             }
             "card_number" => (
@@ -3661,6 +3725,7 @@ impl OmawardenBridge {
                     .unwrap_or_default()
                     .to_string(),
                 true,
+                "card number",
             ),
             "cvv" => (
                 item.card
@@ -3670,6 +3735,7 @@ impl OmawardenBridge {
                     .unwrap_or_default()
                     .to_string(),
                 true,
+                "card security code",
             ),
             "private_key" => (
                 item.ssh_key
@@ -3677,23 +3743,36 @@ impl OmawardenBridge {
                     .and_then(|ssh| ssh.private_key.clone())
                     .unwrap_or_default(),
                 true,
+                "private key",
             ),
-            "notes" => (item.notes.clone().unwrap_or_default(), false),
+            "public_key" => (
+                item.ssh_key
+                    .as_ref()
+                    .and_then(|ssh| ssh.public_key.clone())
+                    .unwrap_or_default(),
+                false,
+                "public key",
+            ),
+            "notes" => (item.notes.clone().unwrap_or_default(), true, "secure note"),
             "custom" => {
                 let index = custom_index.unwrap_or(0) as usize;
                 match item.fields.get(index) {
-                    Some(field) => (
-                        field
+                    Some(entry) => (
+                        entry
                             .get("value")
                             .and_then(|value| value.as_str())
                             .unwrap_or_default()
                             .to_string(),
-                        field.get("type").and_then(|value| value.as_u64()) == Some(1),
+                        entry.get("type").and_then(|value| value.as_u64()) == Some(1),
+                        entry
+                            .get("name")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("custom field"),
                     ),
-                    None => (String::new(), false),
+                    None => (String::new(), false, "custom field"),
                 }
             }
-            _ => (String::new(), false),
+            _ => (String::new(), false, "value"),
         };
         if text.is_empty() {
             return CopyOutcomeView {
@@ -3707,12 +3786,21 @@ impl OmawardenBridge {
         }
         let config = load_config();
         let ok = clipboard_copy(&text, sensitive);
+        let ttl = if sensitive {
+            config.clipboard_clear_seconds.max(0) as u32
+        } else {
+            0
+        };
         CopyOutcomeView {
             ok,
             label: field,
-            message: if ok { "Copied.".to_string() } else { "Could not access the clipboard.".to_string() },
+            message: if ok {
+                clipboard_message(label, sensitive, ttl)
+            } else {
+                "Could not access the clipboard.".to_string()
+            },
             sensitive,
-            cleared_after_seconds: if sensitive { config.clipboard_clear_seconds.max(0) as u32 } else { 0 },
+            cleared_after_seconds: ttl,
             error: if ok { None } else { Some("Could not access the clipboard.".to_string()) },
         }
     }
@@ -3720,23 +3808,39 @@ impl OmawardenBridge {
     /// Copy arbitrary text to the clipboard with optional sensitivity flag.
     pub fn copy_text(text: String, label: String, sensitive: bool) -> CopyOutcomeView {
         if with_mock(|state| state.enabled) {
-            return with_mock(|state| CopyOutcomeView {
-                ok: true,
-                label,
-                message: "Copied.".to_string(),
-                sensitive,
-                cleared_after_seconds: if sensitive { state.settings.clipboard_clear_seconds.max(0) as u32 } else { 0 },
-                error: None,
+            return with_mock(|state| {
+                let ttl = if sensitive {
+                    state.settings.clipboard_clear_seconds.max(0) as u32
+                } else {
+                    0
+                };
+                CopyOutcomeView {
+                    ok: true,
+                    message: clipboard_message(&label, sensitive, ttl),
+                    label,
+                    sensitive,
+                    cleared_after_seconds: ttl,
+                    error: None,
+                }
             });
         }
         let config = load_config();
         let ok = clipboard_copy(&text, sensitive);
+        let ttl = if sensitive {
+            config.clipboard_clear_seconds.max(0) as u32
+        } else {
+            0
+        };
         CopyOutcomeView {
             ok,
+            message: if ok {
+                clipboard_message(&label, sensitive, ttl)
+            } else {
+                "Could not access the clipboard.".to_string()
+            },
             label,
-            message: if ok { "Copied.".to_string() } else { "Could not access the clipboard.".to_string() },
             sensitive,
-            cleared_after_seconds: if sensitive { config.clipboard_clear_seconds.max(0) as u32 } else { 0 },
+            cleared_after_seconds: ttl,
             error: if ok { None } else { Some("Could not access the clipboard.".to_string()) },
         }
     }

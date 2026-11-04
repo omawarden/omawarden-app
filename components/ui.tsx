@@ -3,6 +3,7 @@ import { cleanup, Scroll, Text, View } from "nsh";
 import { Button } from "nsh/base";
 import * as store from "../store/appStore";
 import { tint, textOn, textOnTint } from "../theme/palette";
+import { GhostIconButton } from "./GhostIconButton";
 
 // Every action control registers with the store so Tab can reach it where the
 // platform's native traversal only visits text fields.
@@ -247,10 +248,10 @@ export function FieldRow(props: {
             {value()}
           </Text>
           {props.onCopy ? (
-            <SmallButton
+            <GhostIconButton
               testID={props.copyTestID}
-              accessibilityLabel={`Copy ${props.label}`}
-              label="Copy"
+              label={`Copy ${props.label}`}
+              icon="\uf0c5"
               onPress={props.onCopy}
             />
           ) : null}

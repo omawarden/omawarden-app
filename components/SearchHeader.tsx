@@ -2,7 +2,8 @@ import { Text, View } from "nsh";
 import { Button, Input } from "nsh/base";
 import * as store from "../store/appStore";
 import { tint } from "../theme/palette";
-import { actionID, ActionButton, focusOutline, useAction } from "./ui";
+import { actionID, focusOutline, useAction } from "./ui";
+import { GhostIconButton } from "./GhostIconButton";
 import { inputStyle } from "./AuthView";
 
 export function SearchHeader() {
@@ -30,6 +31,7 @@ export function SearchHeader() {
       }}
     >
       <View style={{ flex: 1, minWidth: 220, flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Text style={{ color: palette().muted, fontSize: 13 }}>{"\uf002"}</Text>
         <Input
           testID="vault-search"
           value={store.search()}
@@ -39,6 +41,14 @@ export function SearchHeader() {
           onChange={(text: string) => store.setSearch(text)}
           style={{ ...inputStyle(), flex: 1 }}
         />
+        {store.search() ? (
+          <GhostIconButton
+            testID="clear-search"
+            label="Clear search"
+            icon="\uf00d"
+            onPress={() => store.setSearch("")}
+          />
+        ) : null}
         <View
           style={{
             backgroundColor: palette().menu.selectedBackground,
@@ -76,16 +86,6 @@ export function SearchHeader() {
           Scope: {store.activeScopeName()}
         </Text>
       </Button>
-
-      <ActionButton label="Generator" testID="open-generator" onPress={store.openGenerator} />
-      <ActionButton
-        label="New SSH Key"
-        testID="open-ssh-key"
-        onPress={() => store.openSshKey("create")}
-      />
-      <ActionButton label="Sync" testID="sync-vault" onPress={store.sync} />
-      <ActionButton label="Lock" testID="lock-vault" onPress={() => store.lockOrLogout(false)} />
-      <ActionButton label="Settings" testID="open-settings" onPress={store.openSettings} />
     </View>
   );
 }
