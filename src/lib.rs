@@ -2072,8 +2072,14 @@ fn auth_manager() -> omawarden::auth::AuthManager {
 /// opened a second app window and the original window fell back to login
 /// because no daemon ever answered. The CLI's `current_exe` is `omawarden`, so
 /// it starts the real daemon instead.
-fn run_omawarden_cli(args: &[String], stdin_text: Option<&str>) -> Option<Value> {
-    let path = which::which("omawarden").ok()?;
+///
+/// The error is a message the UI can show as-is; it never carries the raw
+/// stderr, which can name the account or echo engine logs.
+fn run_omawarden_cli(args: &[String], stdin_text: Option<&str>) -> Result<Value, String> {
+    let path = which::which("omawarden").map_err(|_| {
+        "The Omawarden CLI is not available. Install the omawarden package and try again."
+            .to_string()
+    })?;
     let mut command = Command::new(path);
     command
         .args(args)
@@ -2084,7 +2090,10 @@ fn run_omawarden_cli(args: &[String], stdin_text: Option<&str>) -> Option<Value>
         })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = command.spawn().ok()?;
+    let mut child = command.spawn().map_err(|_| {
+        "Could not start the Omawarden CLI. Check the omawarden installation and try again."
+            .to_string()
+    })?;
     if let Some(text) = stdin_text {
         if let Some(mut stdin) = child.stdin.take() {
             let _ = stdin.write_all(text.as_bytes());
@@ -2093,13 +2102,49 @@ fn run_omawarden_cli(args: &[String], stdin_text: Option<&str>) -> Option<Value>
             }
         }
     }
-    let output = child.wait_with_output().ok()?;
+    let output = child.wait_with_output().map_err(|_| {
+        "The Omawarden CLI did not finish. Check the omawarden installation and try again."
+            .to_string()
+    })?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let trimmed = stdout.trim();
     if trimmed.is_empty() {
-        return None;
+        return Err(cli_failure_message(&String::from_utf8_lossy(&output.stderr)));
     }
-    serde_json::from_str(trimmed).ok()
+    serde_json::from_str(trimmed)
+        .map_err(|_| "The Omawarden CLI returned a response the app could not read.".to_string())
+}
+
+/// Turns the CLI's stderr into a message the UI may show.
+///
+/// Only the "this build has no such subcommand" case is recognised; every
+/// other failure gets a generic message so engine logs and the account email
+/// never reach the UI.
+fn cli_failure_message(stderr: &str) -> String {
+    if stderr.contains("unrecognized subcommand") || stderr.contains("unexpected argument") {
+        return "This Omawarden version does not support that action. Update the omawarden package and try again.".to_string();
+    }
+    "The Omawarden CLI failed without a response. Check the omawarden installation and try again."
+        .to_string()
+}
+
+/// Whether the installed `omawarden` CLI has `auth quick-unlock`.
+///
+/// Quick unlock arrived in `omawarden` 0.11.0; older builds answer the
+/// subcommand with a usage error, so probing the help text keeps the UI from
+/// offering an action that cannot work.
+fn cli_supports_quick_unlock() -> bool {
+    let Ok(path) = which::which("omawarden") else {
+        return false;
+    };
+    Command::new(path)
+        .args(["auth", "--help"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .map(|output| String::from_utf8_lossy(&output.stdout).contains("quick-unlock"))
+        .unwrap_or(false)
 }
 
 /// The `omawarden` CLI arguments for one authentication action.
@@ -2883,17 +2928,27 @@ impl OmawardenBridge {
             });
         }
 
-        let args = cli_auth_args(&input);
-        let payload = cli_auth_payload(&input);
-        let Some(result) = run_omawarden_cli(&args, payload.as_deref()) else {
+        // Quick unlock runs through the daemon's polkit prompt, which only
+        // `omawarden` 0.11.0 and newer can reach from the CLI. Saying so beats
+        // the CLI's usage error.
+        if input.kind == AuthKind::QuickUnlock && !cli_supports_quick_unlock() {
             let mut snapshot = real_snapshot(VaultFilterInput::default());
             snapshot.error = Some(
-                "The Omawarden CLI is not available. Install the omawarden package and try again."
+                "Quick unlock needs omawarden 0.11.0 or newer. Update the omawarden package, or unlock with your master password."
                     .to_string(),
             );
             return snapshot;
-        };
-        snapshot_from_auth_result(&result, &input.email)
+        }
+        let args = cli_auth_args(&input);
+        let payload = cli_auth_payload(&input);
+        match run_omawarden_cli(&args, payload.as_deref()) {
+            Ok(result) => snapshot_from_auth_result(&result, &input.email),
+            Err(error) => {
+                let mut snapshot = real_snapshot(VaultFilterInput::default());
+                snapshot.error = Some(error);
+                snapshot
+            }
+        }
     }
 
     /// Send two-factor verification email.
@@ -4370,5 +4425,19 @@ mod tests {
         let args = cli_auth_args(&input);
         let remember = args.iter().position(|arg| arg == "--remember-email");
         assert_eq!(remember.and_then(|index| args.get(index + 1)).map(String::as_str), Some("false"));
+    }
+
+    #[test]
+    fn cli_failure_message_hides_stderr_details() {
+        let unsupported = cli_failure_message(
+            "error: unrecognized subcommand 'quick-unlock'\n\nUsage: omawarden auth <COMMAND>",
+        );
+        assert!(unsupported.contains("does not support that action"));
+
+        let generic = cli_failure_message(
+            "[2026-11-04T02:25:43.010Z] [WARN] [omawarden:auth] Login failed for user@example.com",
+        );
+        assert!(!generic.contains("user@example.com"));
+        assert!(!generic.contains("omawarden:auth"));
     }
 }
