@@ -1,9 +1,9 @@
 import { Scroll, Text, View } from "nsh";
-import { Button, Progress } from "nsh/base";
+import { Progress } from "nsh/base";
 import type { InspectorView } from "omawarden-app/native";
 import * as store from "../store/appStore";
 import { tint } from "../theme/palette";
-import { ActionButton, Chip, FieldRow, Panel, SectionTitle } from "./ui";
+import { ActionButton, Chip, FieldRow, Panel, SectionTitle, SmallButton } from "./ui";
 import { EmptyInspector } from "./EmptyInspector";
 
 export function ItemInspector() {
@@ -78,10 +78,9 @@ function InspectorBody(props: { item: () => InspectorView }) {
                 >
                   {item().password ?? item().passwordMasked}
                 </Text>
-                <Button
+                <SmallButton
                   testID="reveal-password"
                   onPress={() => store.toggleReveal("password")}
-                  style={smallButtonStyle()}
                 >
                   <Text
                     style={{
@@ -92,12 +91,11 @@ function InspectorBody(props: { item: () => InspectorView }) {
                   >
                     {store.reveal().revealPassword ? "Hide" : "Reveal"}
                   </Text>
-                </Button>
-                <Button
+                </SmallButton>
+                <SmallButton
                   testID="copy-password"
                   accessibilityLabel="Copy password"
                   onPress={() => store.copyField("password")}
-                  style={smallButtonStyle()}
                 >
                   <Text
                     style={{
@@ -108,18 +106,19 @@ function InspectorBody(props: { item: () => InspectorView }) {
                   >
                     Copy
                   </Text>
-                </Button>
+                </SmallButton>
               </View>
               {item().passwordHistory.length > 0 ? (
-                <Button
+                <SmallButton
                   testID="open-password-history"
+                  alignSelf="flex-start"
+                  paddingVertical={2}
                   onPress={store.openPasswordHistory}
-                  style={{ alignSelf: "flex-start", paddingVertical: 2 }}
                 >
                   <Text style={{ color: palette().popups.selectedText, fontSize: 12 }}>
                     Password History ({item().passwordHistory.length})
                   </Text>
-                </Button>
+                </SmallButton>
               ) : null}
             </View>
 
@@ -164,11 +163,10 @@ function InspectorBody(props: { item: () => InspectorView }) {
                       ? item().totp?.formatted
                       : item().totp?.error ?? "—"}
                   </Text>
-                  <Button
+                  <SmallButton
                     testID="copy-totp"
                     accessibilityLabel="Copy TOTP"
                     onPress={() => store.copyField("totp")}
-                    style={smallButtonStyle()}
                   >
                     <Text
                       style={{
@@ -179,11 +177,10 @@ function InspectorBody(props: { item: () => InspectorView }) {
                     >
                       Copy
                     </Text>
-                  </Button>
-                  <Button
+                  </SmallButton>
+                  <SmallButton
                     testID="refresh-totp"
                     onPress={store.refreshTotp}
-                    style={smallButtonStyle()}
                   >
                     <Text
                       style={{
@@ -194,7 +191,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                     >
                       Refresh
                     </Text>
-                  </Button>
+                  </SmallButton>
                 </View>
                 <Progress
                   value={
@@ -241,24 +238,22 @@ function InspectorBody(props: { item: () => InspectorView }) {
                       >
                         {uri().host || uri().uri}
                       </Text>
-                      <Button
+                      <SmallButton
                         testID={`copy-uri-${uri().host}`}
                         onPress={() => store.copyText(uri().uri, "website URL", false)}
-                        style={smallButtonStyle()}
                       >
                         <Text style={{ color: palette().popups.selectedText, fontSize: 11 }}>
                           Copy
                         </Text>
-                      </Button>
-                      <Button
+                      </SmallButton>
+                      <SmallButton
                         testID={`launch-uri-${uri().host}`}
                         onPress={() => store.openUrl(uri().uri)}
-                        style={smallButtonStyle()}
                       >
                         <Text style={{ color: palette().popups.selectedText, fontSize: 11 }}>
                           Open
                         </Text>
-                      </Button>
+                      </SmallButton>
                     </View>
                   )}
                 </Each>
@@ -292,10 +287,9 @@ function InspectorBody(props: { item: () => InspectorView }) {
               >
                 {item().card?.number || item().card?.numberMasked}
               </Text>
-              <Button
+              <SmallButton
                 testID="reveal-card-number"
                 onPress={() => store.toggleReveal("cardNumber")}
-                style={smallButtonStyle()}
               >
                 <Text
                   style={{
@@ -306,12 +300,11 @@ function InspectorBody(props: { item: () => InspectorView }) {
                 >
                   {store.reveal().revealCardNumber ? "Hide" : "Reveal"}
                 </Text>
-              </Button>
-              <Button
+              </SmallButton>
+              <SmallButton
                 testID="copy-card-number"
                 accessibilityLabel="Copy card number"
                 onPress={() => store.copyField("card_number")}
-                style={smallButtonStyle()}
               >
                 <Text
                   style={{
@@ -322,7 +315,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                 >
                   Copy
                 </Text>
-              </Button>
+              </SmallButton>
             </View>
             <FieldRow
               label="Expiration"
@@ -348,10 +341,9 @@ function InspectorBody(props: { item: () => InspectorView }) {
               >
                 {item().card?.cvv || item().card?.cvvMasked}
               </Text>
-              <Button
+              <SmallButton
                 testID="reveal-cvv"
                 onPress={() => store.toggleReveal("cvv")}
-                style={smallButtonStyle()}
               >
                 <Text
                   style={{
@@ -362,12 +354,11 @@ function InspectorBody(props: { item: () => InspectorView }) {
                 >
                   {store.reveal().revealCvv ? "Hide" : "Reveal"}
                 </Text>
-              </Button>
-              <Button
+              </SmallButton>
+              <SmallButton
                 testID="copy-cvv"
                 accessibilityLabel="Copy security code"
                 onPress={() => store.copyField("cvv")}
-                style={smallButtonStyle()}
               >
                 <Text
                   style={{
@@ -378,7 +369,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                 >
                   Copy
                 </Text>
-              </Button>
+              </SmallButton>
             </View>
           </Panel>
         ) : null}
@@ -498,10 +489,9 @@ function InspectorBody(props: { item: () => InspectorView }) {
               >
                 {item().ssh?.privateKey}
               </Text>
-              <Button
+              <SmallButton
                 testID="reveal-private-key"
                 onPress={() => store.toggleReveal("privateKey")}
-                style={smallButtonStyle()}
               >
                 <Text
                   style={{
@@ -512,12 +502,11 @@ function InspectorBody(props: { item: () => InspectorView }) {
                 >
                   {store.reveal().revealPrivateKey ? "Hide" : "Reveal"}
                 </Text>
-              </Button>
-              <Button
+              </SmallButton>
+              <SmallButton
                 testID="copy-private-key"
                 accessibilityLabel="Copy private key"
                 onPress={() => store.copyField("private_key")}
-                style={smallButtonStyle()}
               >
                 <Text
                   style={{
@@ -528,7 +517,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                 >
                   Copy
                 </Text>
-              </Button>
+              </SmallButton>
             </View>
             <ActionButton
               label="Export to ~/.ssh"
@@ -573,27 +562,25 @@ function InspectorBody(props: { item: () => InspectorView }) {
                         : field().value}
                     </Text>
                     {field().kind === "hidden" ? (
-                      <Button
+                      <SmallButton
                         testID={`reveal-field-${field().index}`}
                         onPress={() => store.toggleRevealField(field().index)}
-                        style={smallButtonStyle()}
                       >
                         <Text style={{ color: palette().popups.selectedText, fontSize: 11 }}>
                           {store.reveal().revealFields.includes(field().index)
                             ? "Hide"
                             : "Reveal"}
                         </Text>
-                      </Button>
+                      </SmallButton>
                     ) : null}
-                    <Button
+                    <SmallButton
                       testID={`copy-field-${field().index}`}
                       onPress={() => store.copyField("custom", field().index)}
-                      style={smallButtonStyle()}
                     >
                       <Text style={{ color: palette().popups.selectedText, fontSize: 11 }}>
                         Copy
                       </Text>
-                    </Button>
+                    </SmallButton>
                   </View>
                   <Text style={{ color: palette().muted, fontSize: 10 }}>{field().kind}</Text>
                 </View>
@@ -621,24 +608,22 @@ function InspectorBody(props: { item: () => InspectorView }) {
                   <Text style={{ color: palette().muted, fontSize: 11 }}>
                     {file().sizeLabel}
                   </Text>
-                  <Button
+                  <SmallButton
                     testID={`preview-attachment-${file().id}`}
                     onPress={() => store.openAttachment(item().id, file().id, "preview")}
-                    style={smallButtonStyle()}
                   >
                     <Text style={{ color: palette().popups.selectedText, fontSize: 11 }}>
                       Preview
                     </Text>
-                  </Button>
-                  <Button
+                  </SmallButton>
+                  <SmallButton
                     testID={`download-attachment-${file().id}`}
                     onPress={() => store.openAttachment(item().id, file().id, "download")}
-                    style={smallButtonStyle()}
                   >
                     <Text style={{ color: palette().popups.selectedText, fontSize: 11 }}>
                       Download
                     </Text>
-                  </Button>
+                  </SmallButton>
                 </View>
               )}
             </Each>
@@ -662,13 +647,13 @@ function InspectorBody(props: { item: () => InspectorView }) {
                   >
                     {attachment()?.filename}
                   </Text>
-                  <Button
+                  <SmallButton
                     testID="close-attachment-preview"
+                    paddingVertical={1}
                     onPress={store.closeAttachmentPreview}
-                    style={{ paddingVertical: 1 }}
                   >
                     <Text style={{ color: palette().muted, fontSize: 11 }}>Close</Text>
-                  </Button>
+                  </SmallButton>
                 </View>
                 {attachment()?.isImage ? (
                   <Text style={{ color: palette().muted, fontSize: 11 }}>
@@ -726,15 +711,4 @@ function categoryLabel(category: string): string {
     default:
       return "Item";
   }
-}
-
-function smallButtonStyle() {
-  const palette = store.palette();
-  return {
-    borderColor: palette.popups.border,
-    borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-  };
 }

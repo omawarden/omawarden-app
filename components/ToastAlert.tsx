@@ -2,6 +2,7 @@ import { Text, View } from "nsh";
 import { Button } from "nsh/base";
 import * as store from "../store/appStore";
 import { textOnTint, tint } from "../theme/palette";
+import { actionID, focusOutline, useAction } from "./ui";
 
 export function ToastAlert() {
   const palette = store.palette;
@@ -49,17 +50,38 @@ export function ToastAlert() {
             >
               {toast().message}
             </Text>
-            <Button
-              testID="toast-dismiss"
-              accessibilityLabel="Dismiss notification"
-              onPress={store.dismissToast}
-              style={{ paddingVertical: 1, paddingHorizontal: 4 }}
-            >
-              <Text style={{ color: palette().muted, fontSize: 12 }}>×</Text>
-            </Button>
+            <ToastDismiss accent={accent} />
           </View>
         </View>
       )}
     </If>
+  );
+}
+
+function ToastDismiss(props: { accent: () => string }) {
+  const palette = store.palette;
+  const id = actionID("toast-dismiss");
+  useAction(id, store.dismissToast);
+  const focused = () => store.focusedAction() === id;
+  return (
+    <Button
+      testID="toast-dismiss"
+      accessibilityLabel="Dismiss notification"
+      onPress={store.dismissToast}
+      style={{
+        backgroundColor: "transparent",
+        borderColor: focused() ? props.accent() : "transparent",
+        borderWidth: 1,
+        borderRadius: 6,
+        paddingVertical: 1,
+        paddingHorizontal: 4,
+        ...focusOutline(focused(), props.accent()),
+      }}
+      hoverStyle={{ backgroundColor: tint(props.accent(), palette().popups.background, 0.18) }}
+      activeStyle={{ backgroundColor: tint(props.accent(), palette().popups.background, 0.3) }}
+      focusStyle={{ borderColor: props.accent() }}
+    >
+      <Text style={{ color: palette().muted, fontSize: 12 }}>×</Text>
+    </Button>
   );
 }

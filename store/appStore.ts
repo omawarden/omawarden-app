@@ -1,4 +1,4 @@
-import { computed, host, signal } from "nsh";
+import { computed, host, signal, untracked } from "nsh";
 import {
   OmawardenBridge,
   type AppPhase,
@@ -125,6 +125,18 @@ export const activeModal = signal<ModalKind>("none");
 export const reveal = signal<RevealStateInput>(defaultReveal());
 export const selectedIndex = signal(0);
 export const selectedProvider = signal(0);
+export const focusedAction = signal<string | null>(null);
+
+// The action controls on screen, in render order, and what pressing each
+// does. Buttons register themselves so Tab can reach them on platforms whose
+// native focus traversal only visits text fields (Linux/GTK).
+interface ActionEntry {
+  handler: () => void;
+  layer: string;
+}
+
+const actionOrder: string[] = [];
+const actionEntries = new Map<string, ActionEntry>();
 export const category = signal<ItemCategory>("all");
 export const scopeId = signal<string>("all");
 export const folderId = signal<string | null>(null);
@@ -184,11 +196,88 @@ export function dismissToast(): void {
   toast.set(null);
 }
 
+// Bridge calls that touch the network or the disk block the app's thread. Run
+// them after a frame so the "working" notification is painted first and the
+// user sees the press acknowledged immediately instead of after the wait.
+const DEFER_MS = 50;
+
+function defer(work: () => void): void {
+  setTimeout(work, DEFER_MS);
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard focus for action controls
+// ---------------------------------------------------------------------------
+
+// The topmost surface whose controls Tab may reach: a modal or the SSH prompt
+// covers the workspace, and the controls behind it must not take focus.
+function currentLayer(): string {
+  if (snapshot().sshPrompt) {
+    return "ssh";
+  }
+  const modal = activeModal();
+  return modal === "none" ? "base" : `modal:${modal}`;
+}
+
+export function registerAction(id: string, handler: () => void): void {
+  if (!actionOrder.includes(id)) {
+    actionOrder.push(id);
+  }
+  actionEntries.set(id, { handler, layer: untracked(() => currentLayer()) });
+}
+
+export function unregisterAction(id: string): void {
+  const index = actionOrder.indexOf(id);
+  if (index >= 0) {
+    actionOrder.splice(index, 1);
+  }
+  actionEntries.delete(id);
+  if (focusedAction() === id) {
+    focusedAction.set(null);
+  }
+}
+
+export function cycleAction(delta: number): void {
+  const layer = currentLayer();
+  const focusable = actionOrder.filter((id) => actionEntries.get(id)?.layer === layer);
+  if (focusable.length === 0) {
+    return;
+  }
+  const current = focusedAction();
+  const index = current ? focusable.indexOf(current) : -1;
+  const next =
+    index < 0
+      ? delta > 0
+        ? 0
+        : focusable.length - 1
+      : (index + delta + focusable.length) % focusable.length;
+  focusedAction.set(focusable[next]);
+}
+
+export function activateFocusedAction(): boolean {
+  const id = focusedAction();
+  if (!id) {
+    return false;
+  }
+  const entry = actionEntries.get(id);
+  if (!entry || entry.layer !== currentLayer()) {
+    focusedAction.set(null);
+    return false;
+  }
+  entry.handler();
+  return true;
+}
+
+export function clearActionFocus(): void {
+  focusedAction.set(null);
+}
+
 // ---------------------------------------------------------------------------
 // Snapshot application
 // ---------------------------------------------------------------------------
 
 function applySnapshot(next: VaultSnapshotView): void {
+  const previousLayer = currentLayer();
   snapshot.set(next);
   search.set(next.search);
   category.set(next.category);
@@ -199,6 +288,9 @@ function applySnapshot(next: VaultSnapshotView): void {
   }
   if (next.error) {
     notify(next.error, "error");
+  }
+  if (currentLayer() !== previousLayer) {
+    clearActionFocus();
   }
 }
 
@@ -316,12 +408,15 @@ export function installMissingDependencies(): void {
     notify("All required dependencies are already installed.", "success");
     return;
   }
-  const ok = OmawardenBridge.installMissingDependencies(missing);
-  if (ok) {
-    notify("Installing missing packages in a floating terminal.", "success");
-  } else {
-    notify("Could not launch the package installer.", "error");
-  }
+  notify("Launching the package installer…", "info");
+  defer(() => {
+    const ok = OmawardenBridge.installMissingDependencies(missing);
+    if (ok) {
+      notify("Installing missing packages in a floating terminal.", "success");
+    } else {
+      notify("Could not launch the package installer.", "error");
+    }
+  });
 }
 
 export function continueFromDependencies(): void {
@@ -333,28 +428,55 @@ export function continueFromDependencies(): void {
 // Authentication
 // ---------------------------------------------------------------------------
 
-export function authenticate(input: AuthActionInput): void {
-  const next = OmawardenBridge.authenticate(input);
-  applySnapshot(next);
-  if (next.phase === "unlocked") {
-    inspector.set(null);
-    selectedIndex.set(0);
-    loadSettings();
+function authProgressMessage(kind: AuthActionInput["kind"]): string {
+  switch (kind) {
+    case "twoFactor":
+    case "newDevice":
+      return "Verifying…";
+    case "unlock":
+    case "quickUnlock":
+      return "Unlocking…";
+    default:
+      return "Signing in…";
   }
 }
 
+export function authenticate(input: AuthActionInput): void {
+  notify(authProgressMessage(input.kind), "info");
+  defer(() => {
+    const next = OmawardenBridge.authenticate(input);
+    applySnapshot(next);
+    if (next.error) {
+      return;
+    }
+    dismissToast();
+    if (next.phase === "unlocked") {
+      inspector.set(null);
+      selectedIndex.set(0);
+      loadSettings();
+    }
+  });
+}
+
 export function sendTwoFactorEmail(email: string, password: string): void {
-  const outcome = OmawardenBridge.sendTwoFactorEmail(email, password);
-  notify(outcome.message, outcome.ok ? "success" : "error");
+  notify("Sending verification email…", "info");
+  defer(() => {
+    const outcome = OmawardenBridge.sendTwoFactorEmail(email, password);
+    notify(outcome.message, outcome.ok ? "success" : "error");
+  });
 }
 
 export function lockOrLogout(logout: boolean): void {
-  const next = OmawardenBridge.lockOrLogout(logout);
-  applySnapshot(next);
-  inspector.set(null);
-  selectedIndex.set(0);
-  activeModal.set("none");
-  notify(logout ? "Logged out." : "Vault locked.", "info");
+  notify(logout ? "Logging out…" : "Locking vault…", "info");
+  defer(() => {
+    const next = OmawardenBridge.lockOrLogout(logout);
+    applySnapshot(next);
+    inspector.set(null);
+    selectedIndex.set(0);
+    activeModal.set("none");
+    clearActionFocus();
+    notify(logout ? "Logged out." : "Vault locked.", "info");
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -368,9 +490,12 @@ export function query(): void {
 }
 
 export function sync(): void {
-  const next = OmawardenBridge.syncVault(currentFilter());
-  applySnapshot(next);
-  notify(next.error ? "Sync failed." : "Vault synchronized.", next.error ? "error" : "success");
+  notify("Syncing vault…", "info");
+  defer(() => {
+    const next = OmawardenBridge.syncVault(currentFilter());
+    applySnapshot(next);
+    notify(next.error ? "Sync failed." : "Vault synchronized.", next.error ? "error" : "success");
+  });
 }
 
 export function setSearch(text: string): void {
@@ -567,12 +692,16 @@ export function previewSshKey(
 }
 
 export function saveSshKey(input: SshKeySaveInput): void {
-  const outcome = OmawardenBridge.saveSshKey(input, currentFilter());
-  notify(outcome.message, outcome.ok ? "success" : "error");
-  if (outcome.ok) {
-    sshPreview.set(null);
-    activeModal.set("none");
-  }
+  notify("Saving SSH key…", "info");
+  defer(() => {
+    const outcome = OmawardenBridge.saveSshKey(input, currentFilter());
+    notify(outcome.message, outcome.ok ? "success" : "error");
+    if (outcome.ok) {
+      sshPreview.set(null);
+      activeModal.set("none");
+      clearActionFocus();
+    }
+  });
 }
 
 export function resolveSshPrompt(promptId: number, approve: boolean): void {
@@ -604,15 +733,18 @@ export function updateSettingsDraft(patch: Partial<SettingsUpdateInput>): void {
 }
 
 export function saveSettings(): void {
-  const result = OmawardenBridge.updateSettings(settingsDraft());
-  settings.set(result);
-  health.set(result.health);
-  theme.set(result.config.theme);
-  if (result.error) {
-    notify(result.error, "error");
-  } else {
-    notify("Settings saved.", "success");
-  }
+  notify("Saving settings…", "info");
+  defer(() => {
+    const result = OmawardenBridge.updateSettings(settingsDraft());
+    settings.set(result);
+    health.set(result.health);
+    theme.set(result.config.theme);
+    if (result.error) {
+      notify(result.error, "error");
+    } else {
+      notify("Settings saved.", "success");
+    }
+  });
 }
 
 export function refreshHealth(): void {
@@ -625,7 +757,17 @@ export function refreshHealth(): void {
 }
 
 export function checkUpdates(force: boolean): void {
-  updateStatus.set(OmawardenBridge.checkUpdates(force));
+  notify("Checking for updates…", "info");
+  defer(() => {
+    const next = OmawardenBridge.checkUpdates(force);
+    updateStatus.set(next);
+    notify(
+      next.available
+        ? `Version ${next.latestVersion ?? "new"} is available.`
+        : "You are on the latest version.",
+      "info",
+    );
+  });
 }
 
 export function copyDiagnosticReport(): void {
@@ -649,10 +791,12 @@ export function copyDiagnosticReport(): void {
 export function openModal(kind: ModalKind): void {
   activeModal.set(kind);
   scopeOpen.set(false);
+  clearActionFocus();
 }
 
 export function closeModal(): void {
   activeModal.set("none");
+  clearActionFocus();
 }
 
 export function openGenerator(): void {

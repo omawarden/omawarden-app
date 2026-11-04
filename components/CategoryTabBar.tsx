@@ -2,6 +2,8 @@ import { Text, View } from "nsh";
 import { Button } from "nsh/base";
 import type { CategoryCountsView, ItemCategory } from "omawarden-app/native";
 import * as store from "../store/appStore";
+import { tint } from "../theme/palette";
+import { actionID, focusOutline, useAction } from "./ui";
 
 const TABS: Array<{ category: ItemCategory; label: string; count: keyof CategoryCountsView }> = [
   { category: "all", label: "All", count: "all" },
@@ -14,7 +16,6 @@ const TABS: Array<{ category: ItemCategory; label: string; count: keyof Category
 
 export function CategoryTabBar() {
   const palette = store.palette;
-  const snap = store.snapshot;
 
   return (
     <View
@@ -31,37 +32,54 @@ export function CategoryTabBar() {
       }}
     >
       <Each of={TABS} key="index">
-        {(tab) => (
-          <Button
-            testID={`category-${tab().category}`}
-            onPress={() => store.setCategory(tab().category)}
-            style={{
-              backgroundColor:
-                snap().category === tab().category
-                  ? palette().menu.selectedBackground
-                  : palette().menu.background,
-              borderColor: palette().menu.border,
-              borderWidth: 1,
-              borderRadius: 7,
-              paddingHorizontal: 10,
-              paddingVertical: 5,
-            }}
-          >
-            <Text
-              style={{
-                color:
-                  snap().category === tab().category
-                    ? palette().menu.selectedText
-                    : palette().menu.text,
-                fontSize: 12,
-                fontWeight: snap().category === tab().category ? "bold" : "normal",
-              }}
-            >
-              {tab().label} ({snap().categoryCounts[tab().count]})
-            </Text>
-          </Button>
-        )}
+        {(tab) => <CategoryTab tab={tab()} />}
       </Each>
     </View>
+  );
+}
+
+function CategoryTab(props: {
+  tab: { category: ItemCategory; label: string; count: keyof CategoryCountsView };
+}) {
+  const palette = store.palette;
+  const snap = store.snapshot;
+  const active = () => snap().category === props.tab.category;
+  const id = actionID(`category-${props.tab.category}`);
+  useAction(id, () => store.setCategory(props.tab.category));
+  const focused = () => store.focusedAction() === id;
+  const accent = () => palette().menu.selectedText;
+  const background = () =>
+    active() ? palette().menu.selectedBackground : palette().menu.background;
+  return (
+    <Button
+      testID={`category-${props.tab.category}`}
+      selected={active()}
+      onPress={() => store.setCategory(props.tab.category)}
+      style={{
+        backgroundColor: background(),
+        borderColor: focused() ? accent() : palette().menu.border,
+        borderWidth: 1,
+        borderRadius: 7,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        ...focusOutline(focused(), accent()),
+      }}
+      hoverStyle={{
+        backgroundColor: tint(accent(), background(), 0.14),
+        borderColor: accent(),
+      }}
+      activeStyle={{ backgroundColor: tint(accent(), background(), 0.26) }}
+      focusStyle={{ borderColor: accent() }}
+    >
+      <Text
+        style={{
+          color: active() ? palette().menu.selectedText : palette().menu.text,
+          fontSize: 12,
+          fontWeight: active() ? "bold" : "normal",
+        }}
+      >
+        {props.tab.label} ({snap().categoryCounts[props.tab.count]})
+      </Text>
+    </Button>
   );
 }

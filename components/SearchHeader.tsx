@@ -1,12 +1,18 @@
 import { Text, View } from "nsh";
 import { Button, Input } from "nsh/base";
 import * as store from "../store/appStore";
-import { ActionButton } from "./ui";
+import { tint } from "../theme/palette";
+import { actionID, ActionButton, focusOutline, useAction } from "./ui";
 import { inputStyle } from "./AuthView";
 
 export function SearchHeader() {
   const palette = store.palette;
   const snap = store.snapshot;
+  const scopeID = actionID("scope-trigger");
+  useAction(scopeID, store.toggleScope);
+  const scopeFocused = () => store.focusedAction() === scopeID;
+  const scopeAccent = () => palette().menu.selectedText;
+  const scopeBackground = () => palette().menu.background;
 
   return (
     <View
@@ -51,13 +57,20 @@ export function SearchHeader() {
         testID="scope-trigger"
         onPress={store.toggleScope}
         style={{
-          backgroundColor: palette().menu.background,
-          borderColor: palette().menu.border,
+          backgroundColor: scopeBackground(),
+          borderColor: scopeFocused() ? scopeAccent() : palette().menu.border,
           borderWidth: 1,
           borderRadius: 8,
           paddingHorizontal: 10,
           paddingVertical: 6,
+          ...focusOutline(scopeFocused(), scopeAccent()),
         }}
+        hoverStyle={{
+          backgroundColor: tint(scopeAccent(), scopeBackground(), 0.14),
+          borderColor: scopeAccent(),
+        }}
+        activeStyle={{ backgroundColor: tint(scopeAccent(), scopeBackground(), 0.26) }}
+        focusStyle={{ borderColor: scopeAccent() }}
       >
         <Text style={{ color: palette().menu.text, fontSize: 12 }}>
           Scope: {store.activeScopeName()}
