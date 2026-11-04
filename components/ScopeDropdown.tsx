@@ -2,6 +2,7 @@ import { Text, View } from "nsh";
 import { Button } from "nsh/base";
 import * as store from "../store/appStore";
 import { tint } from "../theme/palette";
+import { actionID, focusOutline, useAction } from "./ui";
 
 export function ScopeDropdown() {
   const palette = store.palette;
@@ -13,35 +14,51 @@ export function ScopeDropdown() {
     count: number;
     active: boolean;
     onPress: () => void;
-  }) => (
-    <Button
-      testID={`scope-${props.id}`}
-      onPress={props.onPress}
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        backgroundColor: props.active
-          ? palette().popups.selectedBackground
-          : palette().popups.background,
-        borderRadius: 7,
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-      }}
-    >
-      <Text
+  }) => {
+    const rowID = actionID(`scope-${props.id}`);
+    useAction(rowID, () => props.onPress());
+    const focused = () => store.focusedAction() === rowID;
+    const accent = () => palette().popups.selectedText;
+    const background = () =>
+      props.active ? palette().popups.selectedBackground : palette().popups.background;
+    return (
+      <Button
+        testID={`scope-${props.id}`}
+        selected={props.active}
+        onPress={props.onPress}
         style={{
-          color: props.active ? palette().popups.selectedText : palette().popups.text,
-          fontSize: 12,
-          fontWeight: props.active ? "bold" : "normal",
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          backgroundColor: background(),
+          borderColor: focused() ? accent() : palette().popups.border,
+          borderWidth: 1,
+          borderRadius: 7,
+          paddingHorizontal: 10,
+          paddingVertical: 6,
+          ...focusOutline(focused(), accent()),
         }}
+        hoverStyle={{
+          backgroundColor: tint(accent(), background(), 0.14),
+          borderColor: accent(),
+        }}
+        activeStyle={{ backgroundColor: tint(accent(), background(), 0.26) }}
+        focusStyle={{ borderColor: accent() }}
       >
-        {props.name}
-      </Text>
-      <Text style={{ color: palette().muted, fontSize: 11 }}>{props.count}</Text>
-    </Button>
-  );
+        <Text
+          style={{
+            color: props.active ? palette().popups.selectedText : palette().popups.text,
+            fontSize: 12,
+            fontWeight: props.active ? "bold" : "normal",
+          }}
+        >
+          {props.name}
+        </Text>
+        <Text style={{ color: palette().muted, fontSize: 11 }}>{props.count}</Text>
+      </Button>
+    );
+  };
 
   return (
     <View

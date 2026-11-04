@@ -3,7 +3,16 @@ import { Button, Checkbox, Input } from "nsh/base";
 import { signal } from "nsh";
 import * as store from "../store/appStore";
 import { tint, textOnTint } from "../theme/palette";
-import { ActionButton, Chip, Panel, SectionTitle } from "./ui";
+import {
+  actionID,
+  ActionButton,
+  Chip,
+  focusOutline,
+  Panel,
+  SectionTitle,
+  SmallButton,
+  useAction,
+} from "./ui";
 
 const loginTab = signal<"password" | "apiKey">("password");
 const email = signal("");
@@ -189,15 +198,16 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
             Identity: {props.identityUrl}
           </Text>
         ) : null}
-        <Button
+        <SmallButton
           testID="login-open-settings"
+          alignSelf="flex-start"
+          paddingVertical={2}
           onPress={store.openSettings}
-          style={{ alignSelf: "flex-start", paddingVertical: 2 }}
         >
           <Text style={{ color: palette().popups.selectedText, fontSize: 12 }}>
             Open Settings (Ctrl+,)
           </Text>
-        </Button>
+        </SmallButton>
       </View>
     </Panel>
   );
@@ -270,7 +280,9 @@ function TwoFactorForm() {
       code: twoFactorCode(),
       provider: provider(),
       rememberEmail: rememberEmail(),
-      newDeviceOtp: newDeviceOtp(),
+      // FIDO2 has no typed code: send none so the engine performs the
+      // assertion instead of treating a blank OTP as a real code.
+      newDeviceOtp: isFido2() ? null : newDeviceOtp(),
     });
     twoFactorCode.set("");
     newDeviceOtp.set("");
@@ -301,15 +313,17 @@ function TwoFactorForm() {
           <Text style={{ color: palette().muted, fontSize: 12 }}>
             {fido2StatusText(challenge()?.fido2Status)}
           </Text>
+          <Text style={{ color: palette().muted, fontSize: 11 }}>
+            No verification code is needed. Your security key signs the challenge.
+          </Text>
           <ActionButton
-            label="Retry Security Key"
+            label="Use Security Key"
             testID="twofactor-retry-fido2"
+            tone="primary"
             onPress={submit}
           />
         </View>
-      ) : null}
-
-      {challenge()?.newDevice ? (
+      ) : challenge()?.newDevice ? (
         <View style={{ gap: 6 }}>
           <Text style={{ color: palette().muted, fontSize: 12 }}>Verification code</Text>
           <Input
@@ -319,14 +333,13 @@ function TwoFactorForm() {
             autoCapitalize="none"
             autoCorrect={false}
             onChange={(text: string) => newDeviceOtp.set(text)}
+            onSubmit={submit}
             style={inputStyle()}
           />
         </View>
       ) : (
         <View style={{ gap: 6 }}>
-          <Text style={{ color: palette().muted, fontSize: 12 }}>
-            {isFido2() ? "Security key code (optional)" : "Code"}
-          </Text>
+          <Text style={{ color: palette().muted, fontSize: 12 }}>Code</Text>
           <Input
             testID="twofactor-code"
             value={twoFactorCode()}
@@ -348,7 +361,9 @@ function TwoFactorForm() {
         />
       ) : null}
 
-      <ActionButton label="Verify" testID="twofactor-submit" tone="primary" onPress={submit} />
+      {isFido2() ? null : (
+        <ActionButton label="Verify" testID="twofactor-submit" tone="primary" onPress={submit} />
+      )}
       <ActionButton
         label="Back to Login"
         testID="twofactor-back"
@@ -462,21 +477,34 @@ export function TabButton(props: {
   disabled?: boolean;
 }) {
   const palette = store.palette;
+  const id = actionID(props.testID);
+  useAction(id, () => props.onPress());
+  const focused = () => store.focusedAction() === id;
+  const accent = () => palette().popups.selectedText;
+  const background = () =>
+    props.active ? palette().popups.selectedBackground : palette().popups.background;
   return (
     <Button
       testID={props.testID}
       disabled={props.disabled}
+      selected={props.active}
       onPress={props.onPress}
       style={{
-        backgroundColor: props.active
-          ? palette().popups.selectedBackground
-          : palette().popups.background,
-        borderColor: palette().popups.border,
+        backgroundColor: background(),
+        borderColor: focused() ? accent() : palette().popups.border,
         borderWidth: 1,
         borderRadius: 8,
         paddingHorizontal: 10,
         paddingVertical: 5,
+        ...focusOutline(focused(), accent()),
       }}
+      hoverStyle={{
+        backgroundColor: tint(accent(), background(), 0.14),
+        borderColor: accent(),
+      }}
+      activeStyle={{ backgroundColor: tint(accent(), background(), 0.26) }}
+      focusStyle={{ borderColor: accent() }}
+      disabledStyle={{ opacity: 0.5 }}
     >
       <Text
         style={{

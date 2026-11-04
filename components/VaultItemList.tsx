@@ -1,9 +1,9 @@
 import { Scroll, Text, View } from "nsh";
 import { Button } from "nsh/base";
-import type { ItemCategory } from "omawarden-app/native";
+import type { CipherRowView, ItemCategory } from "omawarden-app/native";
 import * as store from "../store/appStore";
 import { tint } from "../theme/palette";
-import { EmptyHint } from "./ui";
+import { actionID, EmptyHint, focusOutline, useAction } from "./ui";
 
 function categoryGlyph(category: ItemCategory): string {
   switch (category) {
@@ -61,101 +61,106 @@ export function VaultItemList() {
           <EmptyHint>No items match this search.</EmptyHint>
         </If>
         <Each of={snap().items} key="index">
-          {(item, index) => (
-            <Button
-              testID={`cipher-row-${item().id}`}
-              onPress={() => store.selectCipher(index())}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 8,
-                backgroundColor:
-                  index() === store.selectedIndex() && store.inspector() !== null
-                    ? palette().popups.selectedBackground
-                    : palette().popups.background,
-                borderRadius: 7,
-                paddingHorizontal: 8,
-                paddingVertical: 7,
-              }}
-            >
-              <Text style={{ fontSize: 16 }}>{categoryGlyph(item().category)}</Text>
-              <View style={{ flex: 1, gap: 1 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                  <Text
-                    style={{
-                      color:
-                        index() === store.selectedIndex() && store.inspector() !== null
-                          ? palette().popups.selectedText
-                          : palette().popups.text,
-                      fontSize: 12,
-                      fontWeight: "bold",
-                    }}
-                  >
-                    {item().title}
-                  </Text>
-                  {item().favorite ? (
-                    <Text style={{ color: palette().warning, fontSize: 11 }}>★</Text>
-                  ) : null}
-                </View>
-                <Text style={{ color: palette().muted, fontSize: 11 }}>
-                  {item().subtitle || item().category}
-                </Text>
-                <View style={{ flexDirection: "row", gap: 4, flexWrap: "wrap" }}>
-                  {item().organization ? (
-                    <View
-                      style={{
-                        backgroundColor: tint(
-                          palette().info,
-                          palette().popups.background,
-                          0.16,
-                        ),
-                        borderRadius: 5,
-                        paddingHorizontal: 5,
-                      }}
-                    >
-                      <Text style={{ color: palette().info, fontSize: 9 }}>
-                        {item().organization}
-                      </Text>
-                    </View>
-                  ) : null}
-                  {item().attachmentCount > 0 ? (
-                    <View
-                      style={{
-                        backgroundColor: tint(
-                          palette().purple,
-                          palette().popups.background,
-                          0.16,
-                        ),
-                        borderRadius: 5,
-                        paddingHorizontal: 5,
-                      }}
-                    >
-                      <Text style={{ color: palette().purple, fontSize: 9 }}>
-                        {item().attachmentCount} file
-                      </Text>
-                    </View>
-                  ) : null}
-                  {item().hasTotp ? (
-                    <View
-                      style={{
-                        backgroundColor: tint(
-                          palette().success,
-                          palette().popups.background,
-                          0.16,
-                        ),
-                        borderRadius: 5,
-                        paddingHorizontal: 5,
-                      }}
-                    >
-                      <Text style={{ color: palette().success, fontSize: 9 }}>TOTP</Text>
-                    </View>
-                  ) : null}
-                </View>
-              </View>
-            </Button>
-          )}
+          {(item, index) => <VaultRow item={item} index={index} />}
         </Each>
       </Scroll>
     </View>
+  );
+}
+
+function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
+  const palette = store.palette;
+  const id = actionID(`cipher-row-${props.item().id}`);
+  useAction(id, () => store.selectCipher(props.index()));
+  const focused = () => store.focusedAction() === id;
+  const active = () =>
+    props.index() === store.selectedIndex() && store.inspector() !== null;
+  const accent = () => palette().popups.selectedText;
+  const background = () =>
+    active() ? palette().popups.selectedBackground : palette().popups.background;
+  return (
+    <Button
+      testID={`cipher-row-${props.item().id}`}
+      selected={active()}
+      onPress={() => store.selectCipher(props.index())}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        backgroundColor: background(),
+        borderColor: focused() ? accent() : palette().popups.border,
+        borderWidth: 1,
+        borderRadius: 7,
+        paddingHorizontal: 8,
+        paddingVertical: 7,
+        ...focusOutline(focused(), accent()),
+      }}
+      hoverStyle={{
+        backgroundColor: tint(accent(), background(), 0.14),
+        borderColor: accent(),
+      }}
+      activeStyle={{ backgroundColor: tint(accent(), background(), 0.26) }}
+      focusStyle={{ borderColor: accent() }}
+    >
+      <Text style={{ fontSize: 16 }}>{categoryGlyph(props.item().category)}</Text>
+      <View style={{ flex: 1, gap: 1 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+          <Text
+            style={{
+              color: active() ? palette().popups.selectedText : palette().popups.text,
+              fontSize: 12,
+              fontWeight: "bold",
+            }}
+          >
+            {props.item().title}
+          </Text>
+          {props.item().favorite ? (
+            <Text style={{ color: palette().warning, fontSize: 11 }}>★</Text>
+          ) : null}
+        </View>
+        <Text style={{ color: palette().muted, fontSize: 11 }}>
+          {props.item().subtitle || props.item().category}
+        </Text>
+        <View style={{ flexDirection: "row", gap: 4, flexWrap: "wrap" }}>
+          {props.item().organization ? (
+            <View
+              style={{
+                backgroundColor: tint(palette().info, palette().popups.background, 0.16),
+                borderRadius: 5,
+                paddingHorizontal: 5,
+              }}
+            >
+              <Text style={{ color: palette().info, fontSize: 9 }}>
+                {props.item().organization}
+              </Text>
+            </View>
+          ) : null}
+          {props.item().attachmentCount > 0 ? (
+            <View
+              style={{
+                backgroundColor: tint(palette().purple, palette().popups.background, 0.16),
+                borderRadius: 5,
+                paddingHorizontal: 5,
+              }}
+            >
+              <Text style={{ color: palette().purple, fontSize: 9 }}>
+                {props.item().attachmentCount} file
+              </Text>
+            </View>
+          ) : null}
+          {props.item().hasTotp ? (
+            <View
+              style={{
+                backgroundColor: tint(palette().success, palette().popups.background, 0.16),
+                borderRadius: 5,
+                paddingHorizontal: 5,
+              }}
+            >
+              <Text style={{ color: palette().success, fontSize: 9 }}>TOTP</Text>
+            </View>
+          ) : null}
+        </View>
+      </View>
+    </Button>
   );
 }

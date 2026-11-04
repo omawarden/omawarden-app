@@ -119,16 +119,34 @@ keymap.bind({
     }
   },
   enter: () => {
+    if (store.activateFocusedAction()) {
+      return;
+    }
     if (canUseVaultShortcuts()) {
       store.primaryCopy();
     }
   },
   escape: () => {
+    if (store.scopeOpen()) {
+      store.toggleScope();
+      return;
+    }
+    if (store.focusedAction()) {
+      store.clearActionFocus();
+      return;
+    }
     if (store.activeModal() !== "none") {
       store.closeModal();
     }
   },
 });
+
+// Linux/GTK's native Tab traversal only visits text fields, so the app moves
+// its own focus between the action controls. The bindings stay out of the way
+// while an input is being edited (the default already, made explicit here).
+keymap.bind("tab", () => store.cycleAction(1), { when: "notEditing", repeat: true });
+keymap.bind("shift+tab", () => store.cycleAction(-1), { when: "notEditing", repeat: true });
+keymap.bind("space", () => store.activateFocusedAction(), { when: "notEditing" });
 
 host.on("theme-update", (payload) => {
   store.applyHostTheme(payload);

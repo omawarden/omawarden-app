@@ -1,9 +1,9 @@
 import { Text, View } from "nsh";
-import { Button, Input, Switch } from "nsh/base";
+import { Input, Switch } from "nsh/base";
 import { signal } from "nsh";
 import * as store from "../store/appStore";
 import { strengthColor, tint } from "../theme/palette";
-import { ActionButton, Chip, ModalShell, Panel, SectionTitle } from "./ui";
+import { ActionButton, Chip, ModalShell, Panel, SectionTitle, SmallButton } from "./ui";
 import { TabButton, inputStyle } from "./AuthView";
 
 const PASSWORD_LENGTH_ERROR =
@@ -314,13 +314,13 @@ function Stepper(props: {
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
       <Text style={{ color: palette().muted, fontSize: 12 }}>{props.label}</Text>
-      <Button
+      <SmallButton
         testID={`${props.testID}-decrease`}
+        paddingVertical={2}
         onPress={() => props.onChange(Math.max(0, props.value - 1))}
-        style={stepButtonStyle()}
       >
         <Text style={{ color: palette().popups.text, fontSize: 13 }}>−</Text>
-      </Button>
+      </SmallButton>
       <Text
         testID={props.testID}
         style={{
@@ -332,24 +332,13 @@ function Stepper(props: {
       >
         {props.value}
       </Text>
-      <Button
+      <SmallButton
         testID={`${props.testID}-increase`}
+        paddingVertical={2}
         onPress={() => props.onChange(props.value + 1)}
-        style={stepButtonStyle()}
       >
         <Text style={{ color: palette().popups.text, fontSize: 13 }}>+</Text>
-      </Button>
+      </SmallButton>
     </View>
   );
-}
-
-function stepButtonStyle() {
-  const palette = store.palette();
-  return {
-    borderColor: palette.popups.border,
-    borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  };
 }

@@ -2018,6 +2018,16 @@ fn default_two_factor_providers() -> Vec<TwoFactorProviderView> {
     ]
 }
 
+/// Trims an optional user-entered code and treats blank input as absent.
+///
+/// The engine treats `Some("")` as a present new-device code and then omits
+/// the two-factor token from the login request, which silently breaks FIDO2.
+fn normalize_optional_code(value: Option<String>) -> Option<String> {
+    value
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+}
+
 /// A simple action outcome.
 #[derive(Clone, Debug, JsObject)]
 pub struct ActionOutcomeView {
@@ -2605,7 +2615,11 @@ impl OmawardenBridge {
     }
 
     /// Authenticate or unlock the vault (password, API key, 2FA, OTP, master password, quick unlock).
-    pub fn authenticate(input: AuthActionInput) -> VaultSnapshotView {
+    pub fn authenticate(mut input: AuthActionInput) -> VaultSnapshotView {
+        // A blank new-device code must reach the engine as `None`; `Some("")`
+        // makes it skip the two-factor token and provider entirely, which is
+        // what broke FIDO2 assertions after a successful key touch.
+        input.new_device_otp = normalize_optional_code(input.new_device_otp);
         if with_mock(|state| state.enabled) {
             return with_mock(|state| {
                 state.error = None;
@@ -2644,9 +2658,16 @@ impl OmawardenBridge {
                         // Provider 7 is FIDO2: the engine performs the key
                         // assertion itself, so no typed code is required.
                         let fido2 = input.provider == Some(7);
-                        if !fido2
+                        if fido2 && input.new_device_otp.is_some() {
+                            // Mirrors the engine's `newDeviceOtp` branch, which
+                            // shadows the two-factor token when it is present.
+                            state.error = Some(
+                                "Security key error: the new-device code shadowed the assertion."
+                                    .to_string(),
+                            );
+                        } else if !fido2
                             && input.code.trim().is_empty()
-                            && input.new_device_otp.as_deref().unwrap_or("").trim().is_empty()
+                            && input.new_device_otp.is_none()
                         {
                             state.error = Some("Enter a verification code.".to_string());
                         } else {
@@ -4096,6 +4117,49 @@ mod tests {
         assert!(update.available);
         assert_eq!(update.latest_version.as_deref(), Some("0.4.0"));
         assert!(update.release.is_some());
+    }
+
+    #[test]
+    fn blank_codes_are_treated_as_absent() {
+        assert_eq!(normalize_optional_code(None), None);
+        assert_eq!(normalize_optional_code(Some(String::new())), None);
+        assert_eq!(normalize_optional_code(Some("   ".to_string())), None);
+        assert_eq!(
+            normalize_optional_code(Some(" 123456 ".to_string())),
+            Some("123456".to_string())
+        );
+    }
+
+    #[test]
+    fn mock_fido2_two_factor_succeeds_without_a_code() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "twoFactor",
+            "email": "user@example.com",
+            "twoFactorRequired": true,
+            "twoFactor": {
+                "email": "user@example.com",
+                "providers": [
+                    {"id": 0, "name": "authenticator", "label": "Authenticator App", "available": true},
+                    {"id": 7, "name": "fido2", "label": "FIDO2 Security Key", "available": true}
+                ],
+                "selectedProvider": 7,
+                "fido2Status": "available"
+            }
+        })));
+        let unlocked = OmawardenBridge::authenticate(AuthActionInput {
+            kind: AuthKind::TwoFactor,
+            email: "user@example.com".to_string(),
+            password: "correct horse battery staple".to_string(),
+            client_id: String::new(),
+            client_secret: String::new(),
+            code: String::new(),
+            provider: Some(7),
+            remember_email: None,
+            new_device_otp: Some(String::new()),
+        });
+        assert_eq!(unlocked.phase, AppPhase::Unlocked);
+        assert!(unlocked.error.is_none());
     }
 
     #[test]

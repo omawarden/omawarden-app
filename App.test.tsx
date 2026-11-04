@@ -244,7 +244,9 @@ test("two-factor selects the server's default FIDO2 provider", async () => {
 
   expect(app.shows("id:auth-view-twoFactor")).toBe(true);
   expect(app.shows("id:twofactor-retry-fido2")).toBe(true);
+  expect(app.shows("id:twofactor-code")).toBe(false);
   expect(app.texts()).toContain("Security key ready. Touch it to continue.");
+  expect(app.texts()).toContain("No verification code is needed. Your security key signs the challenge.");
 });
 
 test("FIDO2 retry performs the security key assertion and unlocks", async () => {
@@ -609,6 +611,20 @@ test("action palette lists context actions, filters, syncs, and opens modals", a
   await app.press("id:action-lock");
   expect(app.shows("id:auth-view-locked")).toBe(true);
   expect(app.texts()).toContain("Vault locked.");
+});
+
+test("tab moves focus between action controls and enter activates them", async () => {
+  const app = await openMock({ phase: "unlocked", items: VAULT_ITEMS });
+
+  await app.keyboard.press("tab");
+  await app.keyboard.press("space");
+  expect(app.shows("id:item-inspector")).toBe(true);
+
+  await app.keyboard.press("mod+g");
+  expect(app.shows("id:password-generator-modal")).toBe(true);
+  await app.keyboard.press("tab");
+  await app.keyboard.press("enter");
+  expect(app.shows("id:password-generator-modal")).toBe(false);
 });
 
 test("keyboard shortcuts navigate, copy, open modals, and lock", async () => {

@@ -1,8 +1,36 @@
 import type { JSX } from "nsh";
-import { Scroll, Text, View } from "nsh";
+import { cleanup, Scroll, Text, View } from "nsh";
 import { Button } from "nsh/base";
 import * as store from "../store/appStore";
 import { tint, textOn, textOnTint } from "../theme/palette";
+
+// Every action control registers with the store so Tab can reach it where the
+// platform's native traversal only visits text fields.
+let actionSerial = 0;
+
+export function actionID(testID: string | undefined): string {
+  if (testID) {
+    return `action:${testID}`;
+  }
+  actionSerial += 1;
+  return `action:auto-${actionSerial}`;
+}
+
+// Registered in render order so Tab walks the screen top to bottom, and
+// released with the component that owns the control.
+export function useAction(id: string, onPress: () => void): void {
+  store.registerAction(id, onPress);
+  cleanup(() => store.unregisterAction(id));
+}
+
+export function focusOutline(active: boolean, color: string) {
+  return {
+    outlineWidth: active ? 2 : 0,
+    outlineColor: color,
+    outlineStyle: "solid" as const,
+    outlineOffset: 1,
+  };
+}
 
 export function SectionTitle(props: { children?: JSX.Element; hint?: string }) {
   const palette = store.palette;
@@ -90,24 +118,37 @@ export function ActionButton(props: {
 }) {
   const palette = store.palette;
   const tone = props.tone ?? "secondary";
+  const id = actionID(props.testID);
+  useAction(id, () => props.onPress());
+  const focused = () => store.focusedAction() === id;
+  const background = () =>
+    tone === "primary"
+      ? palette().menu.selectedBackground
+      : tone === "danger"
+        ? tint(palette().danger, palette().menu.background, 0.2)
+        : palette().menu.background;
+  const accent = () => (tone === "danger" ? palette().danger : palette().menu.selectedText);
   return (
     <Button
       testID={props.testID}
       disabled={props.disabled}
       onPress={props.onPress}
       style={{
-        backgroundColor:
-          tone === "primary"
-            ? palette().menu.selectedBackground
-            : tone === "danger"
-              ? tint(palette().danger, palette().menu.background, 0.2)
-              : palette().menu.background,
-        borderColor: palette().menu.border,
+        backgroundColor: background(),
+        borderColor: focused() ? accent() : palette().menu.border,
         borderWidth: 1,
         borderRadius: 8,
         paddingHorizontal: 12,
         paddingVertical: 7,
+        ...focusOutline(focused(), accent()),
       }}
+      hoverStyle={{
+        backgroundColor: tint(accent(), background(), 0.14),
+        borderColor: accent(),
+      }}
+      activeStyle={{ backgroundColor: tint(accent(), background(), 0.26) }}
+      focusStyle={{ borderColor: accent() }}
+      disabledStyle={{ opacity: 0.5 }}
     >
       <Text
         style={{
@@ -123,6 +164,55 @@ export function ActionButton(props: {
       >
         {props.label}
       </Text>
+    </Button>
+  );
+}
+
+export function SmallButton(props: {
+  label?: string;
+  children?: JSX.Element;
+  onPress: () => void;
+  testID?: string;
+  accessibilityLabel?: string;
+  disabled?: boolean;
+  alignSelf?: "auto" | "flex-start" | "center" | "flex-end";
+  paddingVertical?: number;
+}) {
+  const palette = store.palette;
+  const id = actionID(props.testID);
+  useAction(id, () => props.onPress());
+  const focused = () => store.focusedAction() === id;
+  const accent = () => palette().popups.selectedText;
+  const background = () => palette().popups.background;
+  return (
+    <Button
+      testID={props.testID}
+      accessibilityLabel={props.accessibilityLabel}
+      disabled={props.disabled}
+      onPress={props.onPress}
+      style={{
+        alignSelf: props.alignSelf,
+        backgroundColor: background(),
+        borderColor: focused() ? accent() : palette().popups.border,
+        borderWidth: 1,
+        borderRadius: 6,
+        paddingHorizontal: 7,
+        paddingVertical: props.paddingVertical ?? 3,
+        ...focusOutline(focused(), accent()),
+      }}
+      hoverStyle={{
+        backgroundColor: tint(accent(), background(), 0.14),
+        borderColor: accent(),
+      }}
+      activeStyle={{ backgroundColor: tint(accent(), background(), 0.26) }}
+      focusStyle={{ borderColor: accent() }}
+      disabledStyle={{ opacity: 0.5 }}
+    >
+      {props.children ?? (
+        <Text style={{ color: palette().popups.selectedText, fontSize: 11, fontWeight: "bold" }}>
+          {props.label}
+        </Text>
+      )}
     </Button>
   );
 }
@@ -157,22 +247,12 @@ export function FieldRow(props: {
             {value()}
           </Text>
           {props.onCopy ? (
-            <Button
+            <SmallButton
               testID={props.copyTestID}
               accessibilityLabel={`Copy ${props.label}`}
+              label="Copy"
               onPress={props.onCopy}
-              style={{
-                borderColor: palette().popups.border,
-                borderWidth: 1,
-                borderRadius: 6,
-                paddingHorizontal: 8,
-                paddingVertical: 3,
-              }}
-            >
-              <Text style={{ color: palette().popups.selectedText, fontSize: 11, fontWeight: "bold" }}>
-                Copy
-              </Text>
-            </Button>
+            />
           ) : null}
         </View>
       )}
@@ -237,22 +317,13 @@ export function ModalShell(props: {
               <Text style={{ color: palette().muted, fontSize: 12 }}>{props.subtitle}</Text>
             ) : null}
           </View>
-          <Button
+          <SmallButton
             testID="modal-close"
             accessibilityLabel="Close dialog"
+            label="Close"
+            paddingVertical={5}
             onPress={close}
-            style={{
-              borderColor: palette().popups.border,
-              borderWidth: 1,
-              borderRadius: 8,
-              paddingHorizontal: 10,
-              paddingVertical: 5,
-            }}
-          >
-            <Text style={{ color: palette().popups.text, fontSize: 12, fontWeight: "bold" }}>
-              Close
-            </Text>
-          </Button>
+          />
         </View>
         <Scroll style={{ flexGrow: 0 }} contentStyle={{ padding: 16, gap: 12 }}>
           {props.children}
