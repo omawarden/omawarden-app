@@ -24,7 +24,9 @@ function VaultWorkspace() {
       style={{ flex: 1, backgroundColor: store.palette().menu.background }}
     >
       <SearchHeader />
-      {store.scopeOpen() ? <ScopeDropdown /> : null}
+      <If when={store.scopeOpen()}>
+        <ScopeDropdown />
+      </If>
       <CategoryTabBar />
       <View
         style={{
@@ -57,19 +59,43 @@ function App() {
         backgroundColor: store.palette().menu.background,
       }}
     >
-      {store.snapshot().phase === "dependencyCheck" ? <DependencyCheckView /> : null}
-      {store.snapshot().phase === "login" ? <AuthView mode="login" /> : null}
-      {store.snapshot().phase === "twoFactor" ? <AuthView mode="twoFactor" /> : null}
-      {store.snapshot().phase === "locked" ? <AuthView mode="locked" /> : null}
-      {store.snapshot().phase === "unlocked" ? <VaultWorkspace /> : null}
+      <If when={store.phase() === "dependencyCheck"}>
+        <DependencyCheckView />
+      </If>
+      <If when={store.phase() === "login"}>
+        <AuthView mode="login" />
+      </If>
+      <If when={store.phase() === "twoFactor"}>
+        <AuthView mode="twoFactor" />
+      </If>
+      <If when={store.phase() === "locked"}>
+        <AuthView mode="locked" />
+      </If>
+      <If when={store.phase() === "unlocked"}>
+        <VaultWorkspace />
+      </If>
 
-      {store.activeModal() === "actionPalette" ? <ActionPaletteModal /> : null}
-      {store.activeModal() === "generator" ? <PasswordGeneratorModal /> : null}
-      {store.activeModal() === "sshKey" ? <SshKeyModal /> : null}
-      {store.activeModal() === "passwordHistory" ? <PasswordHistoryModal /> : null}
-      {store.activeModal() === "settings" ? <SettingsModal /> : null}
-      {store.activeModal() === "releaseNotes" ? <ReleaseNotesModal /> : null}
-      {store.snapshot().sshPrompt ? <SshApprovalModal /> : null}
+      <If when={store.activeModal() === "actionPalette"}>
+        <ActionPaletteModal />
+      </If>
+      <If when={store.activeModal() === "generator"}>
+        <PasswordGeneratorModal />
+      </If>
+      <If when={store.activeModal() === "sshKey"}>
+        <SshKeyModal />
+      </If>
+      <If when={store.activeModal() === "passwordHistory"}>
+        <PasswordHistoryModal />
+      </If>
+      <If when={store.activeModal() === "settings"}>
+        <SettingsModal />
+      </If>
+      <If when={store.activeModal() === "releaseNotes"}>
+        <ReleaseNotesModal />
+      </If>
+      <If when={store.sshPrompt() !== null}>
+        <SshApprovalModal />
+      </If>
 
       <ToastAlert />
     </View>
@@ -79,10 +105,10 @@ function App() {
 store.bootApp();
 
 const hasOpenModal = () =>
-  store.activeModal() !== "none" || store.snapshot().sshPrompt !== null;
+  store.activeModal() !== "none" || store.sshPrompt() !== null;
 
 const canUseVaultShortcuts = () =>
-  store.snapshot().phase === "unlocked" && !hasOpenModal();
+  store.phase() === "unlocked" && !hasOpenModal();
 
 keymap.bind({
   "mod+k": () => {

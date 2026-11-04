@@ -355,6 +355,33 @@ test("vault filters by category, search text, scope, and folder", async () => {
   expect(app.shows("id:cipher-row-ssh1")).toBe(false);
 });
 
+test("filter changes preserve the mounted workspace and update rows instantly", async () => {
+  const app = await openMock({ phase: "unlocked", items: VAULT_ITEMS });
+
+  expect(app.shows("id:vault-workspace")).toBe(true);
+  expect(app.texts()).toContain("6 of 6");
+
+  await app.press("id:category-card");
+  expect(app.shows("id:vault-workspace")).toBe(true);
+  expect(app.texts()).toContain("1 of 1");
+  expect(app.shows("id:cipher-row-card1")).toBe(true);
+  expect(app.shows("id:cipher-row-login1")).toBe(false);
+
+  await app.press("id:category-all");
+  expect(app.shows("id:vault-workspace")).toBe(true);
+  expect(app.texts()).toContain("6 of 6");
+
+  await app.type("id:vault-search", "git");
+  expect(app.shows("id:vault-workspace")).toBe(true);
+  expect(app.texts()).toContain("1 of 1");
+  expect(app.shows("id:cipher-row-login1")).toBe(true);
+  expect(app.shows("id:cipher-row-card1")).toBe(false);
+
+  await app.clear("id:vault-search");
+  expect(app.shows("id:vault-workspace")).toBe(true);
+  expect(app.texts()).toContain("6 of 6");
+});
+
 test("empty search results show an empty hint", async () => {
   const app = await openMock({ phase: "unlocked", items: VAULT_ITEMS });
 

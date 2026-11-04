@@ -43,7 +43,7 @@ function CategoryTab(props: {
 }) {
   const palette = store.palette;
   const snap = store.snapshot;
-  const active = () => snap().category === props.tab.category;
+  const active = () => store.category() === props.tab.category;
   const id = actionID(`category-${props.tab.category}`);
   useAction(id, () => store.setCategory(props.tab.category));
   const focused = () => store.focusedAction() === id;

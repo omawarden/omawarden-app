@@ -32,7 +32,7 @@ export function SearchHeader() {
       <View style={{ flex: 1, minWidth: 220, flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Input
           testID="vault-search"
-          value={snap().search}
+          value={store.search()}
           placeholder="Search your vault…"
           autoCapitalize="none"
           autoCorrect={false}
@@ -48,7 +48,7 @@ export function SearchHeader() {
           }}
         >
           <Text style={{ color: palette().menu.selectedText, fontSize: 11, fontWeight: "bold" }}>
-            {snap().items.length} / {snap().totalCount}
+            {store.filteredItems().length} / {snap().totalCount}
           </Text>
         </View>
       </View>

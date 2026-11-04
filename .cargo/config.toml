@@ -1,0 +1,14 @@
+[profile.dev]
+opt-level = "s"
+debug = 0
+strip = "debuginfo"
+
+[profile.dev.package."*"]
+opt-level = "s"
+debug = 0
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+strip = "symbols"
+codegen-units = 1

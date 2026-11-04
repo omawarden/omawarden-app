@@ -83,7 +83,7 @@ export function ScopeDropdown() {
               id={scope().id}
               name={scope().name}
               count={scope().count}
-              active={snap().activeScope === scope().id}
+              active={store.scopeId() === scope().id}
               onPress={() => store.setScope(scope().id)}
             />
           )}
@@ -96,7 +96,7 @@ export function ScopeDropdown() {
           id="folder-all"
           name="All Folders"
           count={snap().totalCount}
-          active={snap().activeFolder === null}
+          active={store.folderId() === null}
           onPress={() => store.setFolder(null)}
         />
         <Each of={snap().folders} key="index">
@@ -105,7 +105,7 @@ export function ScopeDropdown() {
               id={folder().id}
               name={folder().name}
               count={folder().count}
-              active={snap().activeFolder === folder().id}
+              active={store.folderId() === folder().id}
               onPress={() => store.setFolder(folder().id)}
             />
           )}
