@@ -81,9 +81,12 @@ Extra arguments are forwarded, for example:
 
 ```sh
 mise run run -- --window-size 1440x960
-mise run package -- --icon assets/icon.png
+mise run package -- --icon /path/to/icon.png
 OUT=dist mise run package
 ```
+
+The app icon is declared in `nsh.json` (`"icon": "assets/icon.png"`), so packaging uses
+`assets/icon.png` by default; `--icon` overrides it for a one-off package.
 
 ### Direct `nsh` and Cargo commands
 
@@ -108,7 +111,8 @@ cargo build --release
 ```text
 .nsh/out/omawarden-app/
 .nsh/out/omawarden-app/omawardenapp
-.nsh/out/omawarden-app/*.desktop
+.nsh/out/omawarden-app/com.icyleaf.omawarden.desktop
+.nsh/out/omawarden-app/com.icyleaf.omawarden.png
 .nsh/out/omawarden-app.tar.gz
 ```
 
@@ -122,6 +126,7 @@ Run the packaged binary directly with:
 
 ```text
 App.tsx              app entry and view routing
+assets/icon.png      packaged app icon (1024×1024 PNG)
 components/          TSX views, modals, and controls
 store/appStore.ts    signals, actions, and bridge calls
 theme/               Tokyo Night / Catppuccin palettes
