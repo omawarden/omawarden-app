@@ -1,11 +1,12 @@
 import { signal } from "nsh";
+import type { IconName } from "../components/Icon";
 import * as store from "./appStore";
 
 export interface PaletteAction {
   id: string;
   label: string;
   hint: string;
-  icon: string;
+  icon: IconName;
   /** The badge shown at the right of the row. */
   shortcut?: string;
   /** The keystroke that runs the action directly while the palette is open. */
@@ -36,7 +37,7 @@ export function contextActions(): PaletteAction[] {
       id: "copy-password",
       label: "Copy Password",
       hint: "Copy the selected login password",
-      icon: "\uf084",
+      icon: "key",
       shortcut: "↵",
       run: () => store.copyField("password"),
     });
@@ -44,7 +45,7 @@ export function contextActions(): PaletteAction[] {
       id: "copy-username",
       label: "Copy Username",
       hint: "Copy the selected login username",
-      icon: "\uf007",
+      icon: "user",
       shortcut: "Ctrl+U",
       keystroke: "mod+u",
       run: () => store.copyField("username"),
@@ -54,7 +55,7 @@ export function contextActions(): PaletteAction[] {
         id: "copy-totp",
         label: "Copy TOTP",
         hint: "Copy the current one-time code",
-        icon: "\uf017",
+        icon: "clock",
         shortcut: "Ctrl+↵",
         keystroke: "mod+enter",
         run: () => store.copyField("totp"),
@@ -64,7 +65,7 @@ export function contextActions(): PaletteAction[] {
       id: "reveal-password",
       label: "Reveal Password",
       hint: "Toggle the password visibility",
-      icon: "\uf06e",
+      icon: "eye",
       shortcut: "Ctrl+T",
       keystroke: "mod+t",
       run: () => store.toggleReveal("password"),
@@ -74,7 +75,7 @@ export function contextActions(): PaletteAction[] {
         id: "password-history",
         label: "View Password History",
         hint: "Browse previous passwords",
-        icon: "\uf1da",
+        icon: "history",
         shortcut: "Ctrl+H",
         keystroke: "mod+h",
         run: store.openPasswordHistory,
@@ -86,7 +87,7 @@ export function contextActions(): PaletteAction[] {
       id: "export-ssh-key",
       label: "Export SSH Key",
       hint: "Write the key to ~/.ssh",
-      icon: "\uf084",
+      icon: "terminal",
       shortcut: "Ctrl+E",
       keystroke: "mod+e",
       run: () => store.openSshKey("export"),
@@ -99,7 +100,7 @@ export function contextActions(): PaletteAction[] {
       id: "open-url",
       label: "Open URL",
       hint: first.host || first.uri,
-      icon: "\uf08e",
+      icon: "external-link",
       shortcut: "Ctrl+O",
       keystroke: "mod+o",
       run: () => store.openUrl(first.uri),
@@ -115,7 +116,7 @@ export function globalActions(): PaletteAction[] {
       id: "sync",
       label: "Sync Vault",
       hint: "Synchronize with the Bitwarden server",
-      icon: "\uf021",
+      icon: "refresh-cw",
       shortcut: "Ctrl+R",
       keystroke: "mod+r",
       run: store.sync,
@@ -124,7 +125,7 @@ export function globalActions(): PaletteAction[] {
       id: "generator",
       label: "Open Password Generator",
       hint: "Create a strong password or passphrase",
-      icon: "\uf084",
+      icon: "key",
       shortcut: "Ctrl+G",
       keystroke: "mod+g",
       run: store.openGenerator,
@@ -133,14 +134,14 @@ export function globalActions(): PaletteAction[] {
       id: "create-ssh-key",
       label: "Create SSH Key",
       hint: "Generate or import an SSH key",
-      icon: "\uf084",
+      icon: "key",
       run: () => store.openSshKey("create"),
     },
     {
       id: "lock",
       label: "Lock Vault",
       hint: "Clear the session and lock the vault",
-      icon: "\uf023",
+      icon: "lock",
       shortcut: "Ctrl+L",
       keystroke: "mod+l",
       run: () => store.lockOrLogout(false),
@@ -149,7 +150,7 @@ export function globalActions(): PaletteAction[] {
       id: "settings",
       label: "Open Settings",
       hint: "Manage configuration and diagnostics",
-      icon: "\uf013",
+      icon: "settings",
       shortcut: "Ctrl+,",
       keystroke: "mod+,",
       run: store.openSettings,

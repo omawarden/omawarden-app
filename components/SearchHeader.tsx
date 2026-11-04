@@ -4,6 +4,7 @@ import * as store from "../store/appStore";
 import { tint } from "../theme/palette";
 import { actionID, focusOutline, useAction } from "./ui";
 import { GhostIconButton } from "./GhostIconButton";
+import { Icon } from "./Icon";
 import { inputStyle } from "./AuthView";
 
 export function SearchHeader() {
@@ -31,7 +32,7 @@ export function SearchHeader() {
       }}
     >
       <View style={{ flex: 1, minWidth: 220, flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Text style={{ color: palette().muted, fontSize: 13 }}>{"\uf002"}</Text>
+        <Icon name="search" size={14} color={palette().muted} />
         <Input
           testID="vault-search"
           value={store.search()}
@@ -45,7 +46,7 @@ export function SearchHeader() {
           <GhostIconButton
             testID="clear-search"
             label="Clear search"
-            icon="\uf00d"
+            icon="x"
             onPress={() => store.setSearch("")}
           />
         ) : null}

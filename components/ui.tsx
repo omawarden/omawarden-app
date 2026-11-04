@@ -251,7 +251,7 @@ export function FieldRow(props: {
             <GhostIconButton
               testID={props.copyTestID}
               label={`Copy ${props.label}`}
-              icon="\uf0c5"
+              icon="copy"
               onPress={props.onCopy}
             />
           ) : null}

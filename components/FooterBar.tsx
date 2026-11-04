@@ -3,6 +3,7 @@ import { Button } from "nsh/base";
 import * as store from "../store/appStore";
 import * as paletteActions from "../store/actionPalette";
 import { tint } from "../theme/palette";
+import { Icon, type IconName } from "./Icon";
 import { actionID, focusOutline, useAction } from "./ui";
 
 export function FooterBar() {
@@ -31,21 +32,21 @@ export function FooterBar() {
       }}
     >
       <FooterAction
-        icon="\uf0e7"
+        icon="zap"
         label="Actions"
         shortcut="Ctrl+K"
         testID="open-actions"
         onPress={paletteActions.openPalette}
       />
       <FooterAction
-        icon="\uf084"
+        icon="key"
         label="Generate"
         shortcut="Ctrl+G"
         testID="open-generator"
         onPress={store.openGenerator}
       />
       <FooterAction
-        icon="\uf021"
+        icon="refresh-cw"
         label="Sync"
         shortcut="Ctrl+R"
         testID="sync-vault"
@@ -53,14 +54,14 @@ export function FooterBar() {
       />
       {store.isSyncing() ? <SyncIndicator /> : null}
       <FooterAction
-        icon="\uf023"
+        icon="lock"
         label="Lock"
         shortcut="Ctrl+L"
         testID="lock-vault"
         onPress={() => store.lockOrLogout(false)}
       />
       <FooterAction
-        icon="\uf013"
+        icon="settings"
         label="Settings"
         shortcut="Ctrl+,"
         testID="open-settings"
@@ -136,13 +137,13 @@ function SyncIndicator() {
         ...motion.style,
       }}
     >
-      <Text style={{ color: palette().muted, fontSize: 11 }}>{"\uf021"}</Text>
+      <Icon name="refresh-cw" size={12} color={palette().muted} />
     </View>
   );
 }
 
 function FooterAction(props: {
-  icon: string;
+  icon: IconName;
   label: string;
   shortcut: string;
   testID: string;
@@ -173,7 +174,7 @@ function FooterAction(props: {
       activeStyle={{ backgroundColor: tint(accent(), background(), 0.16) }}
       focusStyle={{ backgroundColor: tint(accent(), background(), 0.08) }}
     >
-      <Text style={{ color: palette().muted, fontSize: 11 }}>{props.icon}</Text>
+      <Icon name={props.icon} size={11} color={palette().muted} />
       <Text style={{ color: palette().muted, fontSize: 11, fontWeight: "bold" }}>
         {props.label}
       </Text>

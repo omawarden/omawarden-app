@@ -7,6 +7,7 @@ import { tint } from "../theme/palette";
 import { ActionButton, Chip, FieldRow, Panel, SectionTitle } from "./ui";
 import { GhostIconButton } from "./GhostIconButton";
 import { EmptyInspector } from "./EmptyInspector";
+import { Icon } from "./Icon";
 
 export function ItemInspector() {
   return (
@@ -49,7 +50,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
           <Text style={{ color: palette().popups.text, fontSize: 17, fontWeight: "bold" }}>
             {item().title}
           </Text>
-          {item().favorite ? <Text style={{ color: palette().warning }}>★</Text> : null}
+          {item().favorite ? <Icon name="star" size={11} color={palette().warning} /> : null}
           <Chip label={categoryLabel(item().category)} color={palette().info} />
         </View>
         <Text style={{ color: palette().muted, fontSize: 11 }}>
@@ -113,13 +114,13 @@ function InspectorBody(props: { item: () => InspectorView }) {
                 <GhostIconButton
                   testID="reveal-password"
                   label={store.reveal().revealPassword ? "Hide password" : "Show password"}
-                  icon={store.reveal().revealPassword ? "\uf070" : "\uf06e"}
+                  icon={store.reveal().revealPassword ? "eye-off" : "eye"}
                   onPress={() => store.toggleReveal("password")}
                 />
                 <GhostIconButton
                   testID="copy-password"
                   label="Copy password"
-                  icon="\uf0c5"
+                  icon="copy"
                   onPress={() => store.copyField("password")}
                 />
               </View>
@@ -131,7 +132,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                   <GhostIconButton
                     testID="open-password-history"
                     label="View password history"
-                    icon="\uf1da"
+                    icon="history"
                     onPress={store.openPasswordHistory}
                   />
                 </View>
@@ -156,7 +157,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                   <GhostIconButton
                     testID="refresh-totp"
                     label="Refresh TOTP"
-                    icon="\uf021"
+                    icon="refresh-cw"
                     onPress={store.refreshTotp}
                   />
                 </View>
@@ -182,7 +183,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                   <GhostIconButton
                     testID="copy-totp"
                     label="Copy TOTP code"
-                    icon="\uf0c5"
+                    icon="copy"
                     onPress={() => store.copyField("totp")}
                   />
                 </View>
@@ -234,13 +235,13 @@ function InspectorBody(props: { item: () => InspectorView }) {
                       <GhostIconButton
                         testID={`copy-uri-${uri().host}`}
                         label="Copy website URL"
-                        icon="\uf0c5"
+                        icon="copy"
                         onPress={() => store.copyText(uri().uri, "website URL", false)}
                       />
                       <GhostIconButton
                         testID={`launch-uri-${uri().host}`}
                         label="Open website"
-                        icon="\uf08e"
+                        icon="external-link"
                         onPress={() => store.openUrl(uri().uri)}
                       />
                     </View>
@@ -284,13 +285,13 @@ function InspectorBody(props: { item: () => InspectorView }) {
               <GhostIconButton
                 testID="reveal-card-number"
                 label={store.reveal().revealCardNumber ? "Hide card number" : "Show card number"}
-                icon={store.reveal().revealCardNumber ? "\uf070" : "\uf06e"}
+                icon={store.reveal().revealCardNumber ? "eye-off" : "eye"}
                 onPress={() => store.toggleReveal("cardNumber")}
               />
               <GhostIconButton
                 testID="copy-card-number"
                 label="Copy card number"
-                icon="\uf0c5"
+                icon="copy"
                 onPress={() => store.copyField("card_number")}
               />
             </View>
@@ -321,13 +322,13 @@ function InspectorBody(props: { item: () => InspectorView }) {
               <GhostIconButton
                 testID="reveal-cvv"
                 label={store.reveal().revealCvv ? "Hide security code" : "Show security code"}
-                icon={store.reveal().revealCvv ? "\uf070" : "\uf06e"}
+                icon={store.reveal().revealCvv ? "eye-off" : "eye"}
                 onPress={() => store.toggleReveal("cvv")}
               />
               <GhostIconButton
                 testID="copy-cvv"
                 label="Copy security code"
-                icon="\uf0c5"
+                icon="copy"
                 onPress={() => store.copyField("cvv")}
               />
             </View>
@@ -452,19 +453,19 @@ function InspectorBody(props: { item: () => InspectorView }) {
               <GhostIconButton
                 testID="reveal-private-key"
                 label={store.reveal().revealPrivateKey ? "Hide private key" : "Show private key"}
-                icon={store.reveal().revealPrivateKey ? "\uf070" : "\uf06e"}
+                icon={store.reveal().revealPrivateKey ? "eye-off" : "eye"}
                 onPress={() => store.toggleReveal("privateKey")}
               />
               <GhostIconButton
                 testID="copy-private-key"
                 label="Copy private key"
-                icon="\uf0c5"
+                icon="copy"
                 onPress={() => store.copyField("private_key")}
               />
               <GhostIconButton
                 testID="export-ssh-key"
                 label="Export SSH key to ~/.ssh"
-                icon="\uf093"
+                icon="upload"
                 onPress={() => store.openSshKey("export")}
               />
             </View>
@@ -484,7 +485,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
               <GhostIconButton
                 testID="copy-notes"
                 label="Copy secure note"
-                icon="\uf0c5"
+                icon="copy"
                 onPress={() => store.copyField("notes")}
               />
             </View>
@@ -524,8 +525,8 @@ function InspectorBody(props: { item: () => InspectorView }) {
                         }
                         icon={
                           store.reveal().revealFields.includes(field().index)
-                            ? "\uf070"
-                            : "\uf06e"
+                            ? "eye-off"
+                            : "eye"
                         }
                         onPress={() => store.toggleRevealField(field().index)}
                       />
@@ -533,7 +534,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                     <GhostIconButton
                       testID={`copy-field-${field().index}`}
                       label="Copy field"
-                      icon="\uf0c5"
+                      icon="copy"
                       onPress={() => store.copyField("custom", field().index)}
                     />
                   </View>
@@ -566,13 +567,13 @@ function InspectorBody(props: { item: () => InspectorView }) {
                   <GhostIconButton
                     testID={`preview-attachment-${file().id}`}
                     label="Preview attachment"
-                    icon="\uf06e"
+                    icon="eye"
                     onPress={() => store.openAttachment(item().id, file().id, "preview")}
                   />
                   <GhostIconButton
                     testID={`download-attachment-${file().id}`}
                     label="Download attachment"
-                    icon="\uf019"
+                    icon="download"
                     onPress={() => store.saveAttachment(item().id, file().id)}
                   />
                 </View>
@@ -601,7 +602,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                   <GhostIconButton
                     testID="close-attachment-preview"
                     label="Close preview"
-                    icon="\uf00d"
+                    icon="x"
                     onPress={store.closeAttachmentPreview}
                   />
                 </View>
@@ -630,7 +631,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                     <GhostIconButton
                       testID="open-attachment-external"
                       label="Open attachment with system viewer"
-                      icon="\uf08e"
+                      icon="external-link"
                       onPress={store.launchAttachmentPreview}
                     />
                   </View>
@@ -652,7 +653,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                     <GhostIconButton
                       testID="copy-attachment-content"
                       label="Copy attachment content"
-                      icon="\uf0c5"
+                      icon="copy"
                       onPress={() =>
                         store.copyText(attachment()?.text ?? "", "attachment content", true)
                       }
