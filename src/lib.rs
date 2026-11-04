@@ -24,19 +24,60 @@ use omawarden::logging::sanitize_log_message;
 use omawarden::totp::generate_totp;
 use omawarden::vault::{is_fuzzy_match, VaultItem};
 
-/// Selects GTK4's OpenGL renderer before GTK initializes.
+/// Pins Linux rendering to one lightweight GPU driver before GTK or `wgpu`
+/// initializes.
 ///
-/// GTK4 defaults to Vulkan, which on AMD systems loads both `amdvlkpro64.so`
-/// and `libvulkan_radeon.so` plus large anonymous GPU arenas. Setting
-/// `GSK_RENDERER=ngl` keeps those driver stacks out of the process. A value the
-/// user already set is respected.
+/// GTK4 defaults to Vulkan, which on hybrid systems loads both `amdvlkpro64.so`
+/// and `libvulkan_radeon.so` plus large anonymous GPU arenas. `GSK_RENDERER=ngl`
+/// keeps GTK on OpenGL, `WGPU_BACKEND=vulkan` stops `wgpu` from initializing
+/// both Vulkan and GL/EGL, and pinning the Vulkan ICD and EGL vendor library to
+/// Mesa keeps the proprietary NVIDIA and AMD PRO stacks out of the process. A
+/// value the user already set is respected.
 #[cfg(target_os = "linux")]
 fn configure_linux_renderer() {
-    if std::env::var_os("GSK_RENDERER").is_none() {
-        // SAFETY: the constructor runs before GTK starts and before the
-        // process creates threads; `boot()` calls it on the UI thread.
+    set_env_if_unset("GSK_RENDERER", "ngl");
+    set_env_if_unset("WGPU_BACKEND", "vulkan");
+    set_env_if_unset("WGPU_POWER_PREFERENCE", "low_power");
+    if std::env::var_os("VK_DRIVER_FILES").is_none()
+        && std::env::var_os("VK_ICD_FILENAMES").is_none()
+    {
+        const MESA_ICDS: [&str; 4] = [
+            "/usr/share/vulkan/icd.d/radeon_icd.x86_64.json",
+            "/usr/share/vulkan/icd.d/radeon_icd.json",
+            "/usr/share/vulkan/icd.d/intel_icd.x86_64.json",
+            "/usr/share/vulkan/icd.d/intel_icd.json",
+        ];
+        if let Some(path) = MESA_ICDS
+            .iter()
+            .find(|path| std::path::Path::new(path).is_file())
+        {
+            // SAFETY: the constructor runs before GTK starts and before the
+            // process creates threads; `boot()` calls it on the UI thread.
+            unsafe {
+                std::env::set_var("VK_DRIVER_FILES", path);
+                std::env::set_var("VK_ICD_FILENAMES", path);
+            }
+        }
+    }
+    if std::env::var_os("__EGL_VENDOR_LIBRARY_FILENAMES").is_none() {
+        let mesa = "/usr/share/glvnd/egl_vendor.d/50_mesa.json";
+        if std::path::Path::new(mesa).is_file() {
+            // SAFETY: see above.
+            unsafe {
+                std::env::set_var("__EGL_VENDOR_LIBRARY_FILENAMES", mesa);
+            }
+        }
+    }
+}
+
+/// Sets an environment variable when the process has not already set it.
+#[cfg(target_os = "linux")]
+fn set_env_if_unset(name: &str, value: &str) {
+    if std::env::var_os(name).is_none() {
+        // SAFETY: callers run before GTK starts and before the process creates
+        // threads, or on the UI thread inside `boot()`.
         unsafe {
-            std::env::set_var("GSK_RENDERER", "ngl");
+            std::env::set_var(name, value);
         }
     }
 }
@@ -317,6 +358,8 @@ pub struct VaultSnapshotView {
     pub error: Option<String>,
     /// The filtered items.
     pub items: Vec<CipherRowView>,
+    /// Every item in the unlocked vault before filtering.
+    pub all_items: Vec<CipherRowView>,
     /// The total number of items before filtering.
     pub total_count: u32,
     /// The category counts.
@@ -1282,6 +1325,7 @@ fn build_snapshot(
     }
 
     let active_scope = filter.scope_id.clone().unwrap_or_else(|| "all".to_string());
+    let all_items = all_rows.clone();
     let mut filtered: Vec<(i32, CipherRowView)> = all_rows
         .into_iter()
         .filter(|row| match filter.category {
@@ -1337,6 +1381,7 @@ fn build_snapshot(
         two_factor,
         error,
         items,
+        all_items,
         total_count,
         category_counts: counts,
         scopes,
@@ -2323,6 +2368,31 @@ fn real_items() -> Vec<VaultItem> {
         .unwrap_or_default()
 }
 
+/// Cached in-memory state of the unlocked vault for zero-IPC hot-path queries and inspection.
+#[derive(Clone, Debug)]
+struct CachedVault {
+    email: String,
+    server_url: String,
+    identity_url: Option<String>,
+    quick_unlock_ready: bool,
+    quick_unlock_usable: bool,
+    last_sync: Option<String>,
+    engine_version: Option<String>,
+    items: Vec<VaultItem>,
+    rows: Vec<CipherRowView>,
+}
+
+fn cached_vault() -> &'static Mutex<Option<CachedVault>> {
+    static CACHE: OnceLock<Mutex<Option<CachedVault>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn clear_cached_vault() {
+    if let Ok(mut guard) = cached_vault().lock() {
+        *guard = None;
+    }
+}
+
 /// Reads the daemon status and builds a real snapshot.
 fn real_snapshot(filter: VaultFilterInput) -> VaultSnapshotView {
     let config = load_config();
@@ -2396,14 +2466,33 @@ fn real_snapshot(filter: VaultFilterInput) -> VaultSnapshotView {
         .and_then(|value| value.as_str())
         .map(str::to_string);
     let items = if unlocked { real_items() } else { Vec::new() };
-    let rows = items.iter().map(row_from_item).collect();
+    let rows: Vec<CipherRowView> = items.iter().map(row_from_item).collect();
     let ssh_prompt = daemon(json!({ "action": "ssh_agent_pending", "touch": false }))
         .and_then(|value| parse_prompt(&value, 0));
+    let sanitized_server_url = sanitize_server_url(&server_url);
+    let sanitized_identity_url = config.identity_url.as_deref().map(sanitize_server_url);
+    if unlocked {
+        if let Ok(mut guard) = cached_vault().lock() {
+            *guard = Some(CachedVault {
+                email: email.clone(),
+                server_url: sanitized_server_url.clone(),
+                identity_url: sanitized_identity_url.clone(),
+                quick_unlock_ready,
+                quick_unlock_usable: config.quick_unlock,
+                last_sync: last_sync.clone(),
+                engine_version: engine_version.clone(),
+                items,
+                rows: rows.clone(),
+            });
+        }
+    } else {
+        clear_cached_vault();
+    }
     build_snapshot(
         phase,
         email,
-        sanitize_server_url(&server_url),
-        config.identity_url.as_deref().map(sanitize_server_url),
+        sanitized_server_url,
+        sanitized_identity_url,
         quick_unlock_ready,
         config.quick_unlock,
         None,
@@ -3015,6 +3104,7 @@ impl OmawardenBridge {
         }
         let auth = auth_manager();
         let _ = if logout { auth.logout() } else { auth.lock() };
+        clear_cached_vault();
         omawarden::attachment::clear_preview_attachments(None);
         real_snapshot(VaultFilterInput::default())
     }
@@ -3027,6 +3117,26 @@ impl OmawardenBridge {
                 state.error = None;
                 state.snapshot()
             });
+        }
+        if let Ok(guard) = cached_vault().lock() {
+            if let Some(cached) = guard.as_ref() {
+                return build_snapshot(
+                    AppPhase::Unlocked,
+                    cached.email.clone(),
+                    cached.server_url.clone(),
+                    cached.identity_url.clone(),
+                    cached.quick_unlock_ready,
+                    cached.quick_unlock_usable,
+                    None,
+                    None,
+                    cached.rows.clone(),
+                    &filter,
+                    cached.last_sync.clone(),
+                    None,
+                    None,
+                    cached.engine_version.clone(),
+                );
+            }
         }
         real_snapshot(filter)
     }
@@ -3041,6 +3151,7 @@ impl OmawardenBridge {
                 state.snapshot()
             });
         }
+        clear_cached_vault();
         let response = daemon(json!({ "action": "sync", "touch": true }));
         let mut snapshot = real_snapshot(filter);
         if let Some(response) = response {
@@ -3069,6 +3180,13 @@ impl OmawardenBridge {
                     None => empty_inspector(&cipher_id, format!("Item '{cipher_id}' was not found.")),
                 }
             });
+        }
+        if let Ok(guard) = cached_vault().lock() {
+            if let Some(cached) = guard.as_ref() {
+                if let Some(item) = cached.items.iter().find(|item| item.id == cipher_id) {
+                    return vault_item_inspector(item, &reveal);
+                }
+            }
         }
         let response = daemon(json!({ "action": "get_item", "query": cipher_id, "touch": false }));
         let Some(response) = response else {
@@ -3108,6 +3226,25 @@ impl OmawardenBridge {
                     error: Some("Item has no TOTP configured.".to_string()),
                 })
             });
+        }
+        if let Ok(guard) = cached_vault().lock() {
+            if let Some(cached) = guard.as_ref() {
+                if let Some(item) = cached.items.iter().find(|item| item.id == cipher_id) {
+                    let seed = item
+                        .login
+                        .as_ref()
+                        .and_then(|login| login.get("totp"))
+                        .and_then(|value| value.as_str());
+                    return totp_view(seed).unwrap_or_else(|| TotpLiveView {
+                        valid: false,
+                        code: String::new(),
+                        formatted: String::new(),
+                        remaining: 0,
+                        period: 30,
+                        error: Some("Item has no TOTP configured.".to_string()),
+                    });
+                }
+            }
         }
         let response = daemon(json!({ "action": "totp", "query": cipher_id, "touch": false }));
         let Some(response) = response else {
@@ -3219,30 +3356,41 @@ impl OmawardenBridge {
                 }
             });
         }
-        let response = daemon(json!({ "action": "get_item", "query": cipher_id, "touch": false }));
-        let Some(response) = response else {
-            return CopyOutcomeView {
-                ok: false,
-                label: field.clone(),
-                message: "The Omawarden daemon is not running.".to_string(),
-                sensitive: false,
-                cleared_after_seconds: 0,
-                error: Some("The Omawarden daemon is not running.".to_string()),
-            };
-        };
-        let Some(item) = response
-            .get("item")
-            .cloned()
-            .and_then(|value| serde_json::from_value::<VaultItem>(value).ok())
-        else {
-            return CopyOutcomeView {
-                ok: false,
-                label: field.clone(),
-                message: "Item not found.".to_string(),
-                sensitive: false,
-                cleared_after_seconds: 0,
-                error: Some("Item not found.".to_string()),
-            };
+        let cached_item = cached_vault().lock().ok().and_then(|guard| {
+            guard
+                .as_ref()
+                .and_then(|cached| cached.items.iter().find(|item| item.id == cipher_id).cloned())
+        });
+        let item = match cached_item {
+            Some(item) => item,
+            None => {
+                let response = daemon(json!({ "action": "get_item", "query": cipher_id, "touch": false }));
+                let Some(response) = response else {
+                    return CopyOutcomeView {
+                        ok: false,
+                        label: field.clone(),
+                        message: "The Omawarden daemon is not running.".to_string(),
+                        sensitive: false,
+                        cleared_after_seconds: 0,
+                        error: Some("The Omawarden daemon is not running.".to_string()),
+                    };
+                };
+                let Some(item) = response
+                    .get("item")
+                    .cloned()
+                    .and_then(|value| serde_json::from_value::<VaultItem>(value).ok())
+                else {
+                    return CopyOutcomeView {
+                        ok: false,
+                        label: field.clone(),
+                        message: "Item not found.".to_string(),
+                        sensitive: false,
+                        cleared_after_seconds: 0,
+                        error: Some("Item not found.".to_string()),
+                    };
+                };
+                item
+            }
         };
         let (text, sensitive) = match field.as_str() {
             "username" => (
@@ -3644,17 +3792,20 @@ impl OmawardenBridge {
             "touch": true,
         }));
         match response {
-            Some(response) if response.get("ok").and_then(|value| value.as_bool()) == Some(true) => SshKeySaveOutcomeView {
-                ok: true,
-                message: "Saved SSH key to the vault.".to_string(),
-                path: None,
-                item_id: response
-                    .get("item")
-                    .and_then(|item| item.get("id"))
-                    .and_then(|value| value.as_str())
-                    .map(str::to_string),
-                error: None,
-            },
+            Some(response) if response.get("ok").and_then(|value| value.as_bool()) == Some(true) => {
+                clear_cached_vault();
+                SshKeySaveOutcomeView {
+                    ok: true,
+                    message: "Saved SSH key to the vault.".to_string(),
+                    path: None,
+                    item_id: response
+                        .get("item")
+                        .and_then(|item| item.get("id"))
+                        .and_then(|value| value.as_str())
+                        .map(str::to_string),
+                    error: None,
+                }
+            }
             Some(response) => SshKeySaveOutcomeView {
                 ok: false,
                 message: "Could not save the SSH key.".to_string(),
@@ -3728,9 +3879,13 @@ impl OmawardenBridge {
                 error: None,
             })
         });
+        let unlocked = ping.get("unlocked").and_then(|value| value.as_bool()).unwrap_or(false);
+        if !unlocked {
+            clear_cached_vault();
+        }
         DaemonTickView {
             online: true,
-            unlocked: ping.get("unlocked").and_then(|value| value.as_bool()).unwrap_or(false),
+            unlocked,
             quick_unlock_ready: ping.get("quick_unlock").and_then(|value| value.as_bool()).unwrap_or(false),
             ssh_prompt,
             ssh_pending_count,

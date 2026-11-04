@@ -3,6 +3,7 @@ import {
   OmawardenBridge,
   type AppPhase,
   type AuthActionInput,
+  type CipherRowView,
   type CopyOutcomeView,
   type DaemonTickView,
   type DependencyStatusView,
@@ -74,6 +75,7 @@ function emptySnapshot(phase: AppPhase): VaultSnapshotView {
     twoFactor: null,
     error: null,
     items: [],
+    allItems: [],
     totalCount: 0,
     categoryCounts: { ...EMPTY_COUNTS },
     scopes: [],
@@ -104,6 +106,9 @@ function defaultReveal(): RevealStateInput {
 // ---------------------------------------------------------------------------
 
 export const snapshot = signal<VaultSnapshotView>(emptySnapshot("login"));
+export const rawItems = signal<CipherRowView[]>([]);
+export const phase = computed<AppPhase>(() => snapshot().phase);
+export const sshPrompt = computed(() => snapshot().sshPrompt);
 export const dependencies = signal<DependencyStatusView | null>(null);
 export const inspector = signal<InspectorView | null>(null);
 export const settings = signal<SettingsSnapshotView | null>(null);
@@ -133,12 +138,6 @@ export const focusedAction = signal<string | null>(null);
 export const DEFAULT_VISIBLE_LIMIT = 80;
 export const visibleLimit = signal(DEFAULT_VISIBLE_LIMIT);
 
-export const visibleItems = computed(() => {
-  const items = snapshot().items;
-  const limit = Math.max(0, visibleLimit());
-  return items.slice(0, limit);
-});
-
 // The action controls on screen, in render order, and what pressing each
 // does. Buttons register themselves so Tab can reach them on platforms whose
 // native focus traversal only visits text fields (Linux/GTK).
@@ -159,8 +158,80 @@ export const palette = computed<ThemePalette>(() =>
   mergePalette(paletteFor(theme()), themeOverrides()),
 );
 
-export const selectedCipher = computed(() => {
-  const items = snapshot().items;
+function isSubsequence(pattern: string, text: string): boolean {
+  if (!pattern) return true;
+  let pIdx = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === pattern[pIdx]) {
+      pIdx += 1;
+      if (pIdx === pattern.length) return true;
+    }
+  }
+  return false;
+}
+
+function fuzzyScore(pattern: string, text: string): number | null {
+  if (!pattern) return 0;
+  const pat = pattern.toLowerCase();
+  const txt = text.toLowerCase();
+  if (!isSubsequence(pat, txt)) return null;
+  if (txt === pat) return 1000;
+  if (txt.startsWith(pat)) return 800 - Math.min(txt.length, 100);
+  const idx = txt.indexOf(pat);
+  if (idx >= 0) return 600 - Math.min(idx, 100);
+  return 300 - Math.min(txt.length, 200);
+}
+
+function filterRows(
+  rows: CipherRowView[],
+  cat: ItemCategory,
+  activeScope: string,
+  activeFolder: string | null,
+  queryText: string,
+): CipherRowView[] {
+  const scored: Array<{ score: number; row: CipherRowView }> = [];
+  for (const row of rows) {
+    if (cat !== "all" && row.category !== cat) continue;
+    if (activeScope === "personal") {
+      if (row.organization !== null) continue;
+    } else if (activeScope !== "all" && activeScope !== "") {
+      if (activeScope.startsWith("org:")) {
+        const orgName = activeScope.slice(4);
+        if (row.organization !== orgName) continue;
+      }
+    }
+    if (activeFolder !== null) {
+      const folderName = activeFolder.startsWith("folder:")
+        ? activeFolder.slice(7)
+        : activeFolder;
+      if (row.folder !== folderName) continue;
+    }
+    const haystack = `${row.title} ${row.subtitle} ${row.organization ?? ""} ${row.folder ?? ""}`;
+    const score = fuzzyScore(queryText, haystack);
+    if (score !== null) {
+      scored.push({ score, row });
+    }
+  }
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (a.row.favorite !== b.row.favorite) return a.row.favorite ? -1 : 1;
+    return a.row.title.toLowerCase().localeCompare(b.row.title.toLowerCase());
+  });
+  return scored.map((entry) => entry.row);
+}
+
+export const filteredItems = computed<CipherRowView[]>(() =>
+  filterRows(rawItems(), category(), scopeId(), folderId(), search()),
+);
+
+export const visibleItems = computed<CipherRowView[]>(() => {
+  const items = filteredItems();
+  const limit = Math.max(0, visibleLimit());
+  return items.slice(0, limit);
+});
+
+export const selectedCipher = computed<CipherRowView | null>(() => {
+  const items = filteredItems();
   if (items.length === 0) {
     return null;
   }
@@ -169,13 +240,13 @@ export const selectedCipher = computed(() => {
 });
 
 export const activeScopeName = computed(() => {
-  const active = snapshot().activeScope;
+  const active = scopeId();
   const match = snapshot().scopes.find((scope) => scope.id === active);
   return match ? match.name : "All Vaults";
 });
 
 export const activeFolderName = computed(() => {
-  const active = snapshot().activeFolder;
+  const active = folderId();
   if (!active) {
     return "All Folders";
   }
@@ -309,14 +380,14 @@ function expandVisibleLimitForSelection(index: number): void {
   if (index < threshold) {
     return;
   }
-  const target = Math.min(snapshot().items.length, index + 10);
+  const target = Math.min(filteredItems().length, index + 10);
   visibleLimit.update((limit) => Math.max(limit, target));
 }
 
 /** Reveals the next page of vault rows. */
 export function showMoreItems(): void {
   visibleLimit.update((limit) =>
-    Math.min(snapshot().items.length, limit + DEFAULT_VISIBLE_LIMIT),
+    Math.min(filteredItems().length, limit + DEFAULT_VISIBLE_LIMIT),
   );
 }
 
@@ -328,6 +399,7 @@ function applySnapshot(next: VaultSnapshotView): void {
   }
   const previousLayer = currentLayer();
   snapshot.set(next);
+  rawItems.set(next.allItems ?? next.items);
   search.set(next.search);
   category.set(next.category);
   scopeId.set(next.activeScope);
@@ -353,11 +425,12 @@ function currentFilter(): VaultFilterInput {
 }
 
 function selectFirstIfNeeded(): void {
-  if (snapshot().phase !== "unlocked" || snapshot().items.length === 0) {
+  const items = filteredItems();
+  if (phase() !== "unlocked" || items.length === 0) {
     inspector.set(null);
     return;
   }
-  if (selectedIndex() >= snapshot().items.length) {
+  if (selectedIndex() >= items.length) {
     selectedIndex.set(0);
   }
 }
@@ -533,9 +606,11 @@ export function lockOrLogout(logout: boolean): void {
 // ---------------------------------------------------------------------------
 
 export function query(): void {
-  const next = OmawardenBridge.queryVault(currentFilter());
-  applySnapshot(next);
+  resetVisibleLimit();
   selectFirstIfNeeded();
+  if (inspector() !== null) {
+    refreshInspector();
+  }
 }
 
 export function sync(): void {
@@ -548,11 +623,13 @@ export function sync(): void {
 }
 
 export function setSearch(text: string): void {
+  if (search() === text) return;
   search.set(text);
   query();
 }
 
 export function setCategory(next: ItemCategory): void {
+  if (category() === next) return;
   category.set(next);
   query();
 }
@@ -581,7 +658,7 @@ export function selectCipher(index: number): void {
 }
 
 export function moveSelection(delta: number): void {
-  const items = snapshot().items;
+  const items = filteredItems();
   if (items.length === 0) {
     return;
   }

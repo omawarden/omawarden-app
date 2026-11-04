@@ -24,7 +24,6 @@ function categoryGlyph(category: ItemCategory): string {
 
 export function VaultItemList() {
   const palette = store.palette;
-  const snap = store.snapshot;
 
   return (
     <View
@@ -52,19 +51,19 @@ export function VaultItemList() {
           Vault Items
         </Text>
         <Text style={{ color: palette().muted, fontSize: 11 }}>
-          {store.visibleItems().length} of {snap().items.length}
+          {store.visibleItems().length} of {store.filteredItems().length}
         </Text>
       </View>
 
       <Scroll style={{ flex: 1 }} contentStyle={{ padding: 4, gap: 3 }}>
-        <If when={snap().items.length === 0}>
+        <If when={store.filteredItems().length === 0}>
           <EmptyHint>No items match this search.</EmptyHint>
         </If>
         <Each of={store.visibleItems()} key="index">
           {(item, index) => <VaultRow item={item} index={index} />}
         </Each>
-        <If when={snap().items.length > store.visibleItems().length}>
-          <ShowMoreRow remaining={() => snap().items.length - store.visibleItems().length} />
+        <If when={store.filteredItems().length > store.visibleItems().length}>
+          <ShowMoreRow remaining={() => store.filteredItems().length - store.visibleItems().length} />
         </If>
       </Scroll>
     </View>
@@ -107,7 +106,7 @@ function ShowMoreRow(props: { remaining: () => number }) {
 
 function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
   const palette = store.palette;
-  const id = actionID(`cipher-row-${props.item().id}`);
+  const id = actionID(`cipher-row-slot-${props.index()}`);
   useAction(id, () => store.selectCipher(props.index()));
   const focused = () => store.focusedAction() === id;
   const active = () =>
@@ -151,15 +150,15 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
           >
             {props.item().title}
           </Text>
-          {props.item().favorite ? (
+          <If when={props.item().favorite}>
             <Text style={{ color: palette().warning, fontSize: 11 }}>★</Text>
-          ) : null}
+          </If>
         </View>
         <Text style={{ color: palette().muted, fontSize: 11 }}>
           {props.item().subtitle || props.item().category}
         </Text>
         <View style={{ flexDirection: "row", gap: 4, flexWrap: "wrap" }}>
-          {props.item().organization ? (
+          <If when={props.item().organization}>
             <View
               style={{
                 backgroundColor: tint(palette().info, palette().popups.background, 0.16),
@@ -168,11 +167,11 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
               }}
             >
               <Text style={{ color: palette().info, fontSize: 9 }}>
-                {props.item().organization}
+                {props.item().organization ?? ""}
               </Text>
             </View>
-          ) : null}
-          {props.item().attachmentCount > 0 ? (
+          </If>
+          <If when={props.item().attachmentCount > 0}>
             <View
               style={{
                 backgroundColor: tint(palette().purple, palette().popups.background, 0.16),
@@ -184,8 +183,8 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
                 {props.item().attachmentCount} file
               </Text>
             </View>
-          ) : null}
-          {props.item().hasTotp ? (
+          </If>
+          <If when={props.item().hasTotp}>
             <View
               style={{
                 backgroundColor: tint(palette().success, palette().popups.background, 0.16),
@@ -195,7 +194,7 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
             >
               <Text style={{ color: palette().success, fontSize: 9 }}>TOTP</Text>
             </View>
-          ) : null}
+          </If>
         </View>
       </View>
     </Button>

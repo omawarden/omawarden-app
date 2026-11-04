@@ -155,6 +155,35 @@ pub mod native {
 }
 ```
 
+### 2.3 Cold Path vs Hot Path (`VaultSnapshot` vs `FilterProjection`)
+
+- **`VaultSnapshotView` is the cold-path contract.** It is produced by
+  `real_snapshot()` after `boot`, `authenticate`, `sync`, and `lock_or_logout`,
+  and includes `all_items` (every `CipherRowView` before filtering) alongside
+  the filtered `items`, counts, scopes, and folders. Producing it may read the
+  encrypted vault and the system keyring.
+- **`CachedVault` is the hot-path source of truth.** `real_snapshot()` stores
+  the unlocked account fields, `VaultItem`s, and rows in a process-global
+  `OnceLock<Mutex<Option<CachedVault>>>`. `query_vault`, `inspect_cipher`,
+  `refresh_totp`, and `copy_cipher_field` serve cache hits directly and fall
+  back to the daemon only on a miss. `lock_or_logout`, `sync_vault`,
+  `save_ssh_key`, and a locked `poll_daemon_tick` clear the cache.
+- **`FilterProjection` is the TSX hot path.** `store/appStore.ts` keeps
+  `rawItems` (from `snapshot.allItems`), fine-grained `category`, `scopeId`,
+  `folderId`, and `search` signals, and derives `filteredItems()` with the same
+  pure-TS subsequence scorer as the Rust engine. `query()`, `setSearch()`,
+  `setCategory()`, `setScope()`, and `setFolder()` never call
+  `OmawardenBridge.queryVault` and never call `snapshot.set()`.
+- **`<If>` preserves mounted views.** Top-level phase and modal switches use
+  `<If when={…}>` instead of bare JSX ternaries, which compile to unmemoized
+  reactive effects that destroy and recreate their subtree. With `<If>`, the
+  `<VaultWorkspace />` widget tree (header, tabs, rows, inspector, footer) stays
+  mounted while filters change; only the row bindings update.
+- **Build and GPU settings stay outside the UI.** `.cargo/config.toml` pins the
+  size-optimized profiles for every `.nsh/rust/*` workspace root, and
+  `configure_linux_renderer()` pins GTK/wgpu to one Mesa Vulkan ICD and one EGL
+  vendor library. Both are described in Section 6.
+
 ---
 
 ## 3. Security & Domain Invariants (Mandatory)
@@ -276,12 +305,18 @@ Create `theme/palette.ts`:
 
 Profiling `nsh run --window-size 1440x960` on Linux with GTK4 + dual AMD Vulkan drivers (`amdvlkpro64.so` + `libvulkan_radeon.so`) showed ~434 MB RSS when unconfigured. To bring resident memory down to ~110–140 MB RSS:
 
-1. **Default GTK4 GSK Renderer to OpenGL (`GSK_RENDERER=ngl`) Before GTK Initialization**:
-   - On systems with `amdvlkpro64.so` (AMD PRO Vulkan ICD) and `libvulkan_radeon.so` (Mesa RADV + `libLLVM`), GTK4's default `vulkan` renderer loads both Vulkan driver stacks (~66 MB of `.so` code) plus ~150 MB of anonymous GPU staging pools (~216 MB RSS total).
-   - Inside `src/lib.rs`, provide an early initialization helper `configure_linux_renderer()` (invoked via a `#[used] #[unsafe(link_section = ".init_array")]` constructor or inside the module initialization before GTK starts, and at the top of `OmawardenBridge::boot`) that checks `std::env::var_os("GSK_RENDERER")`: if unset, it calls `unsafe { std::env::set_var("GSK_RENDERER", "ngl") }`.
-   - Note: Because `nsh-linux-host::main()` initializes GTK before calling JS `boot()`, using a C constructor static in `.init_array` (`#[cfg(target_os = "linux")] #[used] #[unsafe(link_section = ".init_array")] static INIT_RENDERER: extern "C" fn() = init_linux_renderer;`) guarantees `GSK_RENDERER=ngl` is set **before** `gtk::init()` runs in `main()`, while still respecting any user-supplied `GSK_RENDERER` env var!
-2. **Cargo Profile Optimization (`Cargo.toml` & `.nsh/rust/Cargo.toml`)**:
-   - In `~/Development/linux/omawarden-app/Cargo.toml`, configure `[profile.dev]` and `[profile.release]`:
+1. **Pin Linux to One Lightweight GPU Driver (`configure_linux_renderer`)**:
+   - On hybrid AMD + NVIDIA systems with several ICDs installed (`amd_pro_icd64.json`, `nvidia_icd.json`, `radeon_icd.json`, `10_nvidia.json`, `50_mesa.json`), GTK4 and `wgpu` can enumerate both Vulkan and EGL across every driver. That loads `amdvlkpro64.so`, `libnvidia-gpucomp.so`, `libnvidia-eglcore.so`, `libvulkan_radeon.so`, `libgallium.so`, `libLLVM.so`, plus large anonymous GPU heaps.
+   - `configure_linux_renderer()` in `src/lib.rs` runs from a `#[used] #[unsafe(link_section = ".init_array")]` constructor before `gtk::init()` and again at the top of `OmawardenBridge::boot()`. It respects any value the user already set and otherwise applies:
+     - `GSK_RENDERER=ngl`
+     - `WGPU_BACKEND=vulkan` (no simultaneous GL/EGL backend)
+     - `WGPU_POWER_PREFERENCE=low_power`
+     - `VK_DRIVER_FILES` **and** `VK_ICD_FILENAMES` set to the first existing Mesa ICD in this order: `radeon_icd.x86_64.json`, `radeon_icd.json`, `intel_icd.x86_64.json`, `intel_icd.json` under `/usr/share/vulkan/icd.d/`
+     - `__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json` when that file exists
+   - Pinning the ICD stops Vulkan from `dlopen`ing the proprietary AMD PRO and NVIDIA stacks; pinning the EGL vendor file stops `libEGL` from loading `10_nvidia.json`.
+2. **Size-Optimized Profiles via `.cargo/config.toml`**:
+   - `nsh dev` / `nsh run` invoke Cargo against `.nsh/rust/Cargo.toml` and `.nsh/rust/gpui/Cargo.toml` as workspace roots, which can cause Cargo to ignore `[profile.dev]` in this repository's `Cargo.toml`. The unoptimized host binary then reaches ~1.5 GB on disk.
+   - `.cargo/config.toml` applies the profiles regardless of the workspace root:
      ```toml
      [profile.dev]
      opt-level = "s"
@@ -290,16 +325,22 @@ Profiling `nsh run --window-size 1440x960` on Linux with GTK4 + dual AMD Vulkan 
 
      [profile.dev.package."*"]
      opt-level = "s"
+     debug = 0
 
      [profile.release]
      opt-level = "s"
      lto = "thin"
-     strip = true
+     strip = "symbols"
+     codegen-units = 1
      ```
-   - This shrinks the unoptimized 942 MB debug host binary and reduces mapped executable RSS by ~45–50 MB.
+   - This shrinks the debug host binary and the release runner, and reduces mapped executable RSS.
 3. **Windowed / Capped Vault List Rendering (`components/VaultItemList.tsx`)**:
-   - Avoid mounting hundreds or thousands of GTK `<Button>` row subtrees simultaneously in `<Each of={snap().items}>`.
-   - Render a windowed slice (e.g. `visibleLimit` signal defaulting to `80` items, resetting to `80` when filter/search changes, with a `"Show more items (… remaining)"` button at the bottom of the scroll list and automatic expansion if keyboard navigation `selectedIndex()` approaches the current `visibleLimit`).
+   - Avoid mounting hundreds or thousands of GTK `<Button>` row subtrees simultaneously in `<Each of={store.visibleItems()}>`.
+   - Render a windowed slice (`visibleLimit` defaults to `80`, resets to `80` when filters change, and grows automatically when keyboard navigation approaches the end) with a `Show more (… remaining)` button at the bottom of the scroll list.
+   - `<Each … key="index">` keeps row slots in place across category switches, and the row action id is `cipher-row-slot-${index}` so the registered action stays valid when a slot's item changes.
+4. **Hot-Path FilterProjection Without Snapshot or Widget Churn**:
+   - Category, scope, folder, and search changes update only `filteredItems()`, which filters the cached `rawItems` in memory. They perform no daemon IPC, no keyring lookups, and no `snapshot.set()`.
+   - Phase and modal branches use `<If when={…}>` rather than bare JSX ternaries, so the `<VaultWorkspace />` subtree stays mounted across filter changes and inner badge views update in place instead of being recreated.
 
 ---
 
