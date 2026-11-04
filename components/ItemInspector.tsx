@@ -4,7 +4,8 @@ import type { InspectorView } from "omawarden-app/native";
 import * as store from "../store/appStore";
 import { formatMaskedCardNumber, formatRevealedCardNumber } from "../store/CardFormatter";
 import { tint } from "../theme/palette";
-import { ActionButton, Chip, FieldRow, Panel, SectionTitle, SmallButton } from "./ui";
+import { ActionButton, Chip, FieldRow, Panel, SectionTitle } from "./ui";
+import { GhostIconButton } from "./GhostIconButton";
 import { EmptyInspector } from "./EmptyInspector";
 
 export function ItemInspector() {
@@ -21,7 +22,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
   const attachment = store.attachmentPreview;
   const reprompt = () => item().reprompt === 1 && store.repromptRequired();
   const totpDanger = () => Boolean(item().totp?.valid) && (item().totp?.remaining ?? 0) <= 5;
-  const totpColor = () => (totpDanger() ? palette().danger : palette().success);
+  const totpColor = () => (totpDanger() ? palette().danger : palette().popups.selectedText);
 
   return (
     <View
@@ -109,85 +110,63 @@ function InspectorBody(props: { item: () => InspectorView }) {
                 >
                   {item().password ?? item().passwordMasked}
                 </Text>
-                <SmallButton
+                <GhostIconButton
                   testID="reveal-password"
+                  label={store.reveal().revealPassword ? "Hide password" : "Show password"}
+                  icon={store.reveal().revealPassword ? "\uf070" : "\uf06e"}
                   onPress={() => store.toggleReveal("password")}
-                >
-                  <Text
-                    style={{
-                      color: palette().popups.selectedText,
-                      fontSize: 11,
-                      fontWeight: "bold",
-                    }}
-                  >
-                    {store.reveal().revealPassword ? "Hide" : "Reveal"}
-                  </Text>
-                </SmallButton>
-                <SmallButton
+                />
+                <GhostIconButton
                   testID="copy-password"
-                  accessibilityLabel="Copy password"
+                  label="Copy password"
+                  icon="\uf0c5"
                   onPress={() => store.copyField("password")}
-                >
-                  <Text
-                    style={{
-                      color: palette().popups.selectedText,
-                      fontSize: 11,
-                      fontWeight: "bold",
-                    }}
-                  >
-                    Copy
-                  </Text>
-                </SmallButton>
+                />
               </View>
               {item().passwordHistory.length > 0 ? (
-                <SmallButton
-                  testID="open-password-history"
-                  alignSelf="flex-start"
-                  paddingVertical={2}
-                  onPress={store.openPasswordHistory}
-                >
-                  <Text style={{ color: palette().popups.selectedText, fontSize: 12 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Text style={{ color: palette().muted, fontSize: 11 }}>
                     Password History ({item().passwordHistory.length})
                   </Text>
-                </SmallButton>
+                  <GhostIconButton
+                    testID="open-password-history"
+                    label="View password history"
+                    icon="\uf1da"
+                    onPress={store.openPasswordHistory}
+                  />
+                </View>
               ) : null}
             </View>
 
             {item().totp ? (
-              <View
-                testID="inspector-totp"
-                style={{
-                  backgroundColor: tint(totpColor(), palette().popups.background, 0.12),
-                  borderRadius: 8,
-                  padding: 10,
-                  gap: 6,
-                }}
-              >
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <Text style={{ color: palette().popups.text, fontSize: 12, fontWeight: "bold" }}>
-                    Live TOTP
-                  </Text>
+              <View testID="inspector-totp" style={{ gap: 4 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Text style={{ color: palette().muted, fontSize: 12 }}>TOTP Code</Text>
                   <Text
                     testID="inspector-totp-remaining"
-                    style={{ color: totpColor(), fontSize: 11, fontWeight: totpDanger() ? "bold" : "normal" }}
+                    style={{
+                      color: totpDanger() ? palette().danger : palette().muted,
+                      fontSize: 12,
+                      fontWeight: totpDanger() ? "bold" : "normal",
+                    }}
                   >
-                    {item().totp?.valid
-                      ? `${item().totp?.remaining}s / ${item().totp?.period}s`
-                      : "Unavailable"}
+                    {item().totp?.valid ? `${item().totp?.remaining}s` : "Unavailable"}
                   </Text>
+                  <View style={{ flex: 1 }} />
+                  <GhostIconButton
+                    testID="refresh-totp"
+                    label="Refresh TOTP"
+                    icon="\uf021"
+                    onPress={store.refreshTotp}
+                  />
                 </View>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                   <Text
                     testID="inspector-totp-code"
                     selectable={!reprompt()}
                     style={{
-                      color: reprompt() ? palette().muted : palette().popups.text,
+                      flex: 1,
+                      color: reprompt() ? palette().muted : totpColor(),
                       fontSize: 24,
                       fontWeight: "bold",
                       fontFamily: "monospace",
@@ -200,35 +179,12 @@ function InspectorBody(props: { item: () => InspectorView }) {
                         ? item().totp?.formatted
                         : item().totp?.error ?? "—"}
                   </Text>
-                  <SmallButton
+                  <GhostIconButton
                     testID="copy-totp"
-                    accessibilityLabel="Copy TOTP"
+                    label="Copy TOTP code"
+                    icon="\uf0c5"
                     onPress={() => store.copyField("totp")}
-                  >
-                    <Text
-                      style={{
-                        color: palette().popups.selectedText,
-                        fontSize: 11,
-                        fontWeight: "bold",
-                      }}
-                    >
-                      Copy
-                    </Text>
-                  </SmallButton>
-                  <SmallButton
-                    testID="refresh-totp"
-                    onPress={store.refreshTotp}
-                  >
-                    <Text
-                      style={{
-                        color: palette().popups.selectedText,
-                        fontSize: 11,
-                        fontWeight: "bold",
-                      }}
-                    >
-                      Refresh
-                    </Text>
-                  </SmallButton>
+                  />
                 </View>
                 <Progress
                   value={
@@ -242,16 +198,16 @@ function InspectorBody(props: { item: () => InspectorView }) {
                         )
                       : 0
                   }
-                  trackClass="h-1.5 rounded-full"
-                  indicatorClass="h-1.5 rounded-full"
                   trackStyle={{
+                    height: 3,
+                    borderRadius: 2,
                     backgroundColor: tint(
-                      totpColor(),
+                      palette().popups.text,
                       palette().popups.background,
-                      0.2,
+                      0.1,
                     ),
                   }}
-                  indicatorStyle={{ backgroundColor: totpColor() }}
+                  indicatorStyle={{ height: 3, borderRadius: 2, backgroundColor: totpColor() }}
                 />
               </View>
             ) : null}
@@ -275,22 +231,18 @@ function InspectorBody(props: { item: () => InspectorView }) {
                       >
                         {uri().host || uri().uri}
                       </Text>
-                      <SmallButton
+                      <GhostIconButton
                         testID={`copy-uri-${uri().host}`}
+                        label="Copy website URL"
+                        icon="\uf0c5"
                         onPress={() => store.copyText(uri().uri, "website URL", false)}
-                      >
-                        <Text style={{ color: palette().popups.selectedText, fontSize: 11 }}>
-                          Copy
-                        </Text>
-                      </SmallButton>
-                      <SmallButton
+                      />
+                      <GhostIconButton
                         testID={`launch-uri-${uri().host}`}
+                        label="Open website"
+                        icon="\uf08e"
                         onPress={() => store.openUrl(uri().uri)}
-                      >
-                        <Text style={{ color: palette().popups.selectedText, fontSize: 11 }}>
-                          Open
-                        </Text>
-                      </SmallButton>
+                      />
                     </View>
                   )}
                 </Each>
@@ -329,35 +281,18 @@ function InspectorBody(props: { item: () => InspectorView }) {
                       item().card?.brand,
                     )}
               </Text>
-              <SmallButton
+              <GhostIconButton
                 testID="reveal-card-number"
+                label={store.reveal().revealCardNumber ? "Hide card number" : "Show card number"}
+                icon={store.reveal().revealCardNumber ? "\uf070" : "\uf06e"}
                 onPress={() => store.toggleReveal("cardNumber")}
-              >
-                <Text
-                  style={{
-                    color: palette().popups.selectedText,
-                    fontSize: 11,
-                    fontWeight: "bold",
-                  }}
-                >
-                  {store.reveal().revealCardNumber ? "Hide" : "Reveal"}
-                </Text>
-              </SmallButton>
-              <SmallButton
+              />
+              <GhostIconButton
                 testID="copy-card-number"
-                accessibilityLabel="Copy card number"
+                label="Copy card number"
+                icon="\uf0c5"
                 onPress={() => store.copyField("card_number")}
-              >
-                <Text
-                  style={{
-                    color: palette().popups.selectedText,
-                    fontSize: 11,
-                    fontWeight: "bold",
-                  }}
-                >
-                  Copy
-                </Text>
-              </SmallButton>
+              />
             </View>
             <FieldRow
               label="Expiration"
@@ -383,35 +318,18 @@ function InspectorBody(props: { item: () => InspectorView }) {
               >
                 {item().card?.cvv || item().card?.cvvMasked}
               </Text>
-              <SmallButton
+              <GhostIconButton
                 testID="reveal-cvv"
+                label={store.reveal().revealCvv ? "Hide security code" : "Show security code"}
+                icon={store.reveal().revealCvv ? "\uf070" : "\uf06e"}
                 onPress={() => store.toggleReveal("cvv")}
-              >
-                <Text
-                  style={{
-                    color: palette().popups.selectedText,
-                    fontSize: 11,
-                    fontWeight: "bold",
-                  }}
-                >
-                  {store.reveal().revealCvv ? "Hide" : "Reveal"}
-                </Text>
-              </SmallButton>
-              <SmallButton
+              />
+              <GhostIconButton
                 testID="copy-cvv"
-                accessibilityLabel="Copy security code"
+                label="Copy security code"
+                icon="\uf0c5"
                 onPress={() => store.copyField("cvv")}
-              >
-                <Text
-                  style={{
-                    color: palette().popups.selectedText,
-                    fontSize: 11,
-                    fontWeight: "bold",
-                  }}
-                >
-                  Copy
-                </Text>
-              </SmallButton>
+              />
             </View>
           </Panel>
         ) : null}
@@ -531,55 +449,48 @@ function InspectorBody(props: { item: () => InspectorView }) {
               >
                 {item().ssh?.privateKey}
               </Text>
-              <SmallButton
+              <GhostIconButton
                 testID="reveal-private-key"
+                label={store.reveal().revealPrivateKey ? "Hide private key" : "Show private key"}
+                icon={store.reveal().revealPrivateKey ? "\uf070" : "\uf06e"}
                 onPress={() => store.toggleReveal("privateKey")}
-              >
-                <Text
-                  style={{
-                    color: palette().popups.selectedText,
-                    fontSize: 11,
-                    fontWeight: "bold",
-                  }}
-                >
-                  {store.reveal().revealPrivateKey ? "Hide" : "Reveal"}
-                </Text>
-              </SmallButton>
-              <SmallButton
+              />
+              <GhostIconButton
                 testID="copy-private-key"
-                accessibilityLabel="Copy private key"
+                label="Copy private key"
+                icon="\uf0c5"
                 onPress={() => store.copyField("private_key")}
-              >
-                <Text
-                  style={{
-                    color: palette().popups.selectedText,
-                    fontSize: 11,
-                    fontWeight: "bold",
-                  }}
-                >
-                  Copy
-                </Text>
-              </SmallButton>
+              />
+              <GhostIconButton
+                testID="export-ssh-key"
+                label="Export SSH key to ~/.ssh"
+                icon="\uf093"
+                onPress={() => store.openSshKey("export")}
+              />
             </View>
-            <ActionButton
-              label="Export to ~/.ssh"
-              testID="export-ssh-key"
-              onPress={() => store.openSshKey("export")}
-            />
           </Panel>
         ) : null}
 
         {item().notes ? (
           <Panel testID="inspector-notes">
-            <SectionTitle>Secure Note</SectionTitle>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <SectionTitle>Secure Note</SectionTitle>
+              <GhostIconButton
+                testID="copy-notes"
+                label="Copy secure note"
+                icon="\uf0c5"
+                onPress={() => store.copyField("notes")}
+              />
+            </View>
             <Text selectable style={{ color: palette().popups.text, fontSize: 13, lineHeight: 19 }}>
               {item().notes}
             </Text>
-            <ActionButton
-              label="Copy Note"
-              testID="copy-notes"
-              onPress={() => store.copyField("notes")}
-            />
           </Panel>
         ) : null}
 
@@ -604,25 +515,27 @@ function InspectorBody(props: { item: () => InspectorView }) {
                         : field().value}
                     </Text>
                     {field().kind === "hidden" ? (
-                      <SmallButton
+                      <GhostIconButton
                         testID={`reveal-field-${field().index}`}
+                        label={
+                          store.reveal().revealFields.includes(field().index)
+                            ? "Hide field"
+                            : "Show field"
+                        }
+                        icon={
+                          store.reveal().revealFields.includes(field().index)
+                            ? "\uf070"
+                            : "\uf06e"
+                        }
                         onPress={() => store.toggleRevealField(field().index)}
-                      >
-                        <Text style={{ color: palette().popups.selectedText, fontSize: 11 }}>
-                          {store.reveal().revealFields.includes(field().index)
-                            ? "Hide"
-                            : "Reveal"}
-                        </Text>
-                      </SmallButton>
+                      />
                     ) : null}
-                    <SmallButton
+                    <GhostIconButton
                       testID={`copy-field-${field().index}`}
+                      label="Copy field"
+                      icon="\uf0c5"
                       onPress={() => store.copyField("custom", field().index)}
-                    >
-                      <Text style={{ color: palette().popups.selectedText, fontSize: 11 }}>
-                        Copy
-                      </Text>
-                    </SmallButton>
+                    />
                   </View>
                   <Text style={{ color: palette().muted, fontSize: 10 }}>{field().kind}</Text>
                 </View>
@@ -650,22 +563,18 @@ function InspectorBody(props: { item: () => InspectorView }) {
                   <Text style={{ color: palette().muted, fontSize: 11 }}>
                     {file().sizeLabel}
                   </Text>
-                  <SmallButton
+                  <GhostIconButton
                     testID={`preview-attachment-${file().id}`}
+                    label="Preview attachment"
+                    icon="\uf06e"
                     onPress={() => store.openAttachment(item().id, file().id, "preview")}
-                  >
-                    <Text style={{ color: palette().popups.selectedText, fontSize: 11 }}>
-                      Preview
-                    </Text>
-                  </SmallButton>
-                  <SmallButton
+                  />
+                  <GhostIconButton
                     testID={`download-attachment-${file().id}`}
+                    label="Download attachment"
+                    icon="\uf019"
                     onPress={() => store.saveAttachment(item().id, file().id)}
-                  >
-                    <Text style={{ color: palette().popups.selectedText, fontSize: 11 }}>
-                      Download
-                    </Text>
-                  </SmallButton>
+                  />
                 </View>
               )}
             </Each>
@@ -689,13 +598,12 @@ function InspectorBody(props: { item: () => InspectorView }) {
                   >
                     {attachment()?.filename}
                   </Text>
-                  <SmallButton
+                  <GhostIconButton
                     testID="close-attachment-preview"
-                    paddingVertical={1}
+                    label="Close preview"
+                    icon="\uf00d"
                     onPress={store.closeAttachmentPreview}
-                  >
-                    <Text style={{ color: palette().muted, fontSize: 11 }}>Close</Text>
-                  </SmallButton>
+                  />
                 </View>
                 {attachment()?.isImage ? (
                   <View style={{ gap: 6 }}>
@@ -719,9 +627,10 @@ function InspectorBody(props: { item: () => InspectorView }) {
                         }}
                       />
                     </If>
-                    <ActionButton
-                      label="Open with system viewer"
+                    <GhostIconButton
                       testID="open-attachment-external"
+                      label="Open attachment with system viewer"
+                      icon="\uf08e"
                       onPress={store.launchAttachmentPreview}
                     />
                   </View>
@@ -740,9 +649,10 @@ function InspectorBody(props: { item: () => InspectorView }) {
                         {attachment()?.text}
                       </Text>
                     </Scroll>
-                    <ActionButton
-                      label="Copy content"
+                    <GhostIconButton
                       testID="copy-attachment-content"
+                      label="Copy attachment content"
+                      icon="\uf0c5"
                       onPress={() =>
                         store.copyText(attachment()?.text ?? "", "attachment content", true)
                       }

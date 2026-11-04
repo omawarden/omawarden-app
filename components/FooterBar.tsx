@@ -1,18 +1,9 @@
-import { Text, View } from "nsh";
+import { Animated, createMotion, effect, Text, View } from "nsh";
 import { Button } from "nsh/base";
 import * as store from "../store/appStore";
+import * as paletteActions from "../store/actionPalette";
 import { tint } from "../theme/palette";
 import { actionID, focusOutline, useAction } from "./ui";
-
-const SHORTCUTS = [
-  "↑↓ Navigate",
-  "⏎ Primary Copy",
-  "Ctrl+K Actions",
-  "Ctrl+G Generator",
-  "Ctrl+R Sync",
-  "Ctrl+L Lock",
-  "Ctrl+, Settings",
-];
 
 export function FooterBar() {
   const palette = store.palette;
@@ -30,7 +21,7 @@ export function FooterBar() {
       style={{
         flexDirection: "row",
         alignItems: "center",
-        gap: 10,
+        gap: 6,
         paddingHorizontal: 12,
         paddingVertical: 6,
         backgroundColor: palette().menu.background,
@@ -39,11 +30,42 @@ export function FooterBar() {
         flexWrap: "wrap",
       }}
     >
-      <Each of={SHORTCUTS} key="index">
-        {(shortcut) => (
-          <Text style={{ color: palette().muted, fontSize: 10 }}>{shortcut()}</Text>
-        )}
-      </Each>
+      <FooterAction
+        icon="\uf0e7"
+        label="Actions"
+        shortcut="Ctrl+K"
+        testID="open-actions"
+        onPress={paletteActions.openPalette}
+      />
+      <FooterAction
+        icon="\uf084"
+        label="Generate"
+        shortcut="Ctrl+G"
+        testID="open-generator"
+        onPress={store.openGenerator}
+      />
+      <FooterAction
+        icon="\uf021"
+        label="Sync"
+        shortcut="Ctrl+R"
+        testID="sync-vault"
+        onPress={store.sync}
+      />
+      {store.isSyncing() ? <SyncIndicator /> : null}
+      <FooterAction
+        icon="\uf023"
+        label="Lock"
+        shortcut="Ctrl+L"
+        testID="lock-vault"
+        onPress={() => store.lockOrLogout(false)}
+      />
+      <FooterAction
+        icon="\uf013"
+        label="Settings"
+        shortcut="Ctrl+,"
+        testID="open-settings"
+        onPress={store.openSettings}
+      />
       <View style={{ flex: 1 }} />
       <Text style={{ color: palette().muted, fontSize: 10 }}>
         Theme: {store.theme() === "light" ? "Light" : "Dark"}
@@ -80,5 +102,82 @@ export function FooterBar() {
         </Button>
       ) : null}
     </View>
+  );
+}
+
+/** A small refresh glyph that spins while a sync is in flight. */
+function SyncIndicator() {
+  const palette = store.palette;
+  const motion = createMotion();
+  effect(() => {
+    if (!store.isSyncing()) {
+      motion.reset();
+      return;
+    }
+    const spin = Animated.loop(
+      Animated.timing(motion.rotate, { toValue: 360, duration: 900, easing: "linear" }),
+    );
+    spin.start();
+    return () => {
+      spin.stop();
+      motion.reset();
+    };
+  });
+
+  return (
+    <View
+      testID="sync-indicator"
+      accessibilityLabel="Syncing"
+      style={{
+        width: 14,
+        height: 14,
+        alignItems: "center",
+        justifyContent: "center",
+        ...motion.style,
+      }}
+    >
+      <Text style={{ color: palette().muted, fontSize: 11 }}>{"\uf021"}</Text>
+    </View>
+  );
+}
+
+function FooterAction(props: {
+  icon: string;
+  label: string;
+  shortcut: string;
+  testID: string;
+  onPress: () => void;
+}) {
+  const palette = store.palette;
+  const id = actionID(props.testID);
+  useAction(id, () => props.onPress());
+  const focused = () => store.focusedAction() === id;
+  const accent = () => palette().menu.selectedText;
+  const background = () => palette().menu.background;
+  return (
+    <Button
+      testID={props.testID}
+      accessibilityLabel={`${props.label} (${props.shortcut})`}
+      onPress={props.onPress}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 4,
+        backgroundColor: "transparent",
+        ...focusOutline(focused(), accent()),
+      }}
+      hoverStyle={{ backgroundColor: tint(accent(), background(), 0.08) }}
+      activeStyle={{ backgroundColor: tint(accent(), background(), 0.16) }}
+      focusStyle={{ backgroundColor: tint(accent(), background(), 0.08) }}
+    >
+      <Text style={{ color: palette().muted, fontSize: 11 }}>{props.icon}</Text>
+      <Text style={{ color: palette().muted, fontSize: 11, fontWeight: "bold" }}>
+        {props.label}
+      </Text>
+      <Text style={{ color: palette().muted, fontSize: 9 }}>{props.shortcut}</Text>
+    </Button>
   );
 }

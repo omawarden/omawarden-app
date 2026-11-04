@@ -1,139 +1,43 @@
-import { Text, View } from "nsh";
-import { Input } from "nsh/base";
-import { signal } from "nsh";
+import { effect, keymap, Text, View } from "nsh";
+import { Button, Input } from "nsh/base";
 import * as store from "../store/appStore";
+import * as paletteActions from "../store/actionPalette";
+import type { PaletteAction } from "../store/actionPalette";
+import { tint } from "../theme/palette";
 import { inputStyle } from "./AuthView";
 import { ActionButton, ModalShell, SectionTitle } from "./ui";
-
-interface PaletteAction {
-  id: string;
-  label: string;
-  hint: string;
-  run: () => void;
-}
-
-const query = signal("");
-
-const GLOBAL_ACTIONS: PaletteAction[] = [
-  {
-    id: "sync",
-    label: "Sync Vault",
-    hint: "Synchronize with the Bitwarden server",
-    run: () => store.sync(),
-  },
-  {
-    id: "generator",
-    label: "Open Password Generator",
-    hint: "Create a strong password or passphrase",
-    run: store.openGenerator,
-  },
-  {
-    id: "create-ssh-key",
-    label: "Create SSH Key",
-    hint: "Generate or import an SSH key",
-    run: () => store.openSshKey("create"),
-  },
-  {
-    id: "lock",
-    label: "Lock Vault",
-    hint: "Clear the session and lock the vault",
-    run: () => store.lockOrLogout(false),
-  },
-  {
-    id: "settings",
-    label: "Open Settings",
-    hint: "Manage configuration and diagnostics",
-    run: store.openSettings,
-  },
-];
-
-function matches(action: PaletteAction, search: string): boolean {
-  return (
-    !search ||
-    action.label.toLowerCase().includes(search) ||
-    action.hint.toLowerCase().includes(search)
-  );
-}
 
 export function ActionPaletteModal() {
   const palette = store.palette;
   const cipher = store.selectedCipher;
-  const detail = store.inspector;
+  const contextVisible = () => paletteActions.filteredContext();
+  const globalVisible = () => paletteActions.filteredGlobal();
+  const empty = () => contextVisible().length === 0 && globalVisible().length === 0;
 
-  const contextActions = (): PaletteAction[] => {
-    const actions: PaletteAction[] = [];
-    const current = cipher();
-    if (current) {
-      if (current.category === "login") {
-        actions.push({
-          id: "copy-password",
-          label: "Copy Password",
-          hint: "Copy the selected login password",
-          run: () => store.copyField("password"),
-        });
-        actions.push({
-          id: "copy-username",
-          label: "Copy Username",
-          hint: "Copy the selected login username",
-          run: () => store.copyField("username"),
-        });
-        if (current.hasTotp) {
-          actions.push({
-            id: "copy-totp",
-            label: "Copy TOTP",
-            hint: "Copy the current one-time code",
-            run: () => store.copyField("totp"),
-          });
-        }
-        actions.push({
-          id: "reveal-password",
-          label: "Reveal Password",
-          hint: "Toggle the password visibility",
-          run: () => store.toggleReveal("password"),
-        });
-        if (current.hasPasswordHistory) {
-          actions.push({
-            id: "password-history",
-            label: "View Password History",
-            hint: "Browse previous passwords",
-            run: store.openPasswordHistory,
-          });
-        }
-      }
-      if (current.category === "sshKey") {
-        actions.push({
-          id: "export-ssh-key",
-          label: "Export SSH Key",
-          hint: "Write the key to ~/.ssh",
-          run: () => store.openSshKey("export"),
-        });
-      }
-      const currentDetail = detail();
-      if (currentDetail && currentDetail.uris.length > 0) {
-        const first = currentDetail.uris[0];
-        actions.push({
-          id: "open-url",
-          label: "Open URL",
-          hint: first.host || first.uri,
-          run: () => store.openUrl(first.uri),
-        });
-      }
-    }
-    return actions;
-  };
-
-  const search = () => query().trim().toLowerCase();
-  const visibleContext = () => contextActions().filter((action) => matches(action, search()));
-  const visibleGlobal = () => GLOBAL_ACTIONS.filter((action) => matches(action, search()));
-  const empty = () => visibleContext().length === 0 && visibleGlobal().length === 0;
-
-  const run = (action: PaletteAction) => {
-    query.set("");
-    action.run();
-    if (store.activeModal() === "actionPalette") {
-      store.closeModal();
-    }
-  };
+  // The palette owns the keyboard while it is open: arrows move the selection
+  // even though the search input has focus, and each action's shortcut runs it.
+  effect(() => {
+    const unbind = keymap.bind(
+      {
+        up: () => paletteActions.moveSelection(-1),
+        down: () => paletteActions.moveSelection(1),
+        enter: () => paletteActions.runSelected(),
+        "mod+enter": () => paletteActions.runShortcut("mod+enter"),
+        "ctrl+enter": () => paletteActions.runShortcut("mod+enter"),
+        "mod+u": () => paletteActions.runShortcut("mod+u"),
+        "mod+t": () => paletteActions.runShortcut("mod+t"),
+        "mod+o": () => paletteActions.runShortcut("mod+o"),
+        "mod+h": () => paletteActions.runShortcut("mod+h"),
+        "mod+e": () => paletteActions.runShortcut("mod+e"),
+        "mod+g": () => paletteActions.runShortcut("mod+g"),
+        "mod+r": () => paletteActions.runShortcut("mod+r"),
+        "mod+l": () => paletteActions.runShortcut("mod+l"),
+        "mod+,": () => paletteActions.runShortcut("mod+,"),
+      },
+      { when: "always" },
+    );
+    return unbind;
+  });
 
   return (
     <ModalShell
@@ -144,30 +48,44 @@ export function ActionPaletteModal() {
     >
       <Input
         testID="action-palette-search"
-        value={query()}
+        value={paletteActions.query()}
         placeholder="Search actions…"
         autoFocus
         autoCapitalize="none"
         autoCorrect={false}
-        onChange={(text: string) => query.set(text)}
+        onChange={(text: string) => paletteActions.setQuery(text)}
         style={inputStyle()}
       />
 
-      <If when={contextActions().length > 0}>
+      <If when={contextVisible().length > 0}>
         <SectionTitle hint={cipher()?.title}>Selected Item</SectionTitle>
       </If>
-      <Each of={visibleContext()} key="index">
-        {(action) => <PaletteRow action={action()} onRun={() => run(action())} />}
+      <Each of={contextVisible()} key="index">
+        {(action, index) => (
+          <PaletteRow
+            action={action()}
+            selected={paletteActions.selectedIndex() === index()}
+            onPress={() => paletteActions.runAction(action())}
+          />
+        )}
       </Each>
 
-      <SectionTitle hint="Vault-wide commands">Global</SectionTitle>
-      <Each of={visibleGlobal()} key="index">
-        {(action) => <PaletteRow action={action()} onRun={() => run(action())} />}
+      <If when={globalVisible().length > 0}>
+        <SectionTitle hint="Vault-wide commands">Global</SectionTitle>
+      </If>
+      <Each of={globalVisible()} key="index">
+        {(action, index) => (
+          <PaletteRow
+            action={action()}
+            selected={paletteActions.selectedIndex() === contextVisible().length + index()}
+            onPress={() => paletteActions.runAction(action())}
+          />
+        )}
       </Each>
 
       {empty() ? (
         <Text testID="action-palette-empty" style={{ color: palette().muted, fontSize: 12 }}>
-          No actions match “{query()}”.
+          No actions match “{paletteActions.query()}”.
         </Text>
       ) : null}
 
@@ -176,7 +94,7 @@ export function ActionPaletteModal() {
           label="Close"
           testID="action-palette-close"
           onPress={() => {
-            query.set("");
+            paletteActions.reset();
             store.closeModal();
           }}
         />
@@ -185,27 +103,74 @@ export function ActionPaletteModal() {
   );
 }
 
-function PaletteRow(props: { action: PaletteAction; onRun: () => void }) {
+function PaletteRow(props: {
+  action: PaletteAction;
+  selected: boolean;
+  onPress: () => void;
+}) {
   const palette = store.palette;
+  const foreground = () => palette().popups.text;
+  const accent = () => palette().popups.selectedText;
+  const background = () =>
+    props.selected ? palette().popups.selectedBackground : "transparent";
+
   return (
-    <View
+    <Button
+      testID={`action-${props.action.id}`}
+      accessibilityLabel={props.action.label}
+      onPress={props.onPress}
       style={{
+        width: "100%",
         flexDirection: "row",
         alignItems: "center",
         gap: 10,
-        flexWrap: "wrap",
-        borderBottomWidth: 1,
-        borderBottomColor: palette().popups.border,
-        paddingBottom: 6,
+        paddingHorizontal: 8,
+        paddingVertical: 6,
+        borderRadius: 6,
+        backgroundColor: background(),
       }}
+      hoverStyle={{ backgroundColor: tint(accent(), palette().popups.background, 0.1) }}
+      activeStyle={{ backgroundColor: tint(accent(), palette().popups.background, 0.2) }}
+      focusStyle={{ backgroundColor: tint(accent(), palette().popups.background, 0.1) }}
     >
-      <View style={{ flex: 1, minWidth: 200, gap: 1 }}>
-        <Text style={{ color: palette().popups.text, fontSize: 13, fontWeight: "bold" }}>
+      <Text
+        style={{
+          width: 18,
+          color: props.selected ? accent() : palette().muted,
+          fontSize: 13,
+          textAlign: "center",
+        }}
+      >
+        {props.action.icon}
+      </Text>
+      <View style={{ flex: 1, gap: 1 }}>
+        <Text
+          style={{
+            color: props.selected ? accent() : foreground(),
+            fontSize: 13,
+            fontWeight: "bold",
+          }}
+        >
           {props.action.label}
         </Text>
         <Text style={{ color: palette().muted, fontSize: 11 }}>{props.action.hint}</Text>
       </View>
-      <ActionButton label="Run" testID={`action-${props.action.id}`} onPress={props.onRun} />
-    </View>
+      {props.action.shortcut ? (
+        <View
+          style={{
+            backgroundColor: tint(foreground(), palette().popups.background, 0.08),
+            borderColor: palette().popups.border,
+            borderWidth: 1,
+            borderRadius: 3,
+            paddingHorizontal: 5,
+            paddingVertical: 1,
+          }}
+        >
+          <Text style={{ color: palette().muted, fontSize: 10 }}>
+            {props.action.shortcut}
+          </Text>
+        </View>
+      ) : null}
+    </Button>
   );
 }

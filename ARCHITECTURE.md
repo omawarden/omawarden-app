@@ -253,31 +253,36 @@ Create `theme/palette.ts`:
      - `"Log Out"` button with confirmation.
 3. **`VaultWorkspace` (when `unlocked`)**:
    - **`components/SearchHeader.tsx`**:
-     - Search input with instant fuzzy filtering, item count badge, `"Scope"` selector trigger, `"Generator"` button (`Ctrl+G`), `"New SSH Key"` button, `"Sync"` button (`Ctrl+R`), `"Lock"` button (`Ctrl+L`), and `"Settings"` button (`Ctrl+,`).
+     - Search input with instant fuzzy filtering, a match counter pill (`visible / total`), a clear button, and the `"Scope"` selector trigger. Global actions live in the footer.
    - **`components/ScopeDropdown.tsx`**:
      - Filter by Vault Scope (`All Vaults`, `My Vault (Personal)`, or specific `Organizations` & `Collections`) and `Folders`, with live item counts per scope/folder.
    - **`components/CategoryTabBar.tsx`**:
-     - Tabs for `All`, `Logins`, `Cards`, `Identities`, `Secure Notes`, `SSH Keys` with live category counts.
+     - Tabs for `All`, `Logins`, `Cards`, `Identities`, `Secure Notes`, `SSH Keys` with live category counts. On the SSH Keys tab, compact ghost actions create (`+`) or import an SSH key.
    - **`components/VaultItemList.tsx`**:
      - Keyboard-navigable (`Up`/`Down`/`Enter`) list of matching `CipherRowView` items showing category icon, title, subtitle (username / masked card / identity name / SSH key type), favorite star, attachment count badge, and organization badge.
    - **`components/ItemInspector.tsx` & `components/EmptyInspector.tsx`**:
      - Displays full details of the selected cipher:
-       - **Login**: Username (copy), Password (reveal toggle, copy, Password History button if history exists, dynamic wrapping with highlighted digits), Live TOTP widget (code formatted `123 456`, countdown TTL badge + progress bar, copy), Website URIs (hostname display, copy URL, launch URL in browser).
-       - **Card**: Cardholder name, Brand badge, Card number (masked `•••• •••• •••• 1234` vs spaced 4-digit groups when revealed, copy), Expiration (`MM / YYYY`, copy), CVV/Security Code (reveal toggle, copy).
-       - **Identity**: Title/Full Name, Username, Company, Email, Phone, SSN/Passport/License numbers, Address fields (each with copy button).
-       - **Secure Note**: Multi-line selectable/copyable note body.
-       - **SSH Key**: Key type badge, Fingerprint (copy), Public Key (copy), Private Key (reveal toggle, copy, Export to `~/.ssh/` via `SshKeyModal`).
-       - **Custom Fields**: Text, Hidden (reveal toggle), Boolean, Linked fields with copy action.
-       - **Attachments**: Filename, human-readable size, Preview button (inline image/text preview modal/panel) and Download button.
+       - **Login**: Username (ghost copy), Password (ghost reveal toggle + copy, Password History ghost action if history exists, dynamic wrapping with highlighted digits), TOTP block (`TOTP Code` label + TTL, accent monospace code, ghost refresh/copy, 3px progress bar that turns danger at 5s), Website URIs (hostname display, ghost copy, ghost launch in browser).
+       - **Card**: Cardholder name, Brand badge, Card number (masked `•••• •••• •••• 1234` vs spaced 4-digit groups when revealed, ghost reveal/copy), Expiration (`MM / YYYY`, ghost copy), CVV/Security Code (ghost reveal/copy).
+       - **Identity**: Title/Full Name, Username, Company, Email, Phone, SSN/Passport/License numbers, Address fields (each with a ghost copy action).
+       - **Secure Note**: Multi-line selectable/copyable note body with a ghost copy action.
+       - **SSH Key**: Key type badge, Fingerprint (ghost copy), Public Key (ghost copy), Private Key (ghost reveal/copy, ghost export to `~/.ssh/` via `SshKeyModal`).
+       - **Custom Fields**: Text, Hidden (ghost reveal toggle), Boolean, Linked fields with a ghost copy action.
+       - **Attachments**: Filename, human-readable size, ghost preview (inline image/text preview panel) and ghost download actions.
        - **Metadata**: Folder, Organization, Created/Updated timestamps.
+     - Field-level actions use the shared 22x22 `components/GhostIconButton.tsx`; chunky text buttons are reserved for panel-level actions.
    - **`components/FooterBar.tsx`**:
-     - Keyboard shortcut hints (`↑↓ Navigate`, `⏎ Primary Copy`, `Ctrl+K Actions`, `Ctrl+G Generator`, `Ctrl+R Sync`, `Ctrl+L Lock`, `Ctrl+, Settings`), engine version, and update notification badge (opens `ReleaseNotesModal`).
+     - Clickable ghost actions with shortcut badges: `Actions` (`Ctrl+K`), `Generate` (`Ctrl+G`), `Sync` (`Ctrl+R`), `Lock` (`Ctrl+L`), `Settings` (`Ctrl+,`).
+     - A subtle rotating sync indicator appears beside `Sync` while a sync is in flight.
+     - Theme indicator, engine version, last sync time, and update notification badge (opens `ReleaseNotesModal`) on the right.
    - **`components/ToastAlert.tsx`**:
      - Status and error toast notifications with semantic contrast styling.
 
 ### 5.2 All 7 Modals
 1. **`components/ActionPaletteModal.tsx` (`Ctrl+K`)**:
-   - Searchable command palette listing context-aware actions for the selected cipher (Copy Password, Copy Username, Copy TOTP, Open URL, Reveal Password, Export SSH Key, View Password History) plus global actions (Sync Vault, Open Password Generator, Create SSH Key, Lock Vault, Open Settings).
+   - Searchable, keyboard-first command palette (`↑`/`↓` move, `Enter` runs, direct shortcut keystrokes run the matching action) with no per-row "Run" buttons. Each row shows a leading glyph, the label and hint, and a right-aligned shortcut badge.
+   - Lists context-aware actions for the selected cipher (Copy Password, Copy Username, Copy TOTP, Open URL, Reveal Password, Export SSH Key, View Password History) plus global actions (Sync Vault, Open Password Generator, Create SSH Key, Lock Vault, Open Settings).
+   - Action metadata, filtering, selection, and shortcut dispatch live in `store/actionPalette.ts`; the color palette stays in `theme/palette.ts`.
 2. **`components/PasswordGeneratorModal.tsx` (`Ctrl+G`)**:
    - Mode tabs: **Password** vs **Passphrase**.
    - Dynamic wrapping secret preview container with digit highlighting and entropy strength badge (`bits` + Weak/Fair/Good/Strong/Very Strong).
