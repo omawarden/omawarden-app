@@ -1,9 +1,11 @@
-import { Image, type ColorValue, type ImageStyle, type StyleProp } from "nsh";
+import {
+  Canvas,
+  type CanvasRenderingContext2D,
+  type ColorValue,
+  type StyleProp,
+  type ViewStyle,
+} from "nsh";
 
-/**
- * Lucide icons, drawn as SVG data URIs and tinted by NSH's native image
- * support. The stroke is white so `tintColor` can recolor it to any theme role.
- */
 export type IconName =
   | "copy"
   | "eye"
@@ -18,6 +20,7 @@ export type IconName =
   | "search"
   | "x"
   | "plus"
+  | "minus"
   | "terminal"
   | "credit-card"
   | "file-text"
@@ -31,87 +34,238 @@ export type IconName =
   | "circle"
   | "upload"
   | "chevron-down"
-  | "chevron-right"
-  | "minus";
+  | "chevron-right";
 
-// Lucide v1 paths (ISC), 24x24 viewBox.
-const LUCIDE: Record<IconName, string> = {
-  copy: `<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>`,
-  eye: `<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>`,
-  "eye-off": `<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>`,
-  "external-link": `<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>`,
-  "refresh-cw": `<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>`,
-  key: `<path d="m2 21 9.6-9.6"/><path d="m7.5 15.5 2.3 2.3a1 1 0 0 1 0 1.4l-2.1 2.1a1 1 0 0 1-1.4 0L4 19"/><circle cx="15.5" cy="7.5" r="5.5"/>`,
-  user: `<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>`,
-  clock: `<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>`,
-  lock: `<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>`,
-  settings: `<path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/>`,
-  search: `<path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/>`,
-  x: `<path d="M18 6 6 18"/><path d="m6 6 12 12"/>`,
-  plus: `<path d="M5 12h14"/><path d="M12 5v14"/>`,
-  terminal: `<path d="M12 19h8"/><path d="m4 17 6-6-6-6"/>`,
-  "credit-card": `<rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/><path d="M6 14h2"/>`,
-  "file-text": `<path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>`,
-  folder: `<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>`,
-  zap: `<path d="M15.914 4a1.5 1.5 0 0 0-2.474-1.561l-9 9A1.5 1.5 0 0 0 5.5 14h4.002a.5.5 0 0 1 .471.666L8.086 20a1.5 1.5 0 0 0 2.475 1.56l9-9A1.5 1.5 0 0 0 18.5 10h-3.997a.5.5 0 0 1-.472-.667z"/>`,
-  history: `<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>`,
-  download: `<path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/>`,
-  check: `<path d="M20 6 9 17l-5-5"/>`,
-  shield: `<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>`,
-  star: `<path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/>`,
-  circle: `<circle cx="12" cy="12" r="10"/>`,
-  upload: `<path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>`,
-  "chevron-down": `<path d="m6 9 6 6 6-6"/>`,
-  "chevron-right": `<path d="m9 18 6-6-6-6"/>`,
-  minus: `<path d="M5 12h14"/>`,
+type Draw = (cx: CanvasRenderingContext2D) => void;
+
+const line = (cx: CanvasRenderingContext2D, points: number[]) => {
+  cx.beginPath();
+  cx.moveTo(points[0], points[1]);
+  for (let i = 2; i < points.length; i += 2) {
+    cx.lineTo(points[i], points[i + 1]);
+  }
+  cx.stroke();
 };
 
-/** Rasterize at 4x so HiDPI displays downsample a crisp texture instead of stretching 24px. */
-const INTRINSIC_SIZE = 96;
-const DEFAULT_STROKE_WIDTH = 1.5;
+const rect = (
+  cx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+) => {
+  cx.beginPath();
+  cx.roundRect(x, y, w, h, r);
+  cx.stroke();
+};
 
-function svgUri(inner: string, strokeWidth: number): string {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${INTRINSIC_SIZE}" height="${INTRINSIC_SIZE}" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-}
-
-const uriCache = new Map<string, string>();
-for (const name of Object.keys(LUCIDE) as IconName[]) {
-  uriCache.set(`${name}:${DEFAULT_STROKE_WIDTH}`, svgUri(LUCIDE[name], DEFAULT_STROKE_WIDTH));
-}
-
-function uriFor(name: IconName, strokeWidth: number): string {
-  const key = `${name}:${strokeWidth}`;
-  let uri = uriCache.get(key);
-  if (uri === undefined) {
-    uri = svgUri(LUCIDE[name], strokeWidth);
-    uriCache.set(key, uri);
+const circle = (
+  cx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  fill = false,
+) => {
+  cx.beginPath();
+  cx.arc(x, y, r, 0, Math.PI * 2);
+  if (fill) {
+    cx.fill();
+  } else {
+    cx.stroke();
   }
-  return uri;
-}
+};
 
-interface IconProps {
+// Icons are drawn on a 20x20 grid, then scaled to the requested size.
+const glyphs: Record<IconName, Draw> = {
+  copy: (c) => {
+    rect(c, 7, 7, 10, 10, 2);
+    line(c, [13, 4.5, 13, 4, 12, 3, 4, 3, 3, 4, 3, 12, 4, 13, 4.5, 13]);
+  },
+  eye: (c) => {
+    c.beginPath();
+    c.moveTo(2.5, 10);
+    c.quadraticCurveTo(10, 2.5, 17.5, 10);
+    c.quadraticCurveTo(10, 17.5, 2.5, 10);
+    c.stroke();
+    circle(c, 10, 10, 2.5);
+  },
+  "eye-off": (c) => {
+    c.beginPath();
+    c.moveTo(2.5, 10);
+    c.quadraticCurveTo(10, 2.5, 17.5, 10);
+    c.quadraticCurveTo(10, 17.5, 2.5, 10);
+    c.stroke();
+    circle(c, 10, 10, 2.5);
+    line(c, [3, 3, 17, 17]);
+  },
+  "external-link": (c) => {
+    line(c, [9, 4, 4, 4, 4, 16, 16, 16, 16, 11]);
+    line(c, [11.5, 3.5, 16.5, 3.5, 16.5, 8.5]);
+    line(c, [16.5, 3.5, 9.5, 10.5]);
+  },
+  "refresh-cw": (c) => {
+    c.beginPath();
+    c.arc(10, 10, 5.5, 0.4, Math.PI * 1.55);
+    c.stroke();
+    line(c, [10, 2.5, 10, 4.5, 8, 4.5]);
+    c.beginPath();
+    c.arc(10, 10, 5.5, Math.PI + 0.4, Math.PI * 2 + 1.55);
+    c.stroke();
+    line(c, [10, 17.5, 10, 15.5, 12, 15.5]);
+  },
+  key: (c) => {
+    circle(c, 7, 7, 3.5);
+    line(c, [9.5, 9.5, 16.5, 16.5]);
+    line(c, [14, 14, 16, 12]);
+    line(c, [15.5, 15.5, 17.5, 13.5]);
+  },
+  user: (c) => {
+    circle(c, 10, 6.5, 3.2);
+    c.beginPath();
+    c.arc(10, 18, 6.5, Math.PI, 0);
+    c.stroke();
+  },
+  clock: (c) => {
+    circle(c, 10, 10, 7.5);
+    line(c, [10, 5.5, 10, 10, 13.5, 11.5]);
+  },
+  lock: (c) => {
+    rect(c, 4, 9, 12, 8.5, 2);
+    line(c, [6.5, 9, 6.5, 6.5]);
+    c.beginPath();
+    c.arc(10, 6.5, 3.5, Math.PI, 0);
+    c.stroke();
+  },
+  settings: (c) => {
+    circle(c, 10, 10, 3);
+    for (let i = 0; i < 8; i++) {
+      const a = (i * Math.PI) / 4;
+      line(c, [
+        10 + Math.cos(a) * 4.8,
+        10 + Math.sin(a) * 4.8,
+        10 + Math.cos(a) * 7.2,
+        10 + Math.sin(a) * 7.2,
+      ]);
+    }
+  },
+  search: (c) => {
+    circle(c, 8.5, 8.5, 5);
+    line(c, [12.3, 12.3, 16.5, 16.5]);
+  },
+  x: (c) => {
+    line(c, [5.5, 5.5, 14.5, 14.5]);
+    line(c, [14.5, 5.5, 5.5, 14.5]);
+  },
+  plus: (c) => {
+    line(c, [10, 4, 10, 16]);
+    line(c, [4, 10, 16, 10]);
+  },
+  minus: (c) => line(c, [4, 10, 16, 10]),
+  terminal: (c) => {
+    rect(c, 2.5, 3.5, 15, 13, 2.5);
+    line(c, [6, 8, 8.5, 10, 6, 12]);
+    line(c, [10.5, 13, 14, 13]);
+  },
+  "credit-card": (c) => {
+    rect(c, 2.5, 4.5, 15, 11, 2);
+    line(c, [2.5, 8, 17.5, 8]);
+    line(c, [5, 12, 8, 12]);
+  },
+  "file-text": (c) => {
+    line(c, [5, 3, 11.5, 3, 15, 6.5, 15, 17, 5, 17, 5, 3]);
+    line(c, [11.5, 3, 11.5, 6.5, 15, 6.5]);
+    line(c, [7.5, 10, 12.5, 10]);
+    line(c, [7.5, 13, 12.5, 13]);
+  },
+  folder: (c) => {
+    line(c, [
+      2.5, 6, 2.5, 15, 3.5, 16, 16.5, 16, 17.5, 15, 17.5, 7.5, 16.5, 6.5, 9.5, 6.5, 8, 4.5,
+      3.5, 4.5, 2.5, 6,
+    ]);
+  },
+  zap: (c) => {
+    line(c, [11, 2.5, 5, 11, 9.5, 11, 8.5, 17.5, 15, 8.5, 10.5, 8.5, 11, 2.5]);
+  },
+  history: (c) => {
+    c.beginPath();
+    c.arc(10, 10, 6.5, Math.PI * 0.2, Math.PI * 1.95);
+    c.stroke();
+    line(c, [10, 3, 10, 5, 8, 5]);
+    line(c, [10, 6.5, 10, 10, 13, 10]);
+  },
+  download: (c) => {
+    line(c, [10, 3, 10, 12]);
+    line(c, [6.5, 8.5, 10, 12, 13.5, 8.5]);
+    line(c, [4, 15, 16, 15]);
+  },
+  check: (c) => line(c, [4.5, 10.5, 8.5, 14, 15.5, 6]),
+  shield: (c) => {
+    c.beginPath();
+    c.moveTo(10, 3);
+    c.lineTo(16, 5);
+    c.quadraticCurveTo(16, 12, 10, 17);
+    c.quadraticCurveTo(4, 12, 4, 5);
+    c.closePath();
+    c.stroke();
+  },
+  star: (c) => {
+    c.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const r = i % 2 ? 3.2 : 7;
+      const a = -Math.PI / 2 + (i * Math.PI) / 5;
+      if (i) {
+        c.lineTo(10 + Math.cos(a) * r, 10.5 + Math.sin(a) * r);
+      } else {
+        c.moveTo(10 + Math.cos(a) * r, 10.5 + Math.sin(a) * r);
+      }
+    }
+    c.closePath();
+    c.stroke();
+  },
+  circle: (c) => circle(c, 10, 10, 7),
+  upload: (c) => {
+    line(c, [10, 13, 10, 4]);
+    line(c, [6.5, 7.5, 10, 4, 13.5, 7.5]);
+    line(c, [4, 15, 16, 15]);
+  },
+  "chevron-down": (c) => line(c, [5, 7.5, 10, 12.5, 15, 7.5]),
+  "chevron-right": (c) => line(c, [7.5, 5, 12.5, 10, 7.5, 15]),
+};
+
+export interface IconProps {
   name: IconName;
   size?: number;
   color?: ColorValue;
   strokeWidth?: number;
-  style?: StyleProp<ImageStyle>;
+  style?: StyleProp<ViewStyle>;
   testID?: string;
 }
 
-/** A theme-tinted Lucide vector icon. */
+/** A razor-sharp Lucide icon drawn natively with the NSH 2D canvas. */
 export function Icon(props: IconProps) {
   const size = props.size ?? 14;
+  const drawFn = glyphs[props.name];
   return (
-    <Image
+    <Canvas
       testID={props.testID}
-      src={uriFor(props.name, props.strokeWidth ?? DEFAULT_STROKE_WIDTH)}
-      resizeMode="contain"
+      pointerEvents="none"
       style={{
         width: size,
         height: size,
-        tintColor: props.color,
         ...props.style,
+      }}
+      draw={(cx, { width }) => {
+        if (!drawFn) {
+          return;
+        }
+        cx.scale(width / 20, width / 20);
+        cx.strokeStyle = props.color ?? "#ffffff";
+        cx.fillStyle = props.color ?? "#ffffff";
+        cx.lineWidth = props.strokeWidth ?? 1.5;
+        cx.lineCap = "round";
+        cx.lineJoin = "round";
+        drawFn(cx);
       }}
     />
   );
