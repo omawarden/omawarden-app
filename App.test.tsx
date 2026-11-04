@@ -479,14 +479,14 @@ test("category counts follow the current search and stay stable across category 
   expect(app.texts().join(" ")).toContain("All (6)");
 });
 
-test("vault rows fall back to category glyphs when website icons are off", async () => {
+test("vault rows fall back to category icons when website icons are off", async () => {
   const app = await openMock({
     phase: "unlocked",
     items: [LOGIN_ITEM, CARD_ITEM],
     settings: { showWebsiteIcons: false },
   });
 
-  expect(app.texts()).toContain("🔑");
+  expect(app.shows("id:cipher-category-icon-login1")).toBe(true);
   expect(app.shows("id:cipher-icon-login1")).toBe(false);
   expect(app.texts()).toContain("Visa · •••• •••• •••• 1111");
 });

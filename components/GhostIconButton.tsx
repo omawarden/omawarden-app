@@ -1,15 +1,17 @@
-import { Text } from "nsh";
 import { Button } from "nsh/base";
 import * as store from "../store/appStore";
 import { tint } from "../theme/palette";
+import { Icon, type IconName } from "./Icon";
 import { actionID, focusOutline, useAction } from "./ui";
 
 /** A compact 22x22 icon-only action: the field-level affordance in the inspector. */
 export function GhostIconButton(props: {
-  icon: string;
+  icon: IconName;
   label: string;
   onPress: () => void;
   testID?: string;
+  size?: number;
+  color?: string;
 }) {
   const palette = store.palette;
   const id = actionID(props.testID);
@@ -37,15 +39,11 @@ export function GhostIconButton(props: {
       activeStyle={{ backgroundColor: tint(accent(), background(), 0.16) }}
       focusStyle={{ backgroundColor: tint(accent(), background(), 0.08) }}
     >
-      <Text
-        style={{
-          color: accent(),
-          fontSize: 12,
-          textAlign: "center",
-        }}
-      >
-        {props.icon}
-      </Text>
+      <Icon
+        name={props.icon}
+        size={props.size ?? 14}
+        color={props.color ?? accent()}
+      />
     </Button>
   );
 }

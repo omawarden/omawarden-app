@@ -30,6 +30,7 @@ import {
   SmallButton,
   useAction,
 } from "./ui";
+import { Icon } from "./Icon";
 
 export type AuthMode = "login" | "twoFactor" | "locked";
 
@@ -154,9 +155,11 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
             disabled={submitting()}
             onChange={(checked: boolean) => rememberEmail.set(checked)}
             indicator={
-              <Text style={{ color: palette().menu.selectedText, fontSize: 12 }}>
-                {rememberEmail() ? "✓" : " "}
-              </Text>
+              <Icon
+                name="check"
+                size={11}
+                color={rememberEmail() ? palette().menu.selectedText : "transparent"}
+              />
             }
           >
             <Text style={{ color: palette().popups.text, fontSize: 12 }}>Remember email</Text>
@@ -255,9 +258,16 @@ function MtlsCard() {
           paddingVertical={2}
           onPress={() => open.set(!open())}
         >
-          <Text style={{ color: palette().popups.selectedText, fontSize: 12 }}>
-            {open() ? "▾" : "▸"} Mutual TLS (mTLS) Client Certificate
-          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Icon
+              name={open() ? "chevron-down" : "chevron-right"}
+              size={12}
+              color={palette().popups.selectedText}
+            />
+            <Text style={{ color: palette().popups.selectedText, fontSize: 12 }}>
+              Mutual TLS (mTLS) Client Certificate
+            </Text>
+          </View>
         </SmallButton>
       </View>
 
@@ -268,9 +278,11 @@ function MtlsCard() {
             checked={enabled()}
             onChange={(checked: boolean) => enabled.set(checked)}
             indicator={
-              <Text style={{ color: palette().menu.selectedText, fontSize: 12 }}>
-                {enabled() ? "✓" : " "}
-              </Text>
+              <Icon
+                name="check"
+                size={11}
+                color={enabled() ? palette().menu.selectedText : "transparent"}
+              />
             }
           >
             <Text style={{ color: palette().popups.text, fontSize: 12 }}>

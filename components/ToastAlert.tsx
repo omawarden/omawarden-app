@@ -2,6 +2,7 @@ import { Text, View } from "nsh";
 import { Button } from "nsh/base";
 import * as store from "../store/appStore";
 import { textOnTint, tint } from "../theme/palette";
+import { Icon } from "./Icon";
 import { actionID, focusOutline, useAction } from "./ui";
 
 export function ToastAlert() {
@@ -81,7 +82,7 @@ function ToastDismiss(props: { accent: () => string }) {
       activeStyle={{ backgroundColor: tint(props.accent(), palette().popups.background, 0.3) }}
       focusStyle={{ borderColor: props.accent() }}
     >
-      <Text style={{ color: palette().muted, fontSize: 12 }}>×</Text>
+      <Icon name="x" size={11} color={palette().muted} />
     </Button>
   );
 }

@@ -6,22 +6,23 @@ import * as store from "../store/appStore";
 import { formatMaskedCardNumber } from "../store/CardFormatter";
 import { iconUrlFor, resolve } from "../store/IconPolicy";
 import { tint } from "../theme/palette";
+import { Icon, type IconName } from "./Icon";
 import { actionID, EmptyHint, focusOutline, useAction } from "./ui";
 
-function categoryGlyph(category: ItemCategory): string {
+function categoryIcon(category: ItemCategory): IconName {
   switch (category) {
     case "login":
-      return "🔑";
+      return "key";
     case "card":
-      return "💳";
+      return "credit-card";
     case "identity":
-      return "🪪";
+      return "user";
     case "secureNote":
-      return "📝";
+      return "file-text";
     case "sshKey":
-      return "🔐";
+      return "terminal";
     default:
-      return "●";
+      return "circle";
   }
 }
 
@@ -170,7 +171,12 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
         />
       </If>
       <If when={iconUrl() === ""}>
-        <Text style={{ fontSize: 16 }}>{categoryGlyph(props.item().category)}</Text>
+        <Icon
+          testID={`cipher-category-icon-${props.item().id}`}
+          name={categoryIcon(props.item().category)}
+          size={16}
+          color={active() ? palette().popups.selectedText : palette().popups.text}
+        />
       </If>
       <View style={{ flex: 1, gap: 1 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
@@ -184,7 +190,7 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
             {props.item().title}
           </Text>
           <If when={props.item().favorite}>
-            <Text style={{ color: palette().warning, fontSize: 11 }}>★</Text>
+            <Icon name="star" size={11} color={palette().warning} />
           </If>
         </View>
         <Text

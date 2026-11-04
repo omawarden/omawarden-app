@@ -5,6 +5,7 @@ import * as paletteActions from "../store/actionPalette";
 import type { PaletteAction } from "../store/actionPalette";
 import { tint } from "../theme/palette";
 import { inputStyle } from "./AuthView";
+import { Icon } from "./Icon";
 import { ActionButton, ModalShell, SectionTitle } from "./ui";
 
 export function ActionPaletteModal() {
@@ -133,16 +134,13 @@ function PaletteRow(props: {
       activeStyle={{ backgroundColor: tint(accent(), palette().popups.background, 0.2) }}
       focusStyle={{ backgroundColor: tint(accent(), palette().popups.background, 0.1) }}
     >
-      <Text
-        style={{
-          width: 18,
-          color: props.selected ? accent() : palette().muted,
-          fontSize: 13,
-          textAlign: "center",
-        }}
-      >
-        {props.action.icon}
-      </Text>
+      <View style={{ width: 18, alignItems: "center" }}>
+        <Icon
+          name={props.action.icon}
+          size={14}
+          color={props.selected ? accent() : palette().muted}
+        />
+      </View>
       <View style={{ flex: 1, gap: 1 }}>
         <Text
           style={{

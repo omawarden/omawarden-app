@@ -3,6 +3,7 @@ import { Input, Switch } from "nsh/base";
 import { signal } from "nsh";
 import * as store from "../store/appStore";
 import { strengthColor, tint } from "../theme/palette";
+import { Icon } from "./Icon";
 import { ActionButton, Chip, ModalShell, Panel, SectionTitle, SmallButton } from "./ui";
 import { TabButton, inputStyle } from "./AuthView";
 
@@ -319,7 +320,7 @@ function Stepper(props: {
         paddingVertical={2}
         onPress={() => props.onChange(Math.max(0, props.value - 1))}
       >
-        <Text style={{ color: palette().popups.text, fontSize: 13 }}>−</Text>
+        <Icon name="minus" size={12} color={palette().popups.text} />
       </SmallButton>
       <Text
         testID={props.testID}
@@ -337,7 +338,7 @@ function Stepper(props: {
         paddingVertical={2}
         onPress={() => props.onChange(props.value + 1)}
       >
-        <Text style={{ color: palette().popups.text, fontSize: 13 }}>+</Text>
+        <Icon name="plus" size={12} color={palette().popups.text} />
       </SmallButton>
     </View>
   );

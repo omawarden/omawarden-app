@@ -41,13 +41,13 @@ export function CategoryTabBar() {
           <GhostIconButton
             testID="open-ssh-key"
             label="Create SSH key"
-            icon="\uf067"
+            icon="plus"
             onPress={() => store.openSshKey("create")}
           />
           <GhostIconButton
             testID="import-ssh-key"
             label="Import SSH key"
-            icon="\uf019"
+            icon="download"
             onPress={() => store.openSshKey("import")}
           />
         </View>
