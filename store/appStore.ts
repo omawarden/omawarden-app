@@ -124,6 +124,7 @@ export const themeOverrides = signal<ThemePaletteOverrides>({});
 export const activeModal = signal<ModalKind>("none");
 export const reveal = signal<RevealStateInput>(defaultReveal());
 export const selectedIndex = signal(0);
+export const selectedProvider = signal(0);
 export const category = signal<ItemCategory>("all");
 export const scopeId = signal<string>("all");
 export const folderId = signal<string | null>(null);
@@ -193,6 +194,9 @@ function applySnapshot(next: VaultSnapshotView): void {
   category.set(next.category);
   scopeId.set(next.activeScope);
   folderId.set(next.activeFolder ?? null);
+  if (next.twoFactor) {
+    selectedProvider.set(next.twoFactor.selectedProvider);
+  }
   if (next.error) {
     notify(next.error, "error");
   }
