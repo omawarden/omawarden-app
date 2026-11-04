@@ -127,6 +127,18 @@ export const selectedIndex = signal(0);
 export const selectedProvider = signal(0);
 export const focusedAction = signal<string | null>(null);
 
+// Vault rows are GTK widget subtrees, so mounting every item at once makes a
+// large vault expensive. Render a window and grow it as the user asks or moves
+// the selection toward the end of the window.
+export const DEFAULT_VISIBLE_LIMIT = 80;
+export const visibleLimit = signal(DEFAULT_VISIBLE_LIMIT);
+
+export const visibleItems = computed(() => {
+  const items = snapshot().items;
+  const limit = Math.max(0, visibleLimit());
+  return items.slice(0, limit);
+});
+
 // The action controls on screen, in render order, and what pressing each
 // does. Buttons register themselves so Tab can reach them on platforms whose
 // native focus traversal only visits text fields (Linux/GTK).
@@ -276,7 +288,44 @@ export function clearActionFocus(): void {
 // Snapshot application
 // ---------------------------------------------------------------------------
 
+let lastFilterKey = "";
+
+function filterKey(next: VaultSnapshotView): string {
+  return JSON.stringify([
+    next.phase,
+    next.search,
+    next.category,
+    next.activeScope,
+    next.activeFolder,
+  ]);
+}
+
+function resetVisibleLimit(): void {
+  visibleLimit.set(DEFAULT_VISIBLE_LIMIT);
+}
+
+function expandVisibleLimitForSelection(index: number): void {
+  const threshold = Math.max(0, visibleLimit() - 10);
+  if (index < threshold) {
+    return;
+  }
+  const target = Math.min(snapshot().items.length, index + 10);
+  visibleLimit.update((limit) => Math.max(limit, target));
+}
+
+/** Reveals the next page of vault rows. */
+export function showMoreItems(): void {
+  visibleLimit.update((limit) =>
+    Math.min(snapshot().items.length, limit + DEFAULT_VISIBLE_LIMIT),
+  );
+}
+
 function applySnapshot(next: VaultSnapshotView): void {
+  const nextFilterKey = filterKey(next);
+  if (nextFilterKey !== lastFilterKey) {
+    lastFilterKey = nextFilterKey;
+    resetVisibleLimit();
+  }
   const previousLayer = currentLayer();
   snapshot.set(next);
   search.set(next.search);
@@ -525,6 +574,7 @@ export function toggleScope(): void {
 }
 
 export function selectCipher(index: number): void {
+  expandVisibleLimitForSelection(index);
   selectedIndex.set(index);
   reveal.set(defaultReveal());
   refreshInspector();

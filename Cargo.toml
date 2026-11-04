@@ -16,3 +16,18 @@ url = "2.5"
 which = "8.0"
 chrono = "0.4"
 regex = "1.10"
+
+# Keep the debug host small: `nsh run` builds the dev profile, and full debug
+# info alone put ~60 MB of the host binary's pages into RSS.
+[profile.dev]
+opt-level = "s"
+debug = 0
+strip = "debuginfo"
+
+[profile.dev.package."*"]
+opt-level = "s"
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+strip = true

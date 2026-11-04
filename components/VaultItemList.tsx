@@ -52,7 +52,7 @@ export function VaultItemList() {
           Vault Items
         </Text>
         <Text style={{ color: palette().muted, fontSize: 11 }}>
-          {snap().items.length} shown
+          {store.visibleItems().length} of {snap().items.length}
         </Text>
       </View>
 
@@ -60,11 +60,48 @@ export function VaultItemList() {
         <If when={snap().items.length === 0}>
           <EmptyHint>No items match this search.</EmptyHint>
         </If>
-        <Each of={snap().items} key="index">
+        <Each of={store.visibleItems()} key="index">
           {(item, index) => <VaultRow item={item} index={index} />}
         </Each>
+        <If when={snap().items.length > store.visibleItems().length}>
+          <ShowMoreRow remaining={() => snap().items.length - store.visibleItems().length} />
+        </If>
       </Scroll>
     </View>
+  );
+}
+
+function ShowMoreRow(props: { remaining: () => number }) {
+  const palette = store.palette;
+  const id = actionID("vault-show-more");
+  useAction(id, () => store.showMoreItems());
+  const focused = () => store.focusedAction() === id;
+  const accent = () => palette().popups.selectedText;
+  return (
+    <Button
+      testID="vault-show-more"
+      onPress={() => store.showMoreItems()}
+      style={{
+        alignItems: "center",
+        backgroundColor: palette().popups.background,
+        borderColor: focused() ? accent() : palette().popups.border,
+        borderWidth: 1,
+        borderRadius: 7,
+        paddingHorizontal: 8,
+        paddingVertical: 7,
+        ...focusOutline(focused(), accent()),
+      }}
+      hoverStyle={{
+        backgroundColor: tint(accent(), palette().popups.background, 0.14),
+        borderColor: accent(),
+      }}
+      activeStyle={{ backgroundColor: tint(accent(), palette().popups.background, 0.26) }}
+      focusStyle={{ borderColor: accent() }}
+    >
+      <Text style={{ color: accent(), fontSize: 11, fontWeight: "bold" }}>
+        Show more ({props.remaining()} remaining)
+      </Text>
+    </Button>
   );
 }
 
