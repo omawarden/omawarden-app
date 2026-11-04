@@ -66,23 +66,35 @@ const LUCIDE: Record<IconName, string> = {
   minus: `<path d="M5 12h14"/>`,
 };
 
-function svgUri(inner: string): string {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
+/** Rasterize at 4x so HiDPI displays downsample a crisp texture instead of stretching 24px. */
+const INTRINSIC_SIZE = 96;
+const DEFAULT_STROKE_WIDTH = 1.5;
+
+function svgUri(inner: string, strokeWidth: number): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${INTRINSIC_SIZE}" height="${INTRINSIC_SIZE}" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
-const URIS = (Object.keys(LUCIDE) as IconName[]).reduce(
-  (acc, name) => {
-    acc[name] = svgUri(LUCIDE[name]);
-    return acc;
-  },
-  {} as Record<IconName, string>,
-);
+const uriCache = new Map<string, string>();
+for (const name of Object.keys(LUCIDE) as IconName[]) {
+  uriCache.set(`${name}:${DEFAULT_STROKE_WIDTH}`, svgUri(LUCIDE[name], DEFAULT_STROKE_WIDTH));
+}
+
+function uriFor(name: IconName, strokeWidth: number): string {
+  const key = `${name}:${strokeWidth}`;
+  let uri = uriCache.get(key);
+  if (uri === undefined) {
+    uri = svgUri(LUCIDE[name], strokeWidth);
+    uriCache.set(key, uri);
+  }
+  return uri;
+}
 
 interface IconProps {
   name: IconName;
   size?: number;
   color?: ColorValue;
+  strokeWidth?: number;
   style?: StyleProp<ImageStyle>;
   testID?: string;
 }
@@ -93,7 +105,7 @@ export function Icon(props: IconProps) {
   return (
     <Image
       testID={props.testID}
-      src={URIS[props.name]}
+      src={uriFor(props.name, props.strokeWidth ?? DEFAULT_STROKE_WIDTH)}
       resizeMode="contain"
       style={{
         width: size,
