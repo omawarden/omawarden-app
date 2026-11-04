@@ -22,25 +22,39 @@ Following deep-module design principles ("Design It Twice" Hybrid Design 3 + Des
 - **Rust Native Module (`src/lib.rs`)** exposes `#[native_module("omawarden-app/native")]` with `#[module] pub struct OmawardenBridge` and strongly-typed `#[derive(Clone, Debug, JsObject)]` DTOs and `#[derive(Clone, Copy, Debug, PartialEq, Eq, PropEnum)]` enums.
 - **IMPORTANT `nsh` Rule**: Every `pub` struct, enum, variant, field, module, and method in `#[native_module]` **MUST have a `///` doc comment**, otherwise `nsh check` emits missing-documentation warnings when generating `.nsh/types/omawarden-app/native.d.ts`.
 
-### 2.1 Execution Routing Inside `OmawardenBridge`
-1. **Stateful Vault & SSH Agent Operations**: Talk to the running `omawarden` Unix socket daemon (`omawarden::daemon::send_daemon_request`) using the existing IPC actions (`ping`, `status`, `unlock`, `quick_unlock`, `wipe_quick_unlock`, `set_quick_unlock`, `lock`, `sync`, `list`, `search`, `ssh_key_create`, `get_item`, `get_ssh_key`, `get_attachment_key`, `totp`, `ssh_agent_apply`, `ssh_agent_status`, `ssh_agent_pending`, `ssh_agent_reply`).
+### 2.1 Execution Routing Inside `OmawardenBridge` (100% In-Process Rust Crate — Zero CLI Subcommands)
+1. **In-Process Daemon Readiness (`ensure_app_daemon_running`)**:
+   - **Why `omawarden::daemon::ensure_daemon_running()` must not be triggered blindly when no daemon is listening**: Inside `omawarden/src/daemon.rs`, `ensure_daemon_running()` checks `send_request(&json!({"action": "ping", "touch": false})).is_ok()`, and only if that fails does it fall back to `std::env::current_exe().arg("daemon")`. Inside an `nsh` host binary, `current_exe()` is the GUI host binary (`nsh-app-...-linux-host`), which would open a second window if `ping` failed.
+   - **Architectural Fix (In-Process Daemon Thread)**:
+     - `src/lib.rs` **MUST** provide `ensure_app_daemon_running()`:
+       1. First send `omawarden::daemon::send_request(&json!({"action": "ping", "touch": false}))`. If `Ok`, return `true` immediately.
+       2. Otherwise, spawn an **in-process background Rust thread** (`std::thread::Builder::new().name("omawarden-daemon".into()).spawn(...)`) that calls `omawarden::daemon::run_daemon_server(config.auto_lock_minutes.max(0) as u64)` (guarded by an `AtomicBool` so only one in-process daemon thread is ever spawned per process), and poll `send_request(&json!({"action": "ping", "touch": false}))` up to 40 times (25ms sleep) until the Unix socket is ready.
+     - Because the Unix socket is guaranteed to be listening and answering `ping` **before** `AuthManager` or `attachment::get_attachment` is called, `omawarden::daemon::ensure_daemon_running()` inside the `omawarden` crate will always hit its early `if send_request(ping).is_ok() { return; }` fast path and **NEVER** invoke `std::env::current_exe()`!
+2. **100% In-Process Authentication (`omawarden::auth::AuthManager`)**:
+   - **Prohibition on CLI Subcommands**: `src/lib.rs` **MUST NOT** spawn `Command::new("omawarden")` for authentication, status checks, or capability probing. Remove `run_omawarden_cli`, `cli_auth_args`, `cli_auth_payload`, `cli_supports_quick_unlock`, and `cli_failure_message`.
+   - Before invoking `AuthManager::login_password`, `AuthManager::login_apikey`, `AuthManager::unlock`, or `AuthManager::quick_unlock`, call `ensure_app_daemon_running()`.
+   - Execute authentication directly in-process via `auth_manager()`:
+     - `AuthKind::Password` / `AuthKind::TwoFactor` / `AuthKind::NewDevice` -> `auth_manager().login_password(&email, &password, code_ref, provider, remember_email, otp_ref)`
+     - `AuthKind::ApiKey` -> `auth_manager().login_apikey(&client_id, &client_secret)`
+     - `AuthKind::Unlock` -> `auth_manager().unlock(&password)`
+     - `AuthKind::QuickUnlock` -> `auth_manager().quick_unlock()`
+   - Convert the returned `omawarden::auth::AuthResult` directly into `VaultSnapshotView` in-process.
+   - In `real_snapshot()`, when the daemon is not yet unlocked or running, also query `auth_manager().get_status(false)` in-process so `locked` vs `login` state, `email`, `server_url`, and `quick_unlock` readiness are always accurate even before the daemon starts.
+3. **In-Process Clipboard Guard (`clipboard_copy`)**:
+   - `omawarden::clipboard::ClipboardManager::copy_with_expiry` spawns `std::env::current_exe().arg("clipboard-holder")` when `clear_seconds > 0`.
+   - To avoid spawning the NSH GUI binary as `clipboard-holder`, `clipboard_copy(text, sensitive)` in `src/lib.rs` **MUST**:
+     1. Call `ClipboardManager::default().copy(text, sensitive, 0)` (which sets the Wayland clipboard via `wl-copy` without spawning `current_exe()`).
+     2. If `sensitive && config.clipboard_clear_seconds > 0`, increment a global `AtomicU64` generation counter and spawn an in-process Rust timer thread (`std::thread::spawn`) that sleeps for `clipboard_clear_seconds` and clears the clipboard (`Command::new("wl-copy").arg("--clear")`) if the generation counter has not changed.
+4. **Stateful Vault & SSH Agent Operations**: Talk to the Unix socket daemon (`omawarden::daemon::send_request`) using the existing IPC actions (`ping`, `status`, `unlock`, `quick_unlock`, `wipe_quick_unlock`, `set_quick_unlock`, `lock`, `sync`, `list`, `search`, `ssh_key_create`, `get_item`, `get_ssh_key`, `get_attachment_key`, `totp`, `ssh_agent_apply`, `ssh_agent_status`, `ssh_agent_pending`, `ssh_agent_reply`).
    - Background status/ping polls **MUST** pass `"touch": false` so daemon idle auto-lock is never reset by background UI timers.
-   - **Never call `omawarden::daemon::ensure_daemon_running()` from the app process**: it spawns `std::env::current_exe()`, which inside an nsh host is the host binary, opening a second app window instead of a daemon. `real_items()` therefore only sends `list`, and attachment opening refuses unless `ping` reports `unlocked`.
-2. **Authentication**: Run the installed `omawarden` CLI in a child process (`auth login-password`, `auth login-apikey`, `auth unlock`, `auth quick-unlock`), feed the credentials as one JSON line on stdin, and parse its JSON stdout.
-   - **Why not `AuthManager` in-process**: `AuthManager::login_password` and `AuthManager::unlock` call `ensure_daemon_running()`, which spawns `std::env::current_exe()`. Inside an nsh host that is the host binary itself, so the daemon start opened a second app window and the original window fell back to the login screen because no daemon answered. The CLI's `current_exe` is `omawarden`, so it starts the real daemon correctly.
-   - **Never** put the master password, API secret, or verification code on the command line; stdin only.
-   - **Quick unlock needs `omawarden` 0.11.0 or newer** (`auth quick-unlock`). The bridge probes `omawarden auth --help` first and shows an explicit "update the package" error on older builds instead of surfacing the CLI's usage error.
-   - CLI failures reach the UI as fixed messages: raw stderr can name the account or echo engine logs, so only the "unsupported subcommand" case is recognised and everything else gets a generic message.
-3. **Stateless Operations**: Call `omawarden` Rust library functions directly in-process:
+5. **Stateless Operations**: Call `omawarden` Rust library functions directly in-process:
    - `omawarden::generator::{generate_password, generate_passphrase, PasswordOptions, PassphraseOptions}`
    - `omawarden::config::{ConfigManager, ConfigUpdateOptions}`
    - `omawarden::totp::generate_totp`
-   - `omawarden::clipboard::ClipboardManager`
    - `omawarden::health::check_system_health`
    - `omawarden::ssh::{generate_keypair, parse_private_key, write_keypair_files_named, SshAlgorithm}`
-   - `omawarden::attachment::{get_attachment, clear_preview_attachments}`
-   - `omawarden::auth::AuthManager` only for operations that never call `ensure_daemon_running` (`send_two_factor_email`, `lock`, `logout`).
-4. **Deterministic Headless Test / Mock Mode**:
+   - `omawarden::attachment::{get_attachment, clear_preview_attachments}` (calling `ensure_app_daemon_running()` beforehand)
+6. **Deterministic Headless Test / Mock Mode**:
    - `OmawardenBridge` **MUST** include an in-memory mock/test mode (`set_mock_mode(enabled: bool)`) so `nsh test` (`App.test.tsx`) can deterministically test every view state (`dependency_check`, `login`, `two_factor`, `unlock`, `search`, `ssh_approval`) and every modal without touching the host user's real keyring, filesystem config, or live daemon socket.
 
 ### 2.2 Required `OmawardenBridge` Methods (`src/lib.rs`)
@@ -258,9 +272,42 @@ Create `theme/palette.ts`:
 
 ---
 
-## 6. Verification & Acceptance Criteria
+## 6. Runtime Memory Footprint Optimization (< 150 MB RSS Target)
+
+Profiling `nsh run --window-size 1440x960` on Linux with GTK4 + dual AMD Vulkan drivers (`amdvlkpro64.so` + `libvulkan_radeon.so`) showed ~434 MB RSS when unconfigured. To bring resident memory down to ~110–140 MB RSS:
+
+1. **Default GTK4 GSK Renderer to OpenGL (`GSK_RENDERER=ngl`) Before GTK Initialization**:
+   - On systems with `amdvlkpro64.so` (AMD PRO Vulkan ICD) and `libvulkan_radeon.so` (Mesa RADV + `libLLVM`), GTK4's default `vulkan` renderer loads both Vulkan driver stacks (~66 MB of `.so` code) plus ~150 MB of anonymous GPU staging pools (~216 MB RSS total).
+   - Inside `src/lib.rs`, provide an early initialization helper `configure_linux_renderer()` (invoked via a `#[used] #[unsafe(link_section = ".init_array")]` constructor or inside the module initialization before GTK starts, and at the top of `OmawardenBridge::boot`) that checks `std::env::var_os("GSK_RENDERER")`: if unset, it calls `unsafe { std::env::set_var("GSK_RENDERER", "ngl") }`.
+   - Note: Because `nsh-linux-host::main()` initializes GTK before calling JS `boot()`, using a C constructor static in `.init_array` (`#[cfg(target_os = "linux")] #[used] #[unsafe(link_section = ".init_array")] static INIT_RENDERER: extern "C" fn() = init_linux_renderer;`) guarantees `GSK_RENDERER=ngl` is set **before** `gtk::init()` runs in `main()`, while still respecting any user-supplied `GSK_RENDERER` env var!
+2. **Cargo Profile Optimization (`Cargo.toml` & `.nsh/rust/Cargo.toml`)**:
+   - In `~/Development/linux/omawarden-app/Cargo.toml`, configure `[profile.dev]` and `[profile.release]`:
+     ```toml
+     [profile.dev]
+     opt-level = "s"
+     debug = 0
+     strip = "debuginfo"
+
+     [profile.dev.package."*"]
+     opt-level = "s"
+
+     [profile.release]
+     opt-level = "s"
+     lto = "thin"
+     strip = true
+     ```
+   - This shrinks the unoptimized 942 MB debug host binary and reduces mapped executable RSS by ~45–50 MB.
+3. **Windowed / Capped Vault List Rendering (`components/VaultItemList.tsx`)**:
+   - Avoid mounting hundreds or thousands of GTK `<Button>` row subtrees simultaneously in `<Each of={snap().items}>`.
+   - Render a windowed slice (e.g. `visibleLimit` signal defaulting to `80` items, resetting to `80` when filter/search changes, with a `"Show more items (… remaining)"` button at the bottom of the scroll list and automatic expansion if keyboard navigation `selectedIndex()` approaches the current `visibleLimit`).
+
+---
+
+## 7. Verification & Acceptance Criteria
 
 1. Initialize git repository in `~/Development/linux/omawarden-app` (`git init`, `git remote add origin https://github.com/omawarden/omawarden-app.git`). Do **NOT** push to remote.
-2. Run `~/.local/share/mise/installs/github-longbridge-nsh/latest/bin/nsh check` — must complete with **0 errors and 0 warnings**.
-3. Run `cargo test` — unit tests in `src/lib.rs` (covering generator validation bounds `5..=128` and `3..=20`, fuzzy search scoring, card masking/formatting, URL scheme validation, mock state transitions) must pass 100%.
-4. Run `~/.local/share/mise/installs/github-longbridge-nsh/latest/bin/nsh test` — headless UI tests in `App.test.tsx` (covering DependencyCheckView, AuthView login/2FA/quick-unlock, VaultWorkspace search/scope/category filtering, ItemInspector reveal/copy, PasswordGeneratorModal out-of-range error + valid generation, SshKeyModal, SshApprovalModal, ActionPaletteModal, SettingsModal 4 tabs, and Dark/Light theme switching) must pass 100%.
+2. Zero `Command::new("omawarden")` calls in `src/lib.rs` — all authentication (`login_password`, `login_apikey`, `unlock`, `quick_unlock`, `get_status`) and daemon startup (`run_daemon_server`) must execute in-process via the `omawarden` Rust crate.
+3. Run `~/.local/share/mise/installs/github-longbridge-nsh/latest/bin/nsh check` — must complete with **0 errors and 0 warnings**.
+4. Run `cargo test` — unit tests in `src/lib.rs` must pass 100%.
+5. Run `~/.local/share/mise/installs/github-longbridge-nsh/latest/bin/nsh test` — headless UI tests in `App.test.tsx` must pass 100%.
+6. Verify `nsh run --window-size 1440x960` resident memory (`RSS` in `ps` / `/proc/<pid>/smaps_rollup`) drops from ~434 MB to well under 200 MB (target ~110–150 MB) and no `amdvlkpro64.so` is loaded in `/proc/<pid>/maps`.

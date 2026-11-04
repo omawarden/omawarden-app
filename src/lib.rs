@@ -3,15 +3,16 @@
 //! The [`OmawardenBridge`] module is the only seam between the TSX UI and the
 //! Omawarden Rust engine. It talks to the daemon over its Unix socket for
 //! stateful vault operations, calls the stateless `omawarden` library
-//! functions in-process, runs authentication through the installed `omawarden`
-//! CLI (so the daemon starts from the right executable), and keeps an
-//! in-memory mock mode so the headless UI tests never touch the real keyring,
-//! config, clipboard or daemon socket.
+//! functions in-process, runs authentication through `omawarden::auth` after
+//! starting the daemon in this process, and keeps an in-memory mock mode so the
+//! headless UI tests never touch the real keyring, config, clipboard or daemon
+//! socket.
 
-use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 use nsh_core::prelude::*;
 use serde_json::{json, Value};
@@ -22,6 +23,34 @@ use omawarden::health::check_system_health;
 use omawarden::logging::sanitize_log_message;
 use omawarden::totp::generate_totp;
 use omawarden::vault::{is_fuzzy_match, VaultItem};
+
+/// Selects GTK4's OpenGL renderer before GTK initializes.
+///
+/// GTK4 defaults to Vulkan, which on AMD systems loads both `amdvlkpro64.so`
+/// and `libvulkan_radeon.so` plus large anonymous GPU arenas. Setting
+/// `GSK_RENDERER=ngl` keeps those driver stacks out of the process. A value the
+/// user already set is respected.
+#[cfg(target_os = "linux")]
+fn configure_linux_renderer() {
+    if std::env::var_os("GSK_RENDERER").is_none() {
+        // SAFETY: the constructor runs before GTK starts and before the
+        // process creates threads; `boot()` calls it on the UI thread.
+        unsafe {
+            std::env::set_var("GSK_RENDERER", "ngl");
+        }
+    }
+}
+
+/// C constructor entry point that runs before `nsh_linux_host::main()`.
+#[cfg(target_os = "linux")]
+extern "C" fn init_linux_renderer() {
+    configure_linux_renderer();
+}
+
+#[cfg(target_os = "linux")]
+#[used]
+#[unsafe(link_section = ".init_array")]
+static INIT_LINUX_RENDERER: extern "C" fn() = init_linux_renderer;
 
 /// The crate's UI set (`nsh.json` `"rust"`).
 #[native_module("omawarden-app/native")]
@@ -2063,184 +2092,108 @@ fn auth_manager() -> omawarden::auth::AuthManager {
     )
 }
 
-/// Runs the installed `omawarden` CLI, optionally feeding it one stdin line,
-/// and parses the JSON it prints.
-///
-/// Authentication deliberately runs in the CLI process. The engine's
-/// `ensure_daemon_running` starts the daemon with `std::env::current_exe()`;
-/// inside an nsh host that is the host binary itself, so the daemon start
-/// opened a second app window and the original window fell back to login
-/// because no daemon ever answered. The CLI's `current_exe` is `omawarden`, so
-/// it starts the real daemon instead.
-///
-/// The error is a message the UI can show as-is; it never carries the raw
-/// stderr, which can name the account or echo engine logs.
-fn run_omawarden_cli(args: &[String], stdin_text: Option<&str>) -> Result<Value, String> {
-    let path = which::which("omawarden").map_err(|_| {
-        "The Omawarden CLI is not available. Install the omawarden package and try again."
-            .to_string()
-    })?;
-    let mut command = Command::new(path);
-    command
-        .args(args)
-        .stdin(if stdin_text.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = command.spawn().map_err(|_| {
-        "Could not start the Omawarden CLI. Check the omawarden installation and try again."
-            .to_string()
-    })?;
-    if let Some(text) = stdin_text {
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(text.as_bytes());
-            if !text.ends_with('\n') {
-                let _ = stdin.write_all(b"\n");
-            }
-        }
-    }
-    let output = child.wait_with_output().map_err(|_| {
-        "The Omawarden CLI did not finish. Check the omawarden installation and try again."
-            .to_string()
-    })?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let trimmed = stdout.trim();
-    if trimmed.is_empty() {
-        return Err(cli_failure_message(&String::from_utf8_lossy(&output.stderr)));
-    }
-    serde_json::from_str(trimmed)
-        .map_err(|_| "The Omawarden CLI returned a response the app could not read.".to_string())
-}
-
-/// Turns the CLI's stderr into a message the UI may show.
-///
-/// Only the "this build has no such subcommand" case is recognised; every
-/// other failure gets a generic message so engine logs and the account email
-/// never reach the UI.
-fn cli_failure_message(stderr: &str) -> String {
-    if stderr.contains("unrecognized subcommand") || stderr.contains("unexpected argument") {
-        return "This Omawarden version does not support that action. Update the omawarden package and try again.".to_string();
-    }
-    "The Omawarden CLI failed without a response. Check the omawarden installation and try again."
-        .to_string()
-}
-
-/// Whether the installed `omawarden` CLI has `auth quick-unlock`.
-///
-/// Quick unlock arrived in `omawarden` 0.11.0; older builds answer the
-/// subcommand with a usage error, so probing the help text keeps the UI from
-/// offering an action that cannot work.
-fn cli_supports_quick_unlock() -> bool {
-    let Ok(path) = which::which("omawarden") else {
-        return false;
+/// Persists the user's remember-email choice after a successful sign-in.
+fn apply_remember_email(input: &AuthActionInput) {
+    let Some(remember) = input.remember_email else {
+        return;
     };
-    Command::new(path)
-        .args(["auth", "--help"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output()
-        .map(|output| String::from_utf8_lossy(&output.stdout).contains("quick-unlock"))
-        .unwrap_or(false)
+    if !matches!(
+        input.kind,
+        AuthKind::Password | AuthKind::TwoFactor | AuthKind::NewDevice
+    ) {
+        return;
+    }
+    let manager = config_manager();
+    let mut config = manager.load();
+    config.remember_email = remember;
+    if remember {
+        config.email = input.email.trim().to_lowercase();
+    } else {
+        config.email.clear();
+    }
+    let _ = manager.save(&config);
 }
 
-/// The `omawarden` CLI arguments for one authentication action.
-fn cli_auth_args(input: &AuthActionInput) -> Vec<String> {
-    match input.kind {
-        AuthKind::Password | AuthKind::TwoFactor | AuthKind::NewDevice => {
-            let mut args = vec![
-                "auth".to_string(),
-                "login-password".to_string(),
-                "--email".to_string(),
-                input.email.clone(),
-            ];
-            match input.remember_email {
-                Some(true) => args.push("--remember-email".to_string()),
-                Some(false) => {
-                    args.push("--remember-email".to_string());
-                    args.push("false".to_string());
+/// Ensures an Omawarden daemon answers `ping`, starting one in this process.
+///
+/// The engine's `ensure_daemon_running` falls back to
+/// `std::env::current_exe().arg("daemon")`. Inside an nsh host that executable
+/// is the GUI host binary, so the fallback would open a second app window.
+/// Starting the daemon on a dedicated thread here keeps the socket alive and
+/// lets every later engine call take its `ping` fast path instead.
+fn ensure_app_daemon_running() -> bool {
+    if daemon(json!({ "action": "ping", "touch": false })).is_some() {
+        return true;
+    }
+
+    // At most one in-process daemon server per process.
+    static DAEMON_SPAWNED: AtomicBool = AtomicBool::new(false);
+    if !DAEMON_SPAWNED.swap(true, Ordering::SeqCst) {
+        let config = load_config();
+        let auto_lock_minutes = if config.auto_lock_minutes >= 0 {
+            config.auto_lock_minutes as u64
+        } else {
+            15
+        };
+        let state = std::sync::Arc::new(omawarden::daemon::DaemonState::new(
+            omawarden::storage::StorageManager::default(),
+            auto_lock_minutes,
+        ));
+        let _ = std::thread::Builder::new()
+            .name("omawarden-daemon".into())
+            .spawn(move || {
+                if let Err(error) = omawarden::daemon::run_daemon_server(state) {
+                    eprintln!("omawarden in-process daemon stopped: {error}");
                 }
-                None => {}
-            }
-            args
+            });
+    }
+
+    for _ in 0..40 {
+        std::thread::sleep(Duration::from_millis(25));
+        if daemon(json!({ "action": "ping", "touch": false })).is_some() {
+            return true;
         }
-        AuthKind::ApiKey => vec![
-            "auth".to_string(),
-            "login-apikey".to_string(),
-            "--client-id".to_string(),
-            input.client_id.clone(),
-        ],
-        AuthKind::Unlock => vec!["auth".to_string(), "unlock".to_string()],
-        AuthKind::QuickUnlock => vec!["auth".to_string(), "quick-unlock".to_string()],
+    }
+    false
+}
+
+/// Builds the provider list the two-factor screen shows.
+fn two_factor_provider_view(id: i32) -> TwoFactorProviderView {
+    TwoFactorProviderView {
+        id: id.max(0) as u32,
+        name: match id {
+            0 => "authenticator".to_string(),
+            1 => "email".to_string(),
+            3 => "yubikey".to_string(),
+            7 => "fido2".to_string(),
+            other => format!("provider-{other}"),
+        },
+        label: match id {
+            0 => "Authenticator App".to_string(),
+            1 => "Email".to_string(),
+            3 => "YubiKey OTP".to_string(),
+            7 => "FIDO2 Security Key".to_string(),
+            other => format!("Provider {other}"),
+        },
+        available: true,
     }
 }
 
-/// The single stdin line the `omawarden` CLI expects for an authentication
-/// action.
-fn cli_auth_payload(input: &AuthActionInput) -> Option<String> {
-    match input.kind {
-        AuthKind::Password | AuthKind::TwoFactor | AuthKind::NewDevice => {
-            let mut payload = serde_json::Map::new();
-            payload.insert("password".to_string(), json!(input.password));
-            let code = input.code.trim();
-            if !code.is_empty() {
-                payload.insert("code".to_string(), json!(code));
-            }
-            if let Some(provider) = input.provider {
-                payload.insert("provider".to_string(), json!(provider));
-            }
-            if let Some(otp) = normalize_optional_code(input.new_device_otp.clone()) {
-                payload.insert("new_device_otp".to_string(), json!(otp));
-            }
-            Some(Value::Object(payload).to_string())
-        }
-        AuthKind::ApiKey => Some(input.client_secret.clone()),
-        AuthKind::Unlock => Some(input.password.clone()),
-        AuthKind::QuickUnlock => None,
-    }
-}
-
-/// Builds the vault snapshot from the CLI's JSON authentication result.
-fn snapshot_from_auth_result(result: &Value, email: &str) -> VaultSnapshotView {
-    let ok = result.get("ok").and_then(Value::as_bool).unwrap_or(false);
-    let status = result.get("status").and_then(Value::as_str).unwrap_or("");
-    let two_factor_required = result
-        .get("two_factor_required")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let new_device = result
-        .get("new_device_verification_required")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let providers = result
-        .get("two_factor_providers")
-        .and_then(Value::as_array)
-        .map(|entries| {
-            entries
-                .iter()
-                .filter_map(Value::as_u64)
-                .map(|id| id as u32)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+/// Builds the vault snapshot from the in-process authentication result.
+fn snapshot_from_auth_result(
+    result: &omawarden::auth::AuthResult,
+    email: &str,
+) -> VaultSnapshotView {
+    let two_factor_required = result.two_factor_required.unwrap_or(false);
+    let new_device = result.new_device_verification_required.unwrap_or(false);
+    let providers = result.two_factor_providers.clone().unwrap_or_default();
     let selected_provider = result
-        .get("two_factor_provider")
-        .and_then(Value::as_u64)
+        .two_factor_provider
+        .filter(|id| *id >= 0)
         .map(|id| id as u32);
-    let fido2_status = result
-        .get("fido2_status")
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    let error = result
-        .get("error")
-        .and_then(Value::as_str)
-        .map(str::to_string);
 
     let mut snapshot = real_snapshot(VaultFilterInput::default());
-    if let Some(error) = error {
+    if let Some(error) = result.error.clone() {
         snapshot.error = Some(error);
     }
     if two_factor_required {
@@ -2253,33 +2206,16 @@ fn snapshot_from_auth_result(result: &Value, email: &str) -> VaultSnapshotView {
             },
             providers: providers
                 .into_iter()
-                .map(|id| TwoFactorProviderView {
-                    id,
-                    name: match id {
-                        0 => "authenticator".to_string(),
-                        1 => "email".to_string(),
-                        3 => "yubikey".to_string(),
-                        7 => "fido2".to_string(),
-                        other => format!("provider-{other}"),
-                    },
-                    label: match id {
-                        0 => "Authenticator App".to_string(),
-                        1 => "Email".to_string(),
-                        3 => "YubiKey OTP".to_string(),
-                        7 => "FIDO2 Security Key".to_string(),
-                        other => format!("Provider {other}"),
-                    },
-                    available: true,
-                })
+                .map(two_factor_provider_view)
                 .collect(),
             selected_provider: selected_provider.unwrap_or(0),
-            fido2_status,
+            fido2_status: result.fido2_status.clone(),
             new_device,
         });
-    } else if ok {
-        match status {
-            "locked" => snapshot.phase = AppPhase::Locked,
-            "unlocked" if snapshot.phase != AppPhase::Unlocked => {
+    } else if result.ok {
+        match result.status.as_deref() {
+            Some("locked") => snapshot.phase = AppPhase::Locked,
+            Some("unlocked") if snapshot.phase != AppPhase::Unlocked => {
                 snapshot.phase = AppPhase::Locked;
                 snapshot.error = Some(
                     "The vault was unlocked, but the Omawarden daemon did not start. Try unlocking again."
@@ -2396,10 +2332,23 @@ fn real_snapshot(filter: VaultFilterInput) -> VaultSnapshotView {
         .get("is_unlocked")
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
+    // Before the daemon is up (or while the vault is locked) the socket has no
+    // useful status, so read the engine's stored session in-process. This keeps
+    // login vs locked, the account email, and the server URL accurate without
+    // spawning anything.
+    let auth_status = if unlocked {
+        None
+    } else {
+        Some(auth_manager().get_status(false))
+    };
     let has_session = status
         .get("has_session")
         .and_then(|value| value.as_bool())
-        .unwrap_or(false);
+        .unwrap_or(false)
+        || auth_status
+            .as_ref()
+            .map(|value| value.has_session)
+            .unwrap_or(false);
     let phase = if unlocked {
         AppPhase::Unlocked
     } else if has_session {
@@ -2410,14 +2359,27 @@ fn real_snapshot(filter: VaultFilterInput) -> VaultSnapshotView {
     let email = status
         .get("user_email")
         .and_then(|value| value.as_str())
-        .unwrap_or(&config.email)
-        .to_string();
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            auth_status
+                .as_ref()
+                .and_then(|value| value.user_email.clone())
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_else(|| config.email.clone());
     let server_url = status
         .get("server_url")
         .and_then(|value| value.as_str())
         .filter(|value| !value.is_empty())
-        .unwrap_or(&config.server_url)
-        .to_string();
+        .map(str::to_string)
+        .or_else(|| {
+            auth_status
+                .as_ref()
+                .and_then(|value| value.server_url.clone())
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_else(|| config.server_url.clone());
     let quick_unlock_ready = ping
         .as_ref()
         .and_then(|value| value.get("quick_unlock"))
@@ -2426,7 +2388,8 @@ fn real_snapshot(filter: VaultFilterInput) -> VaultSnapshotView {
     let last_sync = status
         .get("last_sync")
         .and_then(|value| value.as_str())
-        .map(str::to_string);
+        .map(str::to_string)
+        .or_else(|| auth_status.and_then(|value| value.last_sync));
     let engine_version = ping
         .as_ref()
         .and_then(|value| value.get("version"))
@@ -2735,10 +2698,36 @@ fn build_ssh_preview(mode: &str, algorithm: &str, comment: &str, private_key_pem
     }
 }
 
-/// Copies text with the clipboard guard.
+/// Monotonic token that invalidates older clipboard-clear timers.
+static CLIPBOARD_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// Copies text with the in-process clipboard guard.
+///
+/// `ClipboardManager` spawns `std::env::current_exe() clipboard-holder` when a
+/// timeout is passed. Inside an nsh host that executable is the GUI binary, so
+/// the copy is made without a timeout and a Rust timer clears the clipboard
+/// after `clipboard_clear_seconds` unless a newer copy superseded it.
 fn clipboard_copy(text: &str, sensitive: bool) -> bool {
     let config = load_config();
-    omawarden::clipboard::ClipboardManager::default().copy(text, sensitive, config.clipboard_clear_seconds)
+    let copied = omawarden::clipboard::ClipboardManager::default().copy(text, sensitive, 0);
+    if copied && sensitive && config.clipboard_clear_seconds > 0 {
+        let generation = CLIPBOARD_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+        let seconds = config.clipboard_clear_seconds as u64;
+        let _ = std::thread::Builder::new()
+            .name("omawarden-clipboard-guard".into())
+            .spawn(move || {
+                std::thread::sleep(Duration::from_secs(seconds));
+                if CLIPBOARD_GENERATION.load(Ordering::SeqCst) == generation {
+                    let _ = Command::new("wl-copy")
+                        .arg("--clear")
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status();
+                }
+            });
+    }
+    copied
 }
 
 // ---------------------------------------------------------------------------
@@ -2776,6 +2765,8 @@ impl OmawardenBridge {
 
     /// Initialize the app or handle an external summon payload (e.g. `{"view":"ssh-approval","id":1}`).
     pub fn boot(payload_json: Option<String>) -> VaultSnapshotView {
+        #[cfg(target_os = "linux")]
+        configure_linux_renderer();
         let payload = payload_json
             .as_deref()
             .and_then(|raw| serde_json::from_str::<Value>(raw).ok());
@@ -2928,27 +2919,51 @@ impl OmawardenBridge {
             });
         }
 
-        // Quick unlock runs through the daemon's polkit prompt, which only
-        // `omawarden` 0.11.0 and newer can reach from the CLI. Saying so beats
-        // the CLI's usage error.
-        if input.kind == AuthKind::QuickUnlock && !cli_supports_quick_unlock() {
-            let mut snapshot = real_snapshot(VaultFilterInput::default());
-            snapshot.error = Some(
-                "Quick unlock needs omawarden 0.11.0 or newer. Update the omawarden package, or unlock with your master password."
-                    .to_string(),
-            );
-            return snapshot;
-        }
-        let args = cli_auth_args(&input);
-        let payload = cli_auth_payload(&input);
-        match run_omawarden_cli(&args, payload.as_deref()) {
-            Ok(result) => snapshot_from_auth_result(&result, &input.email),
-            Err(error) => {
-                let mut snapshot = real_snapshot(VaultFilterInput::default());
-                snapshot.error = Some(error);
-                snapshot
+        ensure_app_daemon_running();
+
+        let auth = auth_manager();
+        let result = match input.kind {
+            AuthKind::Password | AuthKind::TwoFactor | AuthKind::NewDevice => {
+                let code = input.code.trim();
+                let code = if code.is_empty() { None } else { Some(code) };
+                auth.login_password(
+                    &input.email,
+                    &input.password,
+                    code,
+                    input.provider.map(|id| id as i32),
+                    input.new_device_otp.as_deref(),
+                )
             }
+            AuthKind::ApiKey => auth.login_apikey(&input.client_id, &input.client_secret),
+            AuthKind::Unlock => auth.unlock(&input.password),
+            AuthKind::QuickUnlock => {
+                // The engine keeps quick unlock on the daemon: the polkit
+                // check and the retained key live in the daemon state, not in
+                // `AuthManager`.
+                let response = daemon(json!({ "action": "quick_unlock" })).unwrap_or_else(|| {
+                    json!({
+                        "ok": false,
+                        "status": "locked",
+                        "error": "The Omawarden daemon is not running. Try again.",
+                    })
+                });
+                serde_json::from_value::<omawarden::auth::AuthResult>(response).unwrap_or_else(
+                    |_| omawarden::auth::AuthResult {
+                        ok: false,
+                        status: Some("locked".to_string()),
+                        error: Some(
+                            "The Omawarden daemon returned an unreadable response.".to_string(),
+                        ),
+                        ..Default::default()
+                    },
+                )
+            }
+        };
+
+        if result.ok {
+            apply_remember_email(&input);
         }
+        snapshot_from_auth_result(&result, &input.email)
     }
 
     /// Send two-factor verification email.
@@ -4378,66 +4393,31 @@ mod tests {
     }
 
     #[test]
-    fn cli_fido2_payload_omits_blank_codes() {
-        let input = AuthActionInput {
-            kind: AuthKind::TwoFactor,
-            email: "user@example.com".to_string(),
-            password: "correct horse battery staple".to_string(),
-            client_id: String::new(),
-            client_secret: String::new(),
-            code: String::new(),
-            provider: Some(7),
-            remember_email: Some(true),
-            new_device_otp: Some("   ".to_string()),
-        };
-        let payload = cli_auth_payload(&input).expect("a two-factor payload");
-        let value: Value = serde_json::from_str(&payload).expect("valid JSON");
-        assert_eq!(value.get("password").and_then(Value::as_str), Some("correct horse battery staple"));
-        assert_eq!(value.get("provider").and_then(Value::as_u64), Some(7));
-        assert!(value.get("code").is_none());
-        assert!(value.get("new_device_otp").is_none());
+    fn two_factor_providers_are_labelled_in_process() {
+        let fido2 = two_factor_provider_view(7);
+        assert_eq!(fido2.id, 7);
+        assert_eq!(fido2.name, "fido2");
+        assert_eq!(fido2.label, "FIDO2 Security Key");
+        assert!(fido2.available);
 
-        let args = cli_auth_args(&input);
-        assert_eq!(args[0], "auth");
-        assert_eq!(args[1], "login-password");
-        assert!(args.contains(&"--email".to_string()));
-        assert!(args.contains(&"--remember-email".to_string()));
+        let email = two_factor_provider_view(1);
+        assert_eq!(email.name, "email");
+        assert_eq!(email.label, "Email");
+
+        let unknown = two_factor_provider_view(9);
+        assert_eq!(unknown.name, "provider-9");
+        assert_eq!(unknown.label, "Provider 9");
     }
 
     #[test]
-    fn cli_email_payload_keeps_the_typed_code() {
-        let input = AuthActionInput {
-            kind: AuthKind::TwoFactor,
-            email: "user@example.com".to_string(),
-            password: "correct horse battery staple".to_string(),
-            client_id: String::new(),
-            client_secret: String::new(),
-            code: " 123456 ".to_string(),
-            provider: Some(1),
-            remember_email: Some(false),
-            new_device_otp: None,
-        };
-        let payload = cli_auth_payload(&input).expect("a two-factor payload");
-        let value: Value = serde_json::from_str(&payload).expect("valid JSON");
-        assert_eq!(value.get("code").and_then(Value::as_str), Some("123456"));
-        assert_eq!(value.get("provider").and_then(Value::as_u64), Some(1));
-
-        let args = cli_auth_args(&input);
-        let remember = args.iter().position(|arg| arg == "--remember-email");
-        assert_eq!(remember.and_then(|index| args.get(index + 1)).map(String::as_str), Some("false"));
-    }
-
-    #[test]
-    fn cli_failure_message_hides_stderr_details() {
-        let unsupported = cli_failure_message(
-            "error: unrecognized subcommand 'quick-unlock'\n\nUsage: omawarden auth <COMMAND>",
+    fn blank_codes_are_omitted_from_the_in_process_call() {
+        assert_eq!(normalize_optional_code(Some("   ".to_string())), None);
+        assert_eq!(
+            normalize_optional_code(Some(" 123456 ".to_string())),
+            Some("123456".to_string())
         );
-        assert!(unsupported.contains("does not support that action"));
-
-        let generic = cli_failure_message(
-            "[2026-11-04T02:25:43.010Z] [WARN] [omawarden:auth] Login failed for user@example.com",
-        );
-        assert!(!generic.contains("user@example.com"));
-        assert!(!generic.contains("omawarden:auth"));
+        let code = " 123456 ";
+        let code = code.trim();
+        assert_eq!(if code.is_empty() { None } else { Some(code) }, Some("123456"));
     }
 }
