@@ -16,6 +16,7 @@ const filename = signal("id_ed25519");
 const importedPem = signal("");
 const saveToVault = signal(true);
 const exportToSsh = signal(false);
+const exportDir = signal("~/.ssh");
 const revealPrivate = signal(false);
 
 const MODE_LABELS: Array<{ mode: SshKeyMode; label: string; testID: string }> = [
@@ -56,7 +57,24 @@ export function SshKeyModal() {
       filename: filename(),
       saveToVault: mode() === "export" ? false : saveToVault(),
       exportToSsh: mode() === "export" ? true : exportToSsh(),
+      exportDir: exportDir(),
     });
+  };
+
+  const browseImport = () => {
+    const pem = store.browseSshImport();
+    if (pem) {
+      importedPem.set(pem);
+    } else {
+      store.notify("Could not read that private key file.", "error");
+    }
+  };
+
+  const browseExportDir = () => {
+    const path = store.chooseFolder("Select SSH Export Directory");
+    if (path) {
+      exportDir.set(path);
+    }
   };
 
   return (
@@ -103,6 +121,15 @@ export function SshKeyModal() {
             value={filename()}
             onChange={(value: string) => filename.set(value)}
             hint="Private key path: ~/.ssh/&lt;filename&gt;"
+          />
+          <SettingInput
+            label="Destination Directory"
+            testID="ssh-export-dir"
+            value={exportDir()}
+            onChange={(value: string) => exportDir.set(value)}
+            hint="Where the private and public key files are written."
+            browseTestID="ssh-export-dir-browse"
+            onBrowse={browseExportDir}
           />
           <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
             <ActionButton
@@ -154,6 +181,11 @@ export function SshKeyModal() {
                 onChange={(text: string) => importedPem.set(text)}
                 style={{ ...inputStyle(), minHeight: 110, fontFamily: "monospace" }}
               />
+              <ActionButton
+                label="Browse Key File…"
+                testID="ssh-import-browse"
+                onPress={browseImport}
+              />
             </View>
           )}
 
@@ -178,6 +210,17 @@ export function SshKeyModal() {
             onChange={(value: string) => filename.set(value)}
             hint="Private key path when exporting: ~/.ssh/&lt;filename&gt;"
           />
+          {exportToSsh() ? (
+            <SettingInput
+              label="Destination Directory"
+              testID="ssh-export-dir"
+              value={exportDir()}
+              onChange={(value: string) => exportDir.set(value)}
+              hint="Where the private and public key files are written."
+              browseTestID="ssh-export-dir-browse"
+              onBrowse={browseExportDir}
+            />
+          ) : null}
 
           <ToggleRow
             label="Save to Vault"
@@ -290,19 +333,30 @@ function SettingInput(props: {
   value: string;
   onChange: (value: string) => void;
   hint?: string;
+  browseTestID?: string;
+  onBrowse?: () => void;
 }) {
   const palette = store.palette;
   return (
     <View style={{ gap: 4 }}>
       <Text style={{ color: palette().muted, fontSize: 12 }}>{props.label}</Text>
-      <Input
-        testID={props.testID}
-        value={props.value}
-        autoCapitalize="none"
-        autoCorrect={false}
-        onChange={props.onChange}
-        style={inputStyle()}
-      />
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Input
+          testID={props.testID}
+          value={props.value}
+          autoCapitalize="none"
+          autoCorrect={false}
+          onChange={props.onChange}
+          style={{ ...inputStyle(), flex: 1 }}
+        />
+        {props.onBrowse ? (
+          <ActionButton
+            label="Browse…"
+            testID={props.browseTestID}
+            onPress={props.onBrowse}
+          />
+        ) : null}
+      </View>
       {props.hint ? (
         <Text style={{ color: palette().muted, fontSize: 10 }}>{props.hint}</Text>
       ) : null}

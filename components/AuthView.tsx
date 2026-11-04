@@ -1,7 +1,24 @@
 import { Text, View } from "nsh";
 import { Button, Checkbox, Input } from "nsh/base";
-import { signal } from "nsh";
 import * as store from "../store/appStore";
+import {
+  clientId,
+  clientSecret,
+  confirmLogout,
+  email,
+  loginTab,
+  mtlsCertPath,
+  mtlsEnabled,
+  mtlsKeyPath,
+  mtlsOpen,
+  newDeviceOtp,
+  password,
+  pendingPassword,
+  rememberEmail,
+  twoFactorCode,
+  unlockPassword,
+} from "../store/authForm";
+import { isOfficialServer } from "../store/IconPolicy";
 import { tint, textOnTint } from "../theme/palette";
 import {
   actionID,
@@ -13,18 +30,6 @@ import {
   SmallButton,
   useAction,
 } from "./ui";
-
-const loginTab = signal<"password" | "apiKey">("password");
-const email = signal("");
-const password = signal("");
-const clientId = signal("");
-const clientSecret = signal("");
-const rememberEmail = signal(true);
-const pendingPassword = signal("");
-const twoFactorCode = signal("");
-const newDeviceOtp = signal("");
-const unlockPassword = signal("");
-const confirmLogout = signal(false);
 
 export type AuthMode = "login" | "twoFactor" | "locked";
 
@@ -93,6 +98,8 @@ export function AuthView(props: { mode: AuthMode }) {
 
 function LoginForm(props: { serverUrl: string; identityUrl: string }) {
   const palette = store.palette;
+  const submitting = store.isSubmitting;
+  const selfHosted = () => !isOfficialServer(props.serverUrl);
 
   return (
     <Panel>
@@ -100,12 +107,14 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
         <TabButton
           label="Master Password"
           active={loginTab() === "password"}
+          disabled={submitting()}
           onPress={() => loginTab.set("password")}
           testID="login-tab-password"
         />
         <TabButton
           label="API Key"
           active={loginTab() === "apiKey"}
+          disabled={submitting()}
           onPress={() => loginTab.set("apiKey")}
           testID="login-tab-api"
         />
@@ -120,6 +129,8 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
             placeholder="you@example.com"
             autoCapitalize="none"
             autoCorrect={false}
+            readonly={submitting()}
+            submitBehavior="submit"
             onChange={(text: string) => email.set(text)}
             style={inputStyle()}
           />
@@ -131,6 +142,8 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
             masked
             autoCapitalize="none"
             autoCorrect={false}
+            readonly={submitting()}
+            submitBehavior="submit"
             onChange={(text: string) => password.set(text)}
             onSubmit={() => submitLogin()}
             style={inputStyle()}
@@ -138,6 +151,7 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
           <Checkbox
             testID="login-remember-email"
             checked={rememberEmail()}
+            disabled={submitting()}
             onChange={(checked: boolean) => rememberEmail.set(checked)}
             indicator={
               <Text style={{ color: palette().menu.selectedText, fontSize: 12 }}>
@@ -157,6 +171,8 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
             placeholder="user.client-id"
             autoCapitalize="none"
             autoCorrect={false}
+            readonly={submitting()}
+            submitBehavior="submit"
             onChange={(text: string) => clientId.set(text)}
             style={inputStyle()}
           />
@@ -168,16 +184,21 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
             masked
             autoCapitalize="none"
             autoCorrect={false}
+            readonly={submitting()}
+            submitBehavior="submit"
             onChange={(text: string) => clientSecret.set(text)}
             style={inputStyle()}
           />
         </View>
       )}
 
+      {selfHosted() ? <MtlsCard /> : null}
+
       <ActionButton
-        label="Log In"
+        label={submitting() ? "Signing in…" : "Log In"}
         testID="login-submit"
         tone="primary"
+        disabled={submitting()}
         onPress={submitLogin}
       />
 
@@ -213,6 +234,114 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
   );
 }
 
+function MtlsCard() {
+  const palette = store.palette;
+  const open = mtlsOpen;
+  const enabled = mtlsEnabled;
+
+  return (
+    <View
+      style={{
+        borderColor: palette().popups.border,
+        borderWidth: 1,
+        borderRadius: 8,
+        padding: 10,
+        gap: 8,
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <SmallButton
+          testID="login-mtls-toggle"
+          paddingVertical={2}
+          onPress={() => open.set(!open())}
+        >
+          <Text style={{ color: palette().popups.selectedText, fontSize: 12 }}>
+            {open() ? "▾" : "▸"} Mutual TLS (mTLS) Client Certificate
+          </Text>
+        </SmallButton>
+      </View>
+
+      {open() ? (
+        <View style={{ gap: 8 }}>
+          <Checkbox
+            testID="login-mtls-enabled"
+            checked={enabled()}
+            onChange={(checked: boolean) => enabled.set(checked)}
+            indicator={
+              <Text style={{ color: palette().menu.selectedText, fontSize: 12 }}>
+                {enabled() ? "✓" : " "}
+              </Text>
+            }
+          >
+            <Text style={{ color: palette().popups.text, fontSize: 12 }}>
+              Use a client certificate
+            </Text>
+          </Checkbox>
+
+          <Text style={{ color: palette().muted, fontSize: 11 }}>Client Certificate (PEM)</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Input
+              testID="login-mtls-cert"
+              value={mtlsCertPath()}
+              placeholder="~/.config/omawarden/client.crt"
+              autoCapitalize="none"
+              autoCorrect={false}
+              onChange={(text: string) => mtlsCertPath.set(text)}
+              style={{ ...inputStyle(), flex: 1 }}
+            />
+            <ActionButton
+              label="Browse…"
+              testID="login-mtls-cert-browse"
+              onPress={() => {
+                const path = store.pickFile("Select Client Certificate", "Certificate files", [
+                  "crt",
+                  "pem",
+                ]);
+                if (path) {
+                  mtlsCertPath.set(path);
+                  enabled.set(true);
+                }
+              }}
+            />
+          </View>
+
+          <Text style={{ color: palette().muted, fontSize: 11 }}>Private Key (PEM)</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Input
+              testID="login-mtls-key"
+              value={mtlsKeyPath()}
+              placeholder="~/.config/omawarden/client.key"
+              autoCapitalize="none"
+              autoCorrect={false}
+              onChange={(text: string) => mtlsKeyPath.set(text)}
+              style={{ ...inputStyle(), flex: 1 }}
+            />
+            <ActionButton
+              label="Browse…"
+              testID="login-mtls-key-browse"
+              onPress={() => {
+                const path = store.pickFile("Select Client Private Key", "Key files", [
+                  "key",
+                  "pem",
+                ]);
+                if (path) {
+                  mtlsKeyPath.set(path);
+                  enabled.set(true);
+                }
+              }}
+            />
+          </View>
+
+          <Text style={{ color: palette().muted, fontSize: 10 }}>
+            Keep the private key readable only by you (chmod 600). The certificate must match the
+            server's hostname and origin.
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 function fido2StatusText(status: string | null | undefined): string {
   switch (status) {
     case "available":
@@ -229,6 +358,14 @@ function fido2StatusText(status: string | null | undefined): string {
 }
 
 function submitLogin(): void {
+  if (store.isSubmitting()) {
+    return;
+  }
+  // Persist the mutual-TLS material before the engine opens a connection, so
+  // the very first request already presents the client certificate.
+  if (mtlsEnabled()) {
+    store.saveMtlsConfig(mtlsCertPath().trim(), mtlsKeyPath().trim());
+  }
   if (loginTab() === "apiKey") {
     store.authenticate({
       kind: "apiKey",
@@ -255,12 +392,12 @@ function submitLogin(): void {
     rememberEmail: rememberEmail(),
     newDeviceOtp: null,
   });
-  password.set("");
 }
 
 function TwoFactorForm() {
   const palette = store.palette;
   const snap = store.snapshot;
+  const submitting = store.isSubmitting;
   const challenge = () => snap().twoFactor;
   const providers = () => challenge()?.providers ?? [];
   const provider = () => store.selectedProvider();
@@ -270,6 +407,9 @@ function TwoFactorForm() {
   const isFido2 = () => active()?.id === 7;
 
   const submit = () => {
+    if (store.isSubmitting()) {
+      return;
+    }
     const kind = challenge()?.newDevice ? "newDevice" : "twoFactor";
     store.authenticate({
       kind,
@@ -284,8 +424,6 @@ function TwoFactorForm() {
       // assertion instead of treating a blank OTP as a real code.
       newDeviceOtp: isFido2() ? null : newDeviceOtp(),
     });
-    twoFactorCode.set("");
-    newDeviceOtp.set("");
   };
 
   return (
@@ -317,9 +455,10 @@ function TwoFactorForm() {
             No verification code is needed. Your security key signs the challenge.
           </Text>
           <ActionButton
-            label="Use Security Key"
+            label={submitting() ? "Checking…" : "Use Security Key"}
             testID="twofactor-retry-fido2"
             tone="primary"
+            disabled={submitting()}
             onPress={submit}
           />
         </View>
@@ -332,6 +471,7 @@ function TwoFactorForm() {
             placeholder="Enter the code from your email"
             autoCapitalize="none"
             autoCorrect={false}
+            readonly={submitting()}
             onChange={(text: string) => newDeviceOtp.set(text)}
             onSubmit={submit}
             style={inputStyle()}
@@ -346,6 +486,7 @@ function TwoFactorForm() {
             placeholder={isEmail() ? "Email verification code" : "123456"}
             autoCapitalize="none"
             autoCorrect={false}
+            readonly={submitting()}
             onChange={(text: string) => twoFactorCode.set(text)}
             onSubmit={submit}
             style={inputStyle()}
@@ -357,12 +498,19 @@ function TwoFactorForm() {
         <ActionButton
           label="Resend Email"
           testID="twofactor-resend"
+          disabled={submitting()}
           onPress={() => store.sendTwoFactorEmail(snap().email || email(), pendingPassword())}
         />
       ) : null}
 
       {isFido2() ? null : (
-        <ActionButton label="Verify" testID="twofactor-submit" tone="primary" onPress={submit} />
+        <ActionButton
+          label={submitting() ? "Verifying…" : "Verify"}
+          testID="twofactor-submit"
+          tone="primary"
+          disabled={submitting()}
+          onPress={submit}
+        />
       )}
       <ActionButton
         label="Back to Login"
@@ -376,8 +524,12 @@ function TwoFactorForm() {
 function UnlockForm() {
   const palette = store.palette;
   const snap = store.snapshot;
+  const submitting = store.isSubmitting;
 
   const unlock = () => {
+    if (submitting()) {
+      return;
+    }
     store.authenticate({
       kind: "unlock",
       email: snap().email,
@@ -389,7 +541,6 @@ function UnlockForm() {
       rememberEmail: rememberEmail(),
       newDeviceOtp: null,
     });
-    unlockPassword.set("");
   };
 
   return (
@@ -411,12 +562,19 @@ function UnlockForm() {
         masked
         autoCapitalize="none"
         autoCorrect={false}
+        readonly={submitting()}
         onChange={(text: string) => unlockPassword.set(text)}
         onSubmit={unlock}
         style={inputStyle()}
       />
 
-      <ActionButton label="Unlock Vault" testID="unlock-submit" tone="primary" onPress={unlock} />
+      <ActionButton
+        label={submitting() ? "Unlocking…" : "Unlock Vault"}
+        testID="unlock-submit"
+        tone="primary"
+        disabled={submitting()}
+        onPress={unlock}
+      />
 
       {snap().quickUnlockReady ? (
         <View style={{ gap: 4 }}>

@@ -5,6 +5,9 @@
   "build": 1,
   "rust": ".",
   "capabilities": {
-    "host": true
+    "host": true,
+    "network": {
+      "hosts": ["*"]
+    }
   }
 }

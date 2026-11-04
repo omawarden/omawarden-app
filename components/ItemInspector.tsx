@@ -1,7 +1,8 @@
-import { Scroll, Text, View } from "nsh";
+import { Image, Scroll, Text, View } from "nsh";
 import { Progress } from "nsh/base";
 import type { InspectorView } from "omawarden-app/native";
 import * as store from "../store/appStore";
+import { formatMaskedCardNumber, formatRevealedCardNumber } from "../store/CardFormatter";
 import { tint } from "../theme/palette";
 import { ActionButton, Chip, FieldRow, Panel, SectionTitle, SmallButton } from "./ui";
 import { EmptyInspector } from "./EmptyInspector";
@@ -18,6 +19,9 @@ function InspectorBody(props: { item: () => InspectorView }) {
   const palette = store.palette;
   const item = props.item;
   const attachment = store.attachmentPreview;
+  const reprompt = () => item().reprompt === 1 && store.repromptRequired();
+  const totpDanger = () => Boolean(item().totp?.valid) && (item().totp?.remaining ?? 0) <= 5;
+  const totpColor = () => (totpDanger() ? palette().danger : palette().success);
 
   return (
     <View
@@ -54,6 +58,33 @@ function InspectorBody(props: { item: () => InspectorView }) {
       </View>
 
       <Scroll style={{ flex: 1 }} contentStyle={{ padding: 12, gap: 12 }}>
+        {reprompt() ? (
+          <View
+            testID="inspector-reprompt"
+            style={{
+              backgroundColor: tint(palette().warning, palette().popups.background, 0.16),
+              borderColor: palette().warning,
+              borderWidth: 1,
+              borderRadius: 8,
+              padding: 10,
+              gap: 8,
+            }}
+          >
+            <Text style={{ color: palette().popups.text, fontSize: 12, fontWeight: "bold" }}>
+              Master password required
+            </Text>
+            <Text style={{ color: palette().muted, fontSize: 11 }}>
+              Confirm your master password to reveal or copy secrets from this item.
+            </Text>
+            <ActionButton
+              label="Confirm Master Password"
+              testID="inspector-reprompt-confirm"
+              tone="primary"
+              onPress={store.requestReprompt}
+            />
+          </View>
+        ) : null}
+
         {item().category === "login" ? (
           <Panel testID="inspector-login">
             <SectionTitle>Login</SectionTitle>
@@ -126,7 +157,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
               <View
                 testID="inspector-totp"
                 style={{
-                  backgroundColor: tint(palette().success, palette().popups.background, 0.12),
+                  backgroundColor: tint(totpColor(), palette().popups.background, 0.12),
                   borderRadius: 8,
                   padding: 10,
                   gap: 6,
@@ -142,7 +173,10 @@ function InspectorBody(props: { item: () => InspectorView }) {
                   <Text style={{ color: palette().popups.text, fontSize: 12, fontWeight: "bold" }}>
                     Live TOTP
                   </Text>
-                  <Text style={{ color: palette().success, fontSize: 11 }}>
+                  <Text
+                    testID="inspector-totp-remaining"
+                    style={{ color: totpColor(), fontSize: 11, fontWeight: totpDanger() ? "bold" : "normal" }}
+                  >
                     {item().totp?.valid
                       ? `${item().totp?.remaining}s / ${item().totp?.period}s`
                       : "Unavailable"}
@@ -150,18 +184,21 @@ function InspectorBody(props: { item: () => InspectorView }) {
                 </View>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                   <Text
-                    selectable
+                    testID="inspector-totp-code"
+                    selectable={!reprompt()}
                     style={{
-                      color: palette().popups.text,
+                      color: reprompt() ? palette().muted : palette().popups.text,
                       fontSize: 24,
                       fontWeight: "bold",
                       fontFamily: "monospace",
                       letterSpacing: 3,
                     }}
                   >
-                    {item().totp?.valid
-                      ? item().totp?.formatted
-                      : item().totp?.error ?? "—"}
+                    {reprompt()
+                      ? "••• •••"
+                      : item().totp?.valid
+                        ? item().totp?.formatted
+                        : item().totp?.error ?? "—"}
                   </Text>
                   <SmallButton
                     testID="copy-totp"
@@ -209,12 +246,12 @@ function InspectorBody(props: { item: () => InspectorView }) {
                   indicatorClass="h-1.5 rounded-full"
                   trackStyle={{
                     backgroundColor: tint(
-                      palette().success,
+                      totpColor(),
                       palette().popups.background,
                       0.2,
                     ),
                   }}
-                  indicatorStyle={{ backgroundColor: palette().success }}
+                  indicatorStyle={{ backgroundColor: totpColor() }}
                 />
               </View>
             ) : null}
@@ -285,7 +322,12 @@ function InspectorBody(props: { item: () => InspectorView }) {
                   fontFamily: "monospace",
                 }}
               >
-                {item().card?.number || item().card?.numberMasked}
+                {store.reveal().revealCardNumber && !reprompt()
+                  ? formatRevealedCardNumber(item().card?.number, item().card?.brand)
+                  : formatMaskedCardNumber(
+                      item().card?.numberMasked ?? item().card?.number,
+                      item().card?.brand,
+                    )}
               </Text>
               <SmallButton
                 testID="reveal-card-number"
@@ -618,7 +660,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                   </SmallButton>
                   <SmallButton
                     testID={`download-attachment-${file().id}`}
-                    onPress={() => store.openAttachment(item().id, file().id, "download")}
+                    onPress={() => store.saveAttachment(item().id, file().id)}
                   >
                     <Text style={{ color: palette().popups.selectedText, fontSize: 11 }}>
                       Download
@@ -656,13 +698,56 @@ function InspectorBody(props: { item: () => InspectorView }) {
                   </SmallButton>
                 </View>
                 {attachment()?.isImage ? (
-                  <Text style={{ color: palette().muted, fontSize: 11 }}>
-                    Image preview ready at {attachment()?.path}
-                  </Text>
+                  <View style={{ gap: 6 }}>
+                    <If
+                      when={(attachment()?.dataUrl ?? "") !== ""}
+                      else={
+                        <Text style={{ color: palette().muted, fontSize: 11 }}>
+                          This image is too large to preview here. Open it with the system viewer.
+                        </Text>
+                      }
+                    >
+                      <Image
+                        testID="attachment-image"
+                        src={attachment()?.dataUrl ?? ""}
+                        resizeMode="contain"
+                        style={{
+                          width: "100%",
+                          maxHeight: 320,
+                          minHeight: 120,
+                          borderRadius: 6,
+                        }}
+                      />
+                    </If>
+                    <ActionButton
+                      label="Open with system viewer"
+                      testID="open-attachment-external"
+                      onPress={store.launchAttachmentPreview}
+                    />
+                  </View>
                 ) : (
-                  <Text selectable style={{ color: palette().popups.text, fontSize: 12 }}>
-                    {attachment()?.text}
-                  </Text>
+                  <View style={{ gap: 6 }}>
+                    <Scroll style={{ maxHeight: 320 }}>
+                      <Text
+                        testID="attachment-text"
+                        selectable
+                        style={{
+                          color: palette().popups.text,
+                          fontSize: 12,
+                          fontFamily: "monospace",
+                        }}
+                      >
+                        {attachment()?.text}
+                      </Text>
+                    </Scroll>
+                    <ActionButton
+                      label="Copy content"
+                      testID="copy-attachment-content"
+                      onPress={() =>
+                        store.copyText(attachment()?.text ?? "", "attachment content", true)
+                      }
+                    />
+                  </View>
                 )}
               </View>
             ) : null}

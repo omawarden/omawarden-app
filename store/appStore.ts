@@ -3,6 +3,7 @@ import {
   OmawardenBridge,
   type AppPhase,
   type AuthActionInput,
+  type CategoryCountsView,
   type CipherRowView,
   type CopyOutcomeView,
   type DaemonTickView,
@@ -30,6 +31,7 @@ import {
   type ThemePalette,
   type ThemePaletteOverrides,
 } from "../theme/palette";
+import { clearAuthSecrets } from "./authForm";
 
 export type ModalKind =
   | "none"
@@ -38,7 +40,8 @@ export type ModalKind =
   | "sshKey"
   | "passwordHistory"
   | "settings"
-  | "releaseNotes";
+  | "releaseNotes"
+  | "reprompt";
 
 export type ToastKind = "success" | "error" | "info";
 
@@ -121,6 +124,7 @@ export const attachmentPreview = signal<{
   filename: string;
   text: string;
   path: string;
+  dataUrl: string;
   isImage: boolean;
 } | null>(null);
 export const toast = signal<ToastState | null>(null);
@@ -131,6 +135,10 @@ export const reveal = signal<RevealStateInput>(defaultReveal());
 export const selectedIndex = signal(0);
 export const selectedProvider = signal(0);
 export const focusedAction = signal<string | null>(null);
+export const isSubmitting = signal(false);
+/** The cipher whose master-password re-prompt grant is active. */
+export const repromptCipherId = signal<string | null>(null);
+export const repromptError = signal<string | null>(null);
 
 // Vault rows are GTK widget subtrees, so mounting every item at once makes a
 // large vault expensive. Render a window and grow it as the user asks or moves
@@ -223,6 +231,48 @@ function filterRows(
 export const filteredItems = computed<CipherRowView[]>(() =>
   filterRows(rawItems(), category(), scopeId(), folderId(), search()),
 );
+
+/** Category badges for the current search, scope, and folder. */
+export const categoryCounts = computed<CategoryCountsView>(() => {
+  const counts: CategoryCountsView = {
+    all: 0,
+    logins: 0,
+    cards: 0,
+    identities: 0,
+    secureNotes: 0,
+    sshKeys: 0,
+  };
+  const rows = filterRows(rawItems(), "all", scopeId(), folderId(), search());
+  for (const row of rows) {
+    counts.all += 1;
+    switch (row.category) {
+      case "login":
+        counts.logins += 1;
+        break;
+      case "card":
+        counts.cards += 1;
+        break;
+      case "identity":
+        counts.identities += 1;
+        break;
+      case "secureNote":
+        counts.secureNotes += 1;
+        break;
+      case "sshKey":
+        counts.sshKeys += 1;
+        break;
+      default:
+        break;
+    }
+  }
+  return counts;
+});
+
+/** Whether the selected item needs the master password again. */
+export const repromptRequired = computed<boolean>(() => {
+  const item = inspector();
+  return Boolean(item && item.reprompt === 1 && repromptCipherId() !== item.id);
+});
 
 export const visibleItems = computed<CipherRowView[]>(() => {
   const items = filteredItems();
@@ -404,6 +454,12 @@ function applySnapshot(next: VaultSnapshotView): void {
   category.set(next.category);
   scopeId.set(next.activeScope);
   folderId.set(next.activeFolder ?? null);
+  if (next.phase !== "unlocked") {
+    stopTotpTicker();
+    inspector.set(null);
+    repromptCipherId.set(null);
+    repromptError.set(null);
+  }
   if (next.twoFactor) {
     selectedProvider.set(next.twoFactor.selectedProvider);
   }
@@ -464,6 +520,9 @@ export function bootApp(): void {
   }
   if (next.phase === "unlocked") {
     selectFirstIfNeeded();
+  }
+  if (next.phase !== "dependencyCheck") {
+    loadSettings();
   }
   if (params.mockState) {
     const mockTheme = params.mockState.theme;
@@ -564,18 +623,27 @@ function authProgressMessage(kind: AuthActionInput["kind"]): string {
 }
 
 export function authenticate(input: AuthActionInput): void {
+  if (isSubmitting()) {
+    return;
+  }
+  isSubmitting.set(true);
   notify(authProgressMessage(input.kind), "info");
   defer(() => {
-    const next = OmawardenBridge.authenticate(input);
-    applySnapshot(next);
-    if (next.error) {
-      return;
-    }
-    dismissToast();
-    if (next.phase === "unlocked") {
-      inspector.set(null);
-      selectedIndex.set(0);
-      loadSettings();
+    try {
+      const next = OmawardenBridge.authenticate(input);
+      applySnapshot(next);
+      if (next.error) {
+        return;
+      }
+      dismissToast();
+      if (next.phase === "unlocked") {
+        clearAuthSecrets();
+        inspector.set(null);
+        selectedIndex.set(0);
+        loadSettings();
+      }
+    } finally {
+      isSubmitting.set(false);
     }
   });
 }
@@ -614,11 +682,19 @@ export function query(): void {
 }
 
 export function sync(): void {
+  if (isSubmitting()) {
+    return;
+  }
+  isSubmitting.set(true);
   notify("Syncing vault…", "info");
   defer(() => {
-    const next = OmawardenBridge.syncVault(currentFilter());
-    applySnapshot(next);
-    notify(next.error ? "Sync failed." : "Vault synchronized.", next.error ? "error" : "success");
+    try {
+      const next = OmawardenBridge.syncVault(currentFilter());
+      applySnapshot(next);
+      notify(next.error ? "Sync failed." : "Vault synchronized.", next.error ? "error" : "success");
+    } finally {
+      isSubmitting.set(false);
+    }
   });
 }
 
@@ -654,6 +730,8 @@ export function selectCipher(index: number): void {
   expandVisibleLimitForSelection(index);
   selectedIndex.set(index);
   reveal.set(defaultReveal());
+  repromptCipherId.set(null);
+  repromptError.set(null);
   refreshInspector();
 }
 
@@ -675,13 +753,63 @@ export function moveSelection(delta: number): void {
 export function refreshInspector(): void {
   const cipher = selectedCipher();
   if (!cipher) {
+    stopTotpTicker();
     inspector.set(null);
     return;
   }
   inspector.set(OmawardenBridge.inspectCipher(cipher.id, reveal()));
+  syncTotpTicker();
+}
+
+let totpTimer: ReturnType<typeof setInterval> | null = null;
+
+function stopTotpTicker(): void {
+  if (totpTimer !== null) {
+    clearInterval(totpTimer);
+    totpTimer = null;
+  }
+}
+
+function syncTotpTicker(): void {
+  const totp = inspector()?.totp;
+  if (phase() === "unlocked" && totp?.valid) {
+    if (totpTimer === null) {
+      totpTimer = setInterval(tickTotp, 1000);
+    }
+  } else {
+    stopTotpTicker();
+  }
+}
+
+/** One TOTP tick: decrement, or fetch the next code when the period ends. */
+export function tickTotp(): void {
+  const current = inspector();
+  const totp = current?.totp;
+  if (phase() !== "unlocked" || !current || !totp || !totp.valid) {
+    stopTotpTicker();
+    return;
+  }
+  if (totp.remaining > 1) {
+    inspector.set({
+      ...current,
+      totp: { ...totp, remaining: totp.remaining - 1 },
+    });
+    return;
+  }
+  const next = OmawardenBridge.refreshTotp(current.id);
+  inspector.set({ ...current, totp: next });
+  if (!next.valid) {
+    stopTotpTicker();
+  }
 }
 
 export function toggleReveal(field: "password" | "cardNumber" | "cvv" | "privateKey"): void {
+  if (!ensureReprompt(() => applyReveal(field))) {
+    return;
+  }
+}
+
+function applyReveal(field: "password" | "cardNumber" | "cvv" | "privateKey"): void {
   const current = reveal();
   const next: RevealStateInput = { ...current, revealFields: [...current.revealFields] };
   if (field === "password") next.revealPassword = !current.revealPassword;
@@ -693,6 +821,12 @@ export function toggleReveal(field: "password" | "cardNumber" | "cvv" | "private
 }
 
 export function toggleRevealField(index: number): void {
+  if (!ensureReprompt(() => applyRevealField(index))) {
+    return;
+  }
+}
+
+function applyRevealField(index: number): void {
   const current = reveal();
   const fields = current.revealFields.includes(index)
     ? current.revealFields.filter((entry) => entry !== index)
@@ -710,6 +844,7 @@ export function refreshTotp(): void {
   const current = inspector();
   if (current) {
     inspector.set({ ...current, totp });
+    syncTotpTicker();
   }
 }
 
@@ -719,12 +854,67 @@ export function copyField(field: string, customIndex?: number): void {
     notify("Select an item first.", "error");
     return;
   }
-  const outcome: CopyOutcomeView = OmawardenBridge.copyCipherField(
-    cipher.id,
-    field,
-    customIndex ?? null,
-  );
-  notify(outcome.message, outcome.ok ? "success" : "error");
+  const run = () => {
+    const outcome: CopyOutcomeView = OmawardenBridge.copyCipherField(
+      cipher.id,
+      field,
+      customIndex ?? null,
+    );
+    notify(outcome.message, outcome.ok ? "success" : "error");
+  };
+  if (fieldIsSensitive(field, customIndex)) {
+    ensureReprompt(run);
+    return;
+  }
+  run();
+}
+
+function fieldIsSensitive(field: string, customIndex?: number): boolean {
+  if (["password", "totp", "card_number", "cvv", "private_key"].includes(field)) {
+    return true;
+  }
+  if (field === "custom" && customIndex !== undefined) {
+    const entry = inspector()?.fields.find((item) => item.index === customIndex);
+    return entry?.kind === "hidden";
+  }
+  return false;
+}
+
+let pendingRepromptAction: (() => void) | null = null;
+
+/** Runs `action` now, or after the master password is confirmed. */
+function ensureReprompt(action: () => void): boolean {
+  if (!repromptRequired()) {
+    action();
+    return true;
+  }
+  pendingRepromptAction = action;
+  requestReprompt();
+  return false;
+}
+
+/** Opens the master-password re-prompt dialog. */
+export function requestReprompt(): void {
+  repromptError.set(null);
+  activeModal.set("reprompt");
+}
+
+/** Verifies the master password and runs the pending action on success. */
+export function confirmMasterPassword(secret: string): void {
+  const cipher = selectedCipher();
+  if (!cipher) {
+    return;
+  }
+  if (!OmawardenBridge.verifyMasterPassword(secret)) {
+    repromptError.set("Incorrect master password.");
+    return;
+  }
+  repromptCipherId.set(cipher.id);
+  repromptError.set(null);
+  activeModal.set("none");
+  const action = pendingRepromptAction;
+  pendingRepromptAction = null;
+  action?.();
 }
 
 export function copyText(text: string, label: string, sensitive: boolean): void {
@@ -780,6 +970,7 @@ export function openAttachment(cipherId: string, attachmentId: string, mode: str
       filename: outcome.filename ?? "Attachment",
       text: outcome.textContent ?? "",
       path: outcome.path ?? "",
+      dataUrl: outcome.previewDataUrl ?? "",
       isImage: outcome.isImage,
     });
   }
@@ -791,6 +982,100 @@ export function openAttachment(cipherId: string, attachmentId: string, mode: str
 
 export function closeAttachmentPreview(): void {
   attachmentPreview.set(null);
+}
+
+export function launchAttachmentPreview(): void {
+  const preview = attachmentPreview();
+  if (!preview?.path) {
+    return;
+  }
+  if (!OmawardenBridge.openAttachmentPath(preview.path)) {
+    notify("Could not open the attachment in the system viewer.", "error");
+  }
+}
+
+export function saveAttachment(cipherId: string, attachmentId: string): void {
+  const file = inspector()?.attachments.find((entry) => entry.id === attachmentId);
+  const destination = OmawardenBridge.saveFile(
+    "Save attachment",
+    file?.filename ?? "attachment.bin",
+  );
+  if (!destination) {
+    return;
+  }
+  const outcome = OmawardenBridge.saveAttachment(cipherId, attachmentId, destination);
+  notify(
+    outcome.ok
+      ? `Saved to ${outcome.path ?? destination}`
+      : outcome.error ?? "Could not save the attachment.",
+    outcome.ok ? "success" : "error",
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Native file pickers
+// ---------------------------------------------------------------------------
+
+export function pickFile(
+  title: string,
+  filterName?: string,
+  extensions?: string[],
+): string | null {
+  return OmawardenBridge.pickFile(title, filterName ?? null, extensions ?? null);
+}
+
+export function pickFolder(title: string): string | null {
+  return OmawardenBridge.pickFolder(title);
+}
+
+export function saveFile(title: string, defaultName?: string): string | null {
+  return OmawardenBridge.saveFile(title, defaultName ?? null);
+}
+
+export function readTextFile(path: string): string | null {
+  return OmawardenBridge.readTextFile(path);
+}
+
+export function browseClientCert(): void {
+  const path = pickFile("Select Client Certificate", "Certificate files", [
+    "crt",
+    "pem",
+  ]);
+  if (path) {
+    updateSettingsDraft({ clientCertPath: path });
+  }
+}
+
+export function browseClientKey(): void {
+  const path = pickFile("Select Client Private Key", "Key files", ["key", "pem"]);
+  if (path) {
+    updateSettingsDraft({ clientKeyPath: path });
+  }
+}
+
+export function browseSshImport(): string | null {
+  const path = pickFile("Select SSH Private Key", "SSH keys", ["pem", "key"]);
+  if (!path) {
+    return null;
+  }
+  return readTextFile(path);
+}
+
+export function chooseFolder(title: string): string | null {
+  return pickFolder(title);
+}
+
+/** Persists the mTLS certificate and key before a login attempt. */
+export function saveMtlsConfig(certPath: string, keyPath: string): void {
+  const result = OmawardenBridge.updateSettings({
+    clientCertPath: certPath,
+    clientKeyPath: keyPath,
+  });
+  settings.set(result);
+  health.set(result.health);
+  if (result.error) {
+    notify(result.error, "error");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -922,6 +1207,10 @@ export function openModal(kind: ModalKind): void {
 }
 
 export function closeModal(): void {
+  if (activeModal() === "reprompt") {
+    pendingRepromptAction = null;
+    repromptError.set(null);
+  }
   activeModal.set("none");
   clearActionFocus();
 }

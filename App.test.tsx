@@ -11,6 +11,16 @@ function openMock(mockState: MockState, params: Record<string, unknown> = {}) {
   });
 }
 
+function openMockWithClock(mockState: MockState, params: Record<string, unknown> = {}) {
+  return open("./App.tsx", {
+    width: 1440,
+    height: 960,
+    platform: "linux",
+    clock: {},
+    host: { params: { mock: true, mockState, ...params } },
+  });
+}
+
 const LOGIN_ITEM: Record<string, unknown> = {
   id: "login1",
   title: "GitHub",
@@ -104,6 +114,24 @@ const VAULT_ITEMS: Array<Record<string, unknown>> = [
   SSH_ITEM,
 ];
 
+const IMAGE_ATTACHMENT_ITEM: Record<string, unknown> = {
+  id: "img1",
+  title: "Photos",
+  category: "login",
+  username: "ada",
+  password: "photo-pass",
+  attachments: [{ id: "imgatt", filename: "photo.png", size: 4096 }],
+};
+
+const REPROMPT_ITEM: Record<string, unknown> = {
+  ...LOGIN_ITEM,
+  id: "secure1",
+  title: "Protected Login",
+  organization: null,
+  folder: null,
+  reprompt: 1,
+};
+
 // ---------------------------------------------------------------------------
 // Dependency check
 // ---------------------------------------------------------------------------
@@ -162,6 +190,46 @@ test("login validates a missing email and password", async () => {
   await app.press("id:login-submit");
   expect(app.shows("id:auth-view-login")).toBe(true);
   expect(app.texts()).toContain("Email and master password are required.");
+});
+
+test("failed login preserves typed credentials and a success clears them", async () => {
+  const app = await openMock({ phase: "login" });
+
+  await app.type("id:login-password", "hunter2");
+  await app.press("id:login-submit");
+  expect(app.texts()).toContain("Email and master password are required.");
+  expect(app.value("id:login-password")).toBe("hunter2");
+
+  await app.type("id:login-email", "user@example.com");
+  await app.press("id:login-submit");
+  expect(app.shows("id:vault-workspace")).toBe(true);
+
+  await app.press("id:lock-vault");
+  expect(app.shows("id:auth-view-locked")).toBe(true);
+  await app.press("id:logout");
+  await app.press("id:logout-confirm");
+  expect(app.shows("id:auth-view-login")).toBe(true);
+  expect(app.value("id:login-password")).toBe("");
+});
+
+test("self-hosted login offers mutual TLS configuration", async () => {
+  const app = await openMock({ phase: "login", serverUrl: "https://vault.example.com" });
+
+  expect(app.shows("id:login-mtls-toggle")).toBe(true);
+  await app.press("id:login-mtls-toggle");
+  expect(app.shows("id:login-mtls-cert")).toBe(true);
+  expect(app.shows("id:login-mtls-key")).toBe(true);
+
+  await app.press("id:login-mtls-cert-browse");
+  expect(app.value("id:login-mtls-cert")).toBe("/tmp/omawarden-mock/client.pem");
+  await app.press("id:login-mtls-key-browse");
+  expect(app.value("id:login-mtls-key")).toBe("/tmp/omawarden-mock/client.pem");
+});
+
+test("official Bitwarden login hides mutual TLS configuration", async () => {
+  const app = await openMock({ phase: "login", serverUrl: "https://vault.bitwarden.com" });
+
+  expect(app.shows("id:login-mtls-toggle")).toBe(false);
 });
 
 test("API key login unlocks the vault", async () => {
@@ -321,9 +389,9 @@ test("vault filters by category, search text, scope, and folder", async () => {
   const app = await openMock({ phase: "unlocked", items: VAULT_ITEMS });
 
   expect(app.shows("id:vault-workspace")).toBe(true);
-  expect(app.texts()).toContain("All (6)");
-  expect(app.texts()).toContain("Logins (2)");
-  expect(app.texts()).toContain("Cards (1)");
+  expect(app.texts().join(" ")).toContain("All (6)");
+  expect(app.texts().join(" ")).toContain("Logins (2)");
+  expect(app.texts().join(" ")).toContain("Cards (1)");
 
   await app.press("id:category-card");
   expect(app.shows("id:cipher-row-card1")).toBe(true);
@@ -389,6 +457,40 @@ test("empty search results show an empty hint", async () => {
   expect(app.texts()).toContain("No items match this search.");
 });
 
+test("category counts follow the current search and stay stable across category tabs", async () => {
+  const app = await openMock({ phase: "unlocked", items: VAULT_ITEMS });
+
+  expect(app.texts().join(" ")).toContain("All (6)");
+  expect(app.texts().join(" ")).toContain("Logins (2)");
+  expect(app.texts().join(" ")).toContain("Cards (1)");
+
+  await app.type("id:vault-search", "github");
+  expect(app.texts().join(" ")).toContain("All (1)");
+  expect(app.texts().join(" ")).toContain("Logins (1)");
+  expect(app.texts().join(" ")).toContain("Cards (0)");
+  expect(app.texts().join(" ")).toContain("Identities (0)");
+
+  await app.press("id:category-card");
+  expect(app.texts().join(" ")).toContain("All (1)");
+  expect(app.texts().join(" ")).toContain("Logins (1)");
+
+  await app.clear("id:vault-search");
+  await app.press("id:category-all");
+  expect(app.texts().join(" ")).toContain("All (6)");
+});
+
+test("vault rows fall back to category glyphs when website icons are off", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [LOGIN_ITEM, CARD_ITEM],
+    settings: { showWebsiteIcons: false },
+  });
+
+  expect(app.texts()).toContain("🔑");
+  expect(app.shows("id:cipher-icon-login1")).toBe(false);
+  expect(app.texts()).toContain("Visa · •••• •••• •••• 1111");
+});
+
 // ---------------------------------------------------------------------------
 // Inspector
 // ---------------------------------------------------------------------------
@@ -435,11 +537,63 @@ test("login inspector reveals, copies, refreshes TOTP, and shows history", async
   await app.press("id:preview-attachment-att1");
   expect(app.shows("id:attachment-preview")).toBe(true);
   expect(app.texts()).toContain("Mock attachment preview");
+  expect(app.shows("id:copy-attachment-content")).toBe(true);
   await app.press("id:close-attachment-preview");
   expect(app.shows("id:attachment-preview")).toBe(false);
 
   await app.press("id:download-attachment-att1");
-  expect(app.texts()).toContain("Attachment downloaded.");
+  expect(app.texts()).toContain("Saved to /tmp/omawarden-mock/notes.txt");
+});
+
+test("live TOTP ticks down and auto-refreshes when the period ends", async () => {
+  const app = await openMockWithClock({
+    phase: "unlocked",
+    items: [{ ...LOGIN_ITEM, totpRemaining: 2, totpPeriod: 30 }],
+  });
+
+  await app.press("id:cipher-row-login1");
+  expect(app.shows("id:inspector-totp")).toBe(true);
+  expect(app.texts()).toContain("2s / 30s");
+
+  await app.wait(1000);
+  expect(app.texts()).toContain("1s / 30s");
+
+  await app.wait(1000);
+  expect(app.texts()).toContain("30s / 30s");
+});
+
+test("master password re-prompt hides secrets until confirmed", async () => {
+  const app = await openMock({ phase: "unlocked", items: [REPROMPT_ITEM] });
+
+  await app.press("id:cipher-row-secure1");
+  expect(app.shows("id:inspector-reprompt")).toBe(true);
+  expect(app.texts()).toContain("••• •••");
+  expect(app.texts()).not.toContain("hunter2");
+
+  await app.press("id:reveal-password");
+  expect(app.shows("id:reprompt-modal")).toBe(true);
+
+  await app.type("id:reprompt-password", "wrong password");
+  await app.press("id:reprompt-submit");
+  expect(app.shows("id:reprompt-error")).toBe(true);
+  expect(app.texts()).toContain("Incorrect master password.");
+
+  await app.clear("id:reprompt-password");
+  await app.type("id:reprompt-password", "correct horse battery staple");
+  await app.press("id:reprompt-submit");
+  expect(app.shows("id:reprompt-modal")).toBe(false);
+  expect(app.texts()).toContain("hunter2");
+});
+
+test("image attachments show an inline preview and a system viewer action", async () => {
+  const app = await openMock({ phase: "unlocked", items: [IMAGE_ATTACHMENT_ITEM] });
+
+  await app.press("id:cipher-row-img1");
+  await app.press("id:preview-attachment-imgatt");
+  expect(app.shows("id:attachment-preview")).toBe(true);
+  expect(app.shows("id:attachment-image")).toBe(true);
+  expect(app.shows("id:open-attachment-external")).toBe(true);
+  expect(app.shows("id:copy-attachment-content")).toBe(false);
 });
 
 test("card inspector masks, reveals, and copies card fields", async () => {
@@ -728,6 +882,7 @@ test("settings modal exposes general, security, diagnose, and about tabs", async
   expect(app.shows("id:settings-about")).toBe(true);
   expect(app.shows("id:about-app-version")).toBe(true);
   expect(app.shows("id:about-engine-version")).toBe(true);
+  expect(app.shows("id:about-memory")).toBe(true);
   expect(app.shows("id:check-updates")).toBe(true);
   expect(app.shows("id:view-release-notes")).toBe(true);
 
@@ -752,6 +907,20 @@ test("settings switches between dark and light themes", async () => {
 
   await app.press("id:settings-theme-dark");
   expect(app.texts()).toContain("Theme: Dark");
+});
+
+test("settings browse buttons fill the download and certificate paths", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:open-settings");
+  await app.press("id:settings-download-browse");
+  expect(app.value("id:settings-download-dir")).toBe("/tmp/omawarden-mock/folder");
+
+  await app.press("id:settings-tab-security");
+  await app.press("id:settings-client-cert-browse");
+  expect(app.value("id:settings-client-cert")).toBe("/tmp/omawarden-mock/client.pem");
+  await app.press("id:settings-client-key-browse");
+  expect(app.value("id:settings-client-key")).toBe("/tmp/omawarden-mock/client.pem");
 });
 
 test("release notes load when an update is available", async () => {
@@ -833,6 +1002,20 @@ test("SSH key modal rejects an invalid imported key and blocks empty export", as
   expect(app.shows("id:ssh-export-panel")).toBe(true);
   expect(app.shows("id:ssh-export-empty")).toBe(true);
   expect(app.enabled("id:ssh-export-save")).toBe(false);
+});
+
+test("SSH key modal imports a key file and picks an export directory", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:open-ssh-key");
+  await app.press("id:ssh-mode-import");
+  await app.press("id:ssh-import-browse");
+  expect(app.value("id:ssh-private-key-input")).toContain("BEGIN OPENSSH PRIVATE KEY");
+
+  await app.press("id:ssh-mode-export");
+  expect(app.value("id:ssh-export-dir")).toBe("~/.ssh");
+  await app.press("id:ssh-export-dir-browse");
+  expect(app.value("id:ssh-export-dir")).toBe("/tmp/omawarden-mock/folder");
 });
 
 // ---------------------------------------------------------------------------

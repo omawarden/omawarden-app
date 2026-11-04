@@ -8,7 +8,8 @@
 //! headless UI tests never touch the real keyring, config, clipboard or daemon
 //! socket.
 
-use std::path::PathBuf;
+use std::collections::{HashMap, VecDeque};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -306,6 +307,14 @@ pub struct CipherRowView {
     pub has_totp: bool,
     /// Whether the login has previous passwords.
     pub has_password_history: bool,
+    /// The login URIs, for website icon resolution.
+    pub uris: Vec<String>,
+    /// Whether the item requires the master password again (`1`) or not (`0`).
+    pub reprompt: u32,
+    /// The card brand, when the item is a card.
+    pub card_brand: Option<String>,
+    /// The masked card number, when the item is a card.
+    pub card_mask: Option<String>,
 }
 
 /// The pending SSH agent signing request.
@@ -572,6 +581,8 @@ pub struct InspectorView {
     pub password_history: Vec<PasswordHistoryEntryView>,
     /// The item metadata.
     pub metadata: MetadataView,
+    /// Whether the item requires the master password again (`1`) or not (`0`).
+    pub reprompt: u32,
     /// The error, when the item could not be loaded.
     pub error: Option<String>,
 }
@@ -659,6 +670,8 @@ pub struct AttachmentOutcomeView {
     pub is_text: bool,
     /// The text content for inline text previews.
     pub text_content: Option<String>,
+    /// A `data:` URL for inline image previews.
+    pub preview_data_url: Option<String>,
     /// The size in bytes.
     pub size: u64,
     /// The error, when it failed.
@@ -752,6 +765,8 @@ pub struct SshKeySaveInput {
     pub save_to_vault: bool,
     /// Export the key to `~/.ssh`.
     pub export_to_ssh: bool,
+    /// The directory to export into (defaults to `~/.ssh`).
+    pub export_dir: Option<String>,
 }
 
 /// The outcome of saving an SSH key.
@@ -874,6 +889,8 @@ pub struct DiagnosticsView {
     pub git_commit: String,
     /// The engine build date.
     pub build_date: String,
+    /// The current process's resident memory, in MiB.
+    pub memory_rss_mb: f64,
 }
 
 /// The full settings snapshot.
@@ -1084,27 +1101,89 @@ fn mask_secret(value: &str) -> String {
 }
 
 /// Masks all but the last four digits of a card number.
-fn mask_card_number(number: &str) -> String {
-    let digits: String = number.chars().filter(|c| c.is_ascii_digit()).collect();
-    let last_four: String = digits.chars().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect();
-    if last_four.len() < 4 {
-        return "•••• •••• •••• ••••".to_string();
+/// The grouping lengths for a card number, by issuer and BIN.
+fn card_segments(digits: &str, brand: &str) -> Vec<usize> {
+    let len = digits.len();
+    if len <= 4 {
+        return vec![len];
     }
-    format!("•••• •••• •••• {last_four}")
+    let brand = brand.to_lowercase();
+    let brand = brand.replace([' ', '-', '_'], "");
+    let is_amex_brand = brand == "amex" || brand.contains("americanexpress");
+    let is_amex_bin = digits.starts_with("34") || digits.starts_with("37");
+    if len == 15 && (is_amex_bin || is_amex_brand) {
+        return vec![4, 6, 5];
+    }
+    let is_diners_brand = brand.contains("diners");
+    let is_diners_bin = digits.starts_with("36")
+        || digits.starts_with("38")
+        || (300..=305).any(|prefix| digits.starts_with(&prefix.to_string()));
+    if len == 14 && (is_diners_bin || is_diners_brand) {
+        return vec![4, 6, 4];
+    }
+    let mut segments = Vec::new();
+    let mut remaining = len;
+    while remaining > 0 {
+        let chunk = remaining.min(4);
+        segments.push(chunk);
+        remaining -= chunk;
+    }
+    segments
 }
 
-/// Formats a card number in spaced groups of four (revealed).
-fn format_card_number(number: &str) -> String {
+/// Partitions `text` according to `segments`.
+fn partition_card(text: &str, segments: &[usize]) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut parts = Vec::new();
+    let mut index = 0;
+    for size in segments {
+        if index >= chars.len() {
+            break;
+        }
+        let end = (index + size).min(chars.len());
+        parts.push(chars[index..end].iter().collect::<String>());
+        index = end;
+    }
+    if index < chars.len() {
+        parts.push(chars[index..].iter().collect());
+    }
+    parts.join(" ")
+}
+
+/// Masks a card number, revealing only the last four digits.
+fn mask_card_number_for(number: &str, brand: &str) -> String {
+    let digits: String = number.chars().filter(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        return "•••• •••• •••• ••••".to_string();
+    }
+    if digits.len() <= 4 {
+        return "•".repeat(digits.len());
+    }
+    let mask_count = digits.len() - 4;
+    let last_four = &digits[digits.len() - 4..];
+    let masked = format!("{}{last_four}", "•".repeat(mask_count));
+    partition_card(&masked, &card_segments(&digits, brand))
+}
+
+/// Formats a revealed card number with the issuer's grouping.
+fn format_card_number_for(number: &str, brand: &str) -> String {
     let digits: String = number.chars().filter(|c| c.is_ascii_digit()).collect();
     if digits.is_empty() {
         return String::new();
     }
-    digits
-        .as_bytes()
-        .chunks(4)
-        .map(|chunk| String::from_utf8_lossy(chunk).into_owned())
-        .collect::<Vec<_>>()
-        .join(" ")
+    partition_card(&digits, &card_segments(&digits, brand))
+}
+
+/// Masks a card number, revealing only the last four digits.
+#[cfg(test)]
+fn mask_card_number(number: &str) -> String {
+    mask_card_number_for(number, "")
+}
+
+/// Formats a card number in spaced groups of four (revealed).
+#[cfg(test)]
+fn format_card_number(number: &str) -> String {
+    format_card_number_for(number, "")
 }
 
 /// Formats an expiration as `MM / YYYY`.
@@ -1203,13 +1282,28 @@ fn totp_view(seed: Option<&str>) -> Option<TotpLiveView> {
     }
 }
 
-/// Parses the daemon's item array.
-fn parse_items(value: &Value) -> Vec<VaultItem> {
-    serde_json::from_value::<Vec<VaultItem>>(value.clone()).unwrap_or_default()
+/// Parses the daemon's item array and the per-item re-prompt flags.
+fn parse_items(value: &Value) -> (Vec<VaultItem>, HashMap<String, u32>) {
+    let mut reprompts = HashMap::new();
+    if let Some(entries) = value.as_array() {
+        for entry in entries {
+            if let Some(id) = entry.get("id").and_then(Value::as_str) {
+                let reprompt = entry
+                    .get("reprompt")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as u32;
+                reprompts.insert(id.to_string(), reprompt);
+            }
+        }
+    }
+    (
+        serde_json::from_value::<Vec<VaultItem>>(value.clone()).unwrap_or_default(),
+        reprompts,
+    )
 }
 
 /// Builds a row from a vault item.
-fn row_from_item(item: &VaultItem) -> CipherRowView {
+fn row_from_item(item: &VaultItem, reprompt: u32) -> CipherRowView {
     let category = category_of(item);
     let has_totp = item
         .login
@@ -1223,6 +1317,33 @@ fn row_from_item(item: &VaultItem) -> CipherRowView {
         .and_then(|login| login.get("passwordHistory"))
         .and_then(|value| value.as_array())
         .is_some_and(|history| !history.is_empty());
+    let uris = item
+        .login
+        .as_ref()
+        .and_then(|login| login.get("uris"))
+        .and_then(|value| value.as_array())
+        .map(|array| {
+            array
+                .iter()
+                .filter_map(|entry| entry.get("uri").and_then(|value| value.as_str()))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let card_brand = item
+        .card
+        .as_ref()
+        .and_then(|card| card.get("brand"))
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let card_mask = item.card.as_ref().map(|card| {
+        let number = card
+            .get("number")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        mask_card_number_for(number, card_brand.as_deref().unwrap_or(""))
+    });
     CipherRowView {
         id: item.id.clone(),
         title: item.name.clone(),
@@ -1238,7 +1359,46 @@ fn row_from_item(item: &VaultItem) -> CipherRowView {
         folder: item.folder_name.clone(),
         has_totp,
         has_password_history,
+        uris,
+        reprompt,
+        card_brand,
+        card_mask,
     }
+}
+
+/// Whether a row belongs to the active scope.
+fn row_in_scope(row: &CipherRowView, active_scope: &str) -> bool {
+    match active_scope {
+        "all" | "" => true,
+        "personal" => row.organization.is_none(),
+        scope => match scope.strip_prefix("org:") {
+            Some(name) => row.organization.as_deref() == Some(name),
+            None => true,
+        },
+    }
+}
+
+/// Whether a row belongs to the active folder.
+fn row_in_folder(row: &CipherRowView, folder: Option<&String>) -> bool {
+    match folder {
+        Some(folder) => {
+            let name = folder.strip_prefix("folder:").unwrap_or(folder);
+            row.folder.as_deref() == Some(name)
+        }
+        None => true,
+    }
+}
+
+/// Whether a row matches the fuzzy search query.
+fn row_matches_search(row: &CipherRowView, search: &str) -> bool {
+    let haystack = format!(
+        "{} {} {} {}",
+        row.title,
+        row.subtitle,
+        row.organization.clone().unwrap_or_default(),
+        row.folder.clone().unwrap_or_default()
+    );
+    fuzzy_score(search, &haystack).is_some()
 }
 
 /// Builds a snapshot from rows and a filter.
@@ -1260,8 +1420,9 @@ fn build_snapshot(
     engine_version: Option<String>,
 ) -> VaultSnapshotView {
     let total_count = all_rows.len() as u32;
+    let active_scope = filter.scope_id.clone().unwrap_or_else(|| "all".to_string());
     let mut counts = CategoryCountsView {
-        all: total_count,
+        all: 0,
         logins: 0,
         cards: 0,
         identities: 0,
@@ -1269,6 +1430,13 @@ fn build_snapshot(
         ssh_keys: 0,
     };
     for row in &all_rows {
+        if !row_in_scope(row, &active_scope)
+            || !row_in_folder(row, filter.folder_id.as_ref())
+            || !row_matches_search(row, &filter.search)
+        {
+            continue;
+        }
+        counts.all += 1;
         match row.category {
             ItemCategory::Login => counts.logins += 1,
             ItemCategory::Card => counts.cards += 1,
@@ -1324,7 +1492,6 @@ fn build_snapshot(
         });
     }
 
-    let active_scope = filter.scope_id.clone().unwrap_or_else(|| "all".to_string());
     let all_items = all_rows.clone();
     let mut filtered: Vec<(i32, CipherRowView)> = all_rows
         .into_iter()
@@ -1332,24 +1499,8 @@ fn build_snapshot(
             ItemCategory::All => true,
             category => row.category == category,
         })
-        .filter(|row| match active_scope.as_str() {
-            "all" | "" => true,
-            "personal" => row.organization.is_none(),
-            scope => {
-                if let Some(name) = scope.strip_prefix("org:") {
-                    row.organization.as_deref() == Some(name)
-                } else {
-                    true
-                }
-            }
-        })
-        .filter(|row| match &filter.folder_id {
-            Some(folder) => {
-                let name = folder.strip_prefix("folder:").unwrap_or(folder);
-                row.folder.as_deref() == Some(name)
-            }
-            None => true,
-        })
+        .filter(|row| row_in_scope(row, &active_scope))
+        .filter(|row| row_in_folder(row, filter.folder_id.as_ref()))
         .filter_map(|row| {
             let haystack = format!(
                 "{} {} {} {}",
@@ -1469,6 +1620,9 @@ struct MockItem {
     fields: Vec<MockField>,
     attachments: Vec<AttachmentView>,
     password_history: Vec<PasswordHistoryEntryView>,
+    reprompt: u32,
+    totp_remaining: Option<u32>,
+    totp_period: Option<u32>,
 }
 
 impl Default for ItemCategory {
@@ -1544,6 +1698,7 @@ struct MockState {
     error: Option<String>,
     filter: VaultFilterInput,
     selected_cipher_id: Option<String>,
+    master_password: String,
 }
 
 impl Default for VaultFilterInput {
@@ -1578,6 +1733,7 @@ impl Default for MockState {
             error: None,
             filter: VaultFilterInput::default(),
             selected_cipher_id: None,
+            master_password: "correct horse battery staple".to_string(),
         }
     }
 }
@@ -1652,6 +1808,18 @@ impl MockItem {
             favorite: json_bool(value, "favorite", false),
             folder: json_string(value, "folder"),
             organization: json_string(value, "organization"),
+            reprompt: value
+                .get("reprompt")
+                .and_then(Value::as_u64)
+                .unwrap_or(0) as u32,
+            totp_remaining: value
+                .get("totpRemaining")
+                .and_then(Value::as_u64)
+                .map(|value| value as u32),
+            totp_period: value
+                .get("totpPeriod")
+                .and_then(Value::as_u64)
+                .map(|value| value as u32),
             ..Default::default()
         };
         if let Some(card) = value.get("card") {
@@ -1736,7 +1904,7 @@ impl MockItem {
                 .as_ref()
                 .map(|card| {
                     if card.brand.is_empty() {
-                        mask_card_number(&card.number)
+                        mask_card_number_for(&card.number, "")
                     } else {
                         card.brand.clone()
                     }
@@ -1766,6 +1934,12 @@ impl MockItem {
             folder: self.folder.clone(),
             has_totp: self.totp.as_deref().is_some_and(|seed| !seed.is_empty()),
             has_password_history: !self.password_history.is_empty(),
+            uris: self.uris.clone(),
+            reprompt: self.reprompt,
+            card_brand: self.card.as_ref().map(|card| card.brand.clone()),
+            card_mask: self.card.as_ref().map(|card| {
+                mask_card_number_for(&card.number, &card.brand)
+            }),
         }
     }
 
@@ -1781,11 +1955,11 @@ impl MockItem {
             cardholder_name: card.cardholder_name.clone(),
             brand: card.brand.clone(),
             number: if reveal.reveal_card_number {
-                format_card_number(&card.number)
+                format_card_number_for(&card.number, &card.brand)
             } else {
-                mask_card_number(&card.number)
+                mask_card_number_for(&card.number, &card.brand)
             },
-            number_masked: mask_card_number(&card.number),
+            number_masked: mask_card_number_for(&card.number, &card.brand),
             exp_month: card.exp_month.clone(),
             exp_year: card.exp_year.clone(),
             expiration: format_expiration(&card.exp_month, &card.exp_year),
@@ -1857,7 +2031,7 @@ impl MockItem {
             username: self.username.clone(),
             password,
             password_masked,
-            totp: totp_view(self.totp.as_deref()),
+            totp: self.totp_view(),
             uris,
             card,
             identity,
@@ -1871,8 +2045,21 @@ impl MockItem {
                 created_at: String::new(),
                 updated_at: String::new(),
             },
+            reprompt: self.reprompt,
             error: None,
         }
+    }
+
+    /// The mock TOTP view, honouring the test's remaining/period overrides.
+    fn totp_view(&self) -> Option<TotpLiveView> {
+        let mut view = totp_view(self.totp.as_deref())?;
+        if let Some(period) = self.totp_period {
+            view.period = period;
+        }
+        if let Some(remaining) = self.totp_remaining {
+            view.remaining = remaining;
+        }
+        Some(view)
     }
 }
 
@@ -1972,6 +2159,7 @@ impl MockState {
                 engine_version: env!("CARGO_PKG_VERSION").to_string(),
                 git_commit: "mock".to_string(),
                 build_date: "mock".to_string(),
+                memory_rss_mb: 0.0,
             },
             error: None,
         }
@@ -2006,6 +2194,9 @@ fn configure_mock_from_json(state: &mut MockState, value: &Value) {
     state.quick_unlock_usable = json_bool(value, "quickUnlockUsable", state.quick_unlock_usable);
     state.two_factor_required = json_bool(value, "twoFactorRequired", state.two_factor_required);
     state.update_available = json_bool(value, "updateAvailable", state.update_available);
+    if let Some(password) = json_string(value, "masterPassword") {
+        state.master_password = password;
+    }
     state.last_sync = json_string(value, "lastSync").or(state.last_sync.clone());
     state.error = json_string(value, "error");
     if let Some(missing) = value.get("dependenciesMissing").and_then(|v| v.as_array()) {
@@ -2362,7 +2553,7 @@ fn mock_dependencies(missing: &[String]) -> DependencyStatusView {
 ///
 /// It never calls `ensure_daemon_running`: that would spawn the nsh host as a
 /// "daemon" when the vault locks between the status probe and this call.
-fn real_items() -> Vec<VaultItem> {
+fn real_items() -> (Vec<VaultItem>, HashMap<String, u32>) {
     daemon(json!({ "action": "list", "touch": false }))
         .map(|value| parse_items(&value))
         .unwrap_or_default()
@@ -2380,6 +2571,7 @@ struct CachedVault {
     engine_version: Option<String>,
     items: Vec<VaultItem>,
     rows: Vec<CipherRowView>,
+    reprompts: HashMap<String, u32>,
 }
 
 fn cached_vault() -> &'static Mutex<Option<CachedVault>> {
@@ -2465,8 +2657,18 @@ fn real_snapshot(filter: VaultFilterInput) -> VaultSnapshotView {
         .and_then(|value| value.get("version"))
         .and_then(|value| value.as_str())
         .map(str::to_string);
-    let items = if unlocked { real_items() } else { Vec::new() };
-    let rows: Vec<CipherRowView> = items.iter().map(row_from_item).collect();
+    let (items, reprompts) = if unlocked {
+        real_items()
+    } else {
+        (Vec::new(), HashMap::new())
+    };
+    let rows: Vec<CipherRowView> = items
+        .iter()
+        .map(|item| {
+            let reprompt = reprompts.get(&item.id).copied().unwrap_or(0);
+            row_from_item(item, reprompt)
+        })
+        .collect();
     let ssh_prompt = daemon(json!({ "action": "ssh_agent_pending", "touch": false }))
         .and_then(|value| parse_prompt(&value, 0));
     let sanitized_server_url = sanitize_server_url(&server_url);
@@ -2483,6 +2685,7 @@ fn real_snapshot(filter: VaultFilterInput) -> VaultSnapshotView {
                 engine_version: engine_version.clone(),
                 items,
                 rows: rows.clone(),
+                reprompts,
             });
         }
     } else {
@@ -2525,7 +2728,7 @@ fn parse_prompt(value: &Value, offset: usize) -> Option<SshPromptView> {
 }
 
 /// Builds an inspector from a real vault item.
-fn vault_item_inspector(item: &VaultItem, reveal: &RevealStateInput) -> InspectorView {
+fn vault_item_inspector(item: &VaultItem, reveal: &RevealStateInput, reprompt: u32) -> InspectorView {
     let login = item.login.as_ref();
     let username = login
         .and_then(|value| value.get("username"))
@@ -2571,12 +2774,13 @@ fn vault_item_inspector(item: &VaultItem, reveal: &RevealStateInput) -> Inspecto
     let card = item.card.as_ref().map(|card| {
         let field = |name: &str| card.get(name).and_then(|value| value.as_str()).unwrap_or_default().to_string();
         let number = field("number");
+        let brand = field("brand");
         let code = field("code");
         CardView {
             cardholder_name: field("cardholderName"),
-            brand: field("brand"),
-            number: if reveal.reveal_card_number { format_card_number(&number) } else { mask_card_number(&number) },
-            number_masked: mask_card_number(&number),
+            brand: brand.clone(),
+            number: if reveal.reveal_card_number { format_card_number_for(&number, &brand) } else { mask_card_number_for(&number, &brand) },
+            number_masked: mask_card_number_for(&number, &brand),
             exp_month: field("expMonth"),
             exp_year: field("expYear"),
             expiration: format_expiration(&field("expMonth"), &field("expYear")),
@@ -2677,6 +2881,7 @@ fn vault_item_inspector(item: &VaultItem, reveal: &RevealStateInput) -> Inspecto
             created_at: item.created_at.clone().unwrap_or_default(),
             updated_at: item.updated_at.clone().unwrap_or_default(),
         },
+        reprompt,
         error: None,
     }
 }
@@ -2706,6 +2911,7 @@ fn empty_inspector(cipher_id: &str, error: String) -> InspectorView {
             created_at: String::new(),
             updated_at: String::new(),
         },
+        reprompt: 0,
         error: Some(error),
     }
 }
@@ -3051,6 +3257,12 @@ impl OmawardenBridge {
 
         if result.ok {
             apply_remember_email(&input);
+            push_log(format!("authentication succeeded: {:?}", input.kind));
+        } else {
+            push_log(format!(
+                "authentication failed: {}",
+                result.error.as_deref().unwrap_or("unknown error")
+            ));
         }
         snapshot_from_auth_result(&result, &input.email)
     }
@@ -3152,6 +3364,7 @@ impl OmawardenBridge {
             });
         }
         clear_cached_vault();
+        push_log("vault sync requested");
         let response = daemon(json!({ "action": "sync", "touch": true }));
         let mut snapshot = real_snapshot(filter);
         if let Some(response) = response {
@@ -3184,7 +3397,8 @@ impl OmawardenBridge {
         if let Ok(guard) = cached_vault().lock() {
             if let Some(cached) = guard.as_ref() {
                 if let Some(item) = cached.items.iter().find(|item| item.id == cipher_id) {
-                    return vault_item_inspector(item, &reveal);
+                    let reprompt = cached.reprompts.get(&item.id).copied().unwrap_or(0);
+                    return vault_item_inspector(item, &reveal, reprompt);
                 }
             }
         }
@@ -3202,8 +3416,13 @@ impl OmawardenBridge {
                     .to_string(),
             );
         }
+        let reprompt = response
+            .get("item")
+            .and_then(|item| item.get("reprompt"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as u32;
         match response.get("item").cloned().and_then(|value| serde_json::from_value::<VaultItem>(value).ok()) {
-            Some(item) => vault_item_inspector(&item, &reveal),
+            Some(item) => vault_item_inspector(&item, &reveal, reprompt),
             None => empty_inspector(&cipher_id, "Could not read the vault item.".to_string()),
         }
     }
@@ -3212,19 +3431,31 @@ impl OmawardenBridge {
     pub fn refresh_totp(cipher_id: String) -> TotpLiveView {
         if with_mock(|state| state.enabled) {
             return with_mock(|state| {
-                let seed = state
-                    .items
-                    .iter()
-                    .find(|item| item.id == cipher_id)
-                    .and_then(|item| item.totp.as_deref());
-                totp_view(seed).unwrap_or_else(|| TotpLiveView {
+                let Some(item) = state.items.iter().find(|item| item.id == cipher_id) else {
+                    return TotpLiveView {
+                        valid: false,
+                        code: String::new(),
+                        formatted: String::new(),
+                        remaining: 0,
+                        period: 30,
+                        error: Some("Item has no TOTP configured.".to_string()),
+                    };
+                };
+                let mut view = totp_view(item.totp.as_deref()).unwrap_or_else(|| TotpLiveView {
                     valid: false,
                     code: String::new(),
                     formatted: String::new(),
                     remaining: 0,
                     period: 30,
                     error: Some("Item has no TOTP configured.".to_string()),
-                })
+                });
+                // A seeded period makes the auto-refresh deterministic in tests:
+                // the next code starts a fresh period.
+                if let Some(period) = item.totp_period {
+                    view.period = period;
+                    view.remaining = period;
+                }
+                view
             });
         }
         if let Ok(guard) = cached_vault().lock() {
@@ -3536,6 +3767,14 @@ impl OmawardenBridge {
                             is_image,
                             is_text,
                             text_content: if is_text { Some("Mock attachment preview".to_string()) } else { None },
+                            preview_data_url: if is_image {
+                                Some(
+                                    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+                                        .to_string(),
+                                )
+                            } else {
+                                None
+                            },
                             size: attachment.size,
                             error: None,
                         }
@@ -3547,6 +3786,7 @@ impl OmawardenBridge {
                         is_image: false,
                         is_text: false,
                         text_content: None,
+                        preview_data_url: None,
                         size: 0,
                         error: Some("Attachment not found.".to_string()),
                     },
@@ -3571,6 +3811,7 @@ impl OmawardenBridge {
                 is_image: false,
                 is_text: false,
                 text_content: None,
+                preview_data_url: None,
                 size: 0,
                 error: Some("Unlock the vault before opening attachments.".to_string()),
             };
@@ -3602,13 +3843,20 @@ impl OmawardenBridge {
             None,
             false,
         );
+        let is_image = response.is_image.unwrap_or(false);
+        let preview_data_url = if mode == "preview" && is_image {
+            attachment_image_data_url(response.path.as_deref(), response.filename.as_deref())
+        } else {
+            None
+        };
         AttachmentOutcomeView {
             ok: response.ok,
             path: response.path,
             filename: response.filename,
-            is_image: response.is_image.unwrap_or(false),
+            is_image,
             is_text: response.is_text.unwrap_or(false),
             text_content: response.text_content,
+            preview_data_url,
             size: response.size.unwrap_or(0),
             error: response.error,
         }
@@ -3621,6 +3869,175 @@ impl OmawardenBridge {
         }
         omawarden::attachment::clear_preview_attachments(cipher_id.as_deref());
         true
+    }
+
+    /// Download an attachment to the destination chosen by the user.
+    pub fn save_attachment(
+        cipher_id: String,
+        attachment_id: String,
+        destination: String,
+    ) -> AttachmentOutcomeView {
+        if with_mock(|state| state.enabled) {
+            return with_mock(|state| {
+                let attachment = state
+                    .items
+                    .iter()
+                    .find(|item| item.id == cipher_id)
+                    .and_then(|item| item.attachments.iter().find(|entry| entry.id == attachment_id));
+                match attachment {
+                    Some(attachment) => AttachmentOutcomeView {
+                        ok: true,
+                        path: Some(destination.clone()),
+                        filename: Some(attachment.filename.clone()),
+                        is_image: false,
+                        is_text: false,
+                        text_content: None,
+                        preview_data_url: None,
+                        size: attachment.size,
+                        error: None,
+                    },
+                    None => AttachmentOutcomeView {
+                        ok: false,
+                        path: None,
+                        filename: None,
+                        is_image: false,
+                        is_text: false,
+                        text_content: None,
+                        preview_data_url: None,
+                        size: 0,
+                        error: Some("Attachment not found.".to_string()),
+                    },
+                }
+            });
+        }
+        let destination = PathBuf::from(destination.trim());
+        if destination.as_os_str().is_empty() || !destination.is_absolute() {
+            return AttachmentOutcomeView {
+                ok: false,
+                path: None,
+                filename: None,
+                is_image: false,
+                is_text: false,
+                text_content: None,
+                preview_data_url: None,
+                size: 0,
+                error: Some("Choose an absolute destination path.".to_string()),
+            };
+        }
+        let directory = destination
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        if !directory.is_dir() {
+            return AttachmentOutcomeView {
+                ok: false,
+                path: None,
+                filename: None,
+                is_image: false,
+                is_text: false,
+                text_content: None,
+                preview_data_url: None,
+                size: 0,
+                error: Some("The destination folder does not exist.".to_string()),
+            };
+        }
+        let filename = daemon(json!({ "action": "get_item", "query": cipher_id, "touch": false }))
+            .and_then(|value| {
+                value
+                    .get("item")
+                    .and_then(|item| item.get("attachments"))
+                    .and_then(|attachments| attachments.as_array())
+                    .and_then(|attachments| {
+                        attachments.iter().find(|attachment| {
+                            attachment.get("id").and_then(Value::as_str)
+                                == Some(attachment_id.as_str())
+                        })
+                    })
+                    .and_then(|attachment| attachment.get("fileName"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .unwrap_or_else(|| "attachment".to_string());
+        let response = omawarden::attachment::get_attachment(
+            &cipher_id,
+            &attachment_id,
+            &filename,
+            directory.to_str(),
+            false,
+            false,
+            None,
+            None,
+            false,
+        );
+        if !response.ok {
+            return AttachmentOutcomeView {
+                ok: false,
+                path: None,
+                filename: response.filename,
+                is_image: false,
+                is_text: false,
+                text_content: None,
+                preview_data_url: None,
+                size: response.size.unwrap_or(0),
+                error: response.error,
+            };
+        }
+        let source = response.path.clone().map(PathBuf::from);
+        if let Some(source) = source {
+            if source != destination {
+                if let Err(error) = std::fs::rename(&source, &destination) {
+                    return AttachmentOutcomeView {
+                        ok: false,
+                        path: None,
+                        filename: response.filename,
+                        is_image: false,
+                        is_text: false,
+                        text_content: None,
+                        preview_data_url: None,
+                        size: response.size.unwrap_or(0),
+                        error: Some(format!("Could not write the attachment: {error}")),
+                    };
+                }
+            }
+        }
+        push_log(format!("attachment saved to {}", destination.display()));
+        AttachmentOutcomeView {
+            ok: true,
+            path: Some(destination.display().to_string()),
+            filename: response.filename,
+            is_image: response.is_image.unwrap_or(false),
+            is_text: response.is_text.unwrap_or(false),
+            text_content: None,
+            preview_data_url: None,
+            size: response.size.unwrap_or(0),
+            error: None,
+        }
+    }
+
+    /// Open a decrypted attachment preview in the system viewer.
+    pub fn open_attachment_path(path: String) -> bool {
+        if with_mock(|state| state.enabled) {
+            return true;
+        }
+        let candidate = PathBuf::from(path.trim());
+        if !candidate.is_absolute() || !candidate.is_file() {
+            return false;
+        }
+        let runtime = std::env::var("XDG_RUNTIME_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("/tmp"))
+            .join("omawarden");
+        let download = PathBuf::from(load_config().download_dir);
+        if !candidate.starts_with(&runtime) && !candidate.starts_with(&download) {
+            return false;
+        }
+        Command::new("xdg-open")
+            .arg(candidate)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .is_ok()
     }
 
     /// Generate a random password with strict range validation (5..=128) and entropy calculation.
@@ -3725,21 +4142,33 @@ impl OmawardenBridge {
             } else {
                 input.filename.trim().to_string()
             };
+            let export_dir = input
+                .export_dir
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("~/.ssh");
             return SshKeySaveOutcomeView {
                 ok: true,
                 message: if input.export_to_ssh {
-                    format!("Exported to ~/.ssh/{filename}")
+                    format!("Exported to {export_dir}/{filename}")
                 } else {
                     "Saved SSH key to the vault.".to_string()
                 },
-                path: if input.export_to_ssh { Some(format!("~/.ssh/{filename}")) } else { None },
+                path: if input.export_to_ssh { Some(format!("{export_dir}/{filename}")) } else { None },
                 item_id: if input.save_to_vault { Some("mock-ssh-item".to_string()) } else { None },
                 error: None,
             };
         }
         if input.export_to_ssh {
             let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-            let ssh_dir = PathBuf::from(home).join(".ssh");
+            let ssh_dir = input
+                .export_dir
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(expand_home)
+                .unwrap_or_else(|| PathBuf::from(&home).join(".ssh"));
             let base = if input.filename.trim().is_empty() {
                 match parse_ssh_algorithm(&input.algorithm) {
                     Ok(algorithm) => algorithm.default_filename_prefix().to_string(),
@@ -4062,7 +4491,7 @@ impl OmawardenBridge {
     }
 
     /// Check for engine/plugin updates.
-    pub fn check_updates(_force: bool) -> UpdateStatusView {
+    pub fn check_updates(force: bool) -> UpdateStatusView {
         let current_version = env!("CARGO_PKG_VERSION").to_string();
         if with_mock(|state| state.enabled) {
             return with_mock(|state| {
@@ -4083,13 +4512,73 @@ impl OmawardenBridge {
                 }
             });
         }
-        UpdateStatusView {
-            checked: true,
-            available: false,
-            current_version,
-            latest_version: None,
-            release: None,
-            error: None,
+        let _ = force;
+        match fetch_latest_release() {
+            Ok(release) => {
+                let tag = release
+                    .get("tag_name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .trim_start_matches(['v', 'V'])
+                    .to_string();
+                if tag.is_empty() {
+                    push_log("update check: the release response had no tag");
+                    return UpdateStatusView {
+                        checked: true,
+                        available: false,
+                        current_version,
+                        latest_version: None,
+                        release: None,
+                        error: Some("No published release was found.".to_string()),
+                    };
+                }
+                let available = version_is_newer(&current_version, &tag);
+                push_log(format!(
+                    "update check: current {current_version}, latest {tag}, available {available}"
+                ));
+                let notes = ReleaseNotesView {
+                    version: tag.clone(),
+                    title: release
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("Omawarden release")
+                        .to_string(),
+                    notes: release
+                        .get("body")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    url: release
+                        .get("html_url")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    published_at: release
+                        .get("published_at")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                };
+                UpdateStatusView {
+                    checked: true,
+                    available,
+                    current_version,
+                    latest_version: Some(tag),
+                    release: Some(notes),
+                    error: None,
+                }
+            }
+            Err(error) => {
+                push_log(format!("update check failed: {error}"));
+                UpdateStatusView {
+                    checked: true,
+                    available: false,
+                    current_version,
+                    latest_version: None,
+                    release: None,
+                    error: Some(error),
+                }
+            }
         }
     }
 
@@ -4109,6 +4598,224 @@ impl OmawardenBridge {
             .spawn()
             .is_ok()
     }
+
+    /// Show the desktop's native file picker and return the chosen path.
+    pub fn pick_file(
+        title: Option<String>,
+        filter_name: Option<String>,
+        extensions: Option<Vec<String>>,
+    ) -> Option<String> {
+        if with_mock(|state| state.enabled) {
+            return Some("/tmp/omawarden-mock/client.pem".to_string());
+        }
+        let mut dialog = rfd::FileDialog::new();
+        if let Some(title) = title {
+            dialog = dialog.set_title(title);
+        }
+        if let (Some(name), Some(extensions)) = (filter_name, extensions) {
+            let extensions: Vec<&str> = extensions.iter().map(String::as_str).collect();
+            if !extensions.is_empty() {
+                dialog = dialog.add_filter(name, &extensions);
+            }
+        }
+        dialog.pick_file().map(|path| path.display().to_string())
+    }
+
+    /// Show the desktop's native folder picker and return the chosen path.
+    pub fn pick_folder(title: Option<String>) -> Option<String> {
+        if with_mock(|state| state.enabled) {
+            return Some("/tmp/omawarden-mock/folder".to_string());
+        }
+        let mut dialog = rfd::FileDialog::new();
+        if let Some(title) = title {
+            dialog = dialog.set_title(title);
+        }
+        if let Some(home) = std::env::var_os("HOME") {
+            dialog = dialog.set_directory(home);
+        }
+        dialog.pick_folder().map(|path| path.display().to_string())
+    }
+
+    /// Show the desktop's native save dialog and return the chosen path.
+    pub fn save_file(title: Option<String>, default_name: Option<String>) -> Option<String> {
+        if with_mock(|state| state.enabled) {
+            let name = default_name.unwrap_or_else(|| "attachment.bin".to_string());
+            return Some(format!("/tmp/omawarden-mock/{name}"));
+        }
+        let mut dialog = rfd::FileDialog::new();
+        if let Some(title) = title {
+            dialog = dialog.set_title(title);
+        }
+        if let Some(name) = default_name {
+            dialog = dialog.set_file_name(name);
+        }
+        dialog.save_file().map(|path| path.display().to_string())
+    }
+
+    /// Read a UTF-8 text file (used to import SSH keys from the file picker).
+    pub fn read_text_file(path: String) -> Option<String> {
+        if with_mock(|state| state.enabled) {
+            return Some(
+                "-----BEGIN OPENSSH PRIVATE KEY-----\nmock-key-material\n-----END OPENSSH PRIVATE KEY-----"
+                    .to_string(),
+            );
+        }
+        let path = PathBuf::from(path.trim());
+        if !path.is_file() {
+            return None;
+        }
+        let metadata = std::fs::metadata(&path).ok()?;
+        if metadata.len() > 2 * 1024 * 1024 {
+            return None;
+        }
+        std::fs::read_to_string(path).ok()
+    }
+
+    /// Verify the master password without unlocking the daemon.
+    pub fn verify_master_password(password: String) -> bool {
+        if with_mock(|state| state.enabled) {
+            return with_mock(|state| password == state.master_password);
+        }
+        let storage_mgr = omawarden::storage::StorageManager::default();
+        let storage = storage_mgr.load();
+        if storage.enc_user_key.is_none() {
+            return false;
+        }
+        storage_mgr.unlock_user_key(&password, &storage).is_ok()
+    }
+}
+
+/// A bounded, sanitized ring of recent app diagnostics.
+static LOG_RING: OnceLock<Mutex<VecDeque<String>>> = OnceLock::new();
+
+/// Records a sanitized diagnostic line.
+fn push_log(line: impl Into<String>) {
+    let line = sanitize_log_message(&line.into());
+    let ring = LOG_RING.get_or_init(|| Mutex::new(VecDeque::new()));
+    if let Ok(mut guard) = ring.lock() {
+        guard.push_back(format!("[app] {line}"));
+        while guard.len() > 40 {
+            guard.pop_front();
+        }
+    }
+}
+
+/// Returns the recent diagnostic lines, oldest first.
+fn recent_logs() -> Vec<String> {
+    LOG_RING
+        .get()
+        .and_then(|ring| ring.lock().ok().map(|guard| guard.iter().cloned().collect()))
+        .unwrap_or_default()
+}
+
+/// The process's resident set size in MiB, from `/proc/self/statm`.
+fn process_rss_mb() -> f64 {
+    let Ok(statm) = std::fs::read_to_string("/proc/self/statm") else {
+        return 0.0;
+    };
+    let pages = statm
+        .split_whitespace()
+        .nth(1)
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0);
+    let page_size = 4096_u64;
+    (pages.saturating_mul(page_size) as f64) / (1024.0 * 1024.0)
+}
+
+/// Compares two dotted versions, ignoring a leading `v` and pre-release tags.
+fn version_is_newer(current: &str, latest: &str) -> bool {
+    fn parts(version: &str) -> Vec<u64> {
+        version
+            .trim()
+            .trim_start_matches(['v', 'V'])
+            .split(['-', '+'])
+            .next()
+            .unwrap_or_default()
+            .split('.')
+            .map(|part| part.parse::<u64>().unwrap_or(0))
+            .collect()
+    }
+    let current = parts(current);
+    let latest = parts(latest);
+    let length = current.len().max(latest.len());
+    for index in 0..length {
+        let left = current.get(index).copied().unwrap_or(0);
+        let right = latest.get(index).copied().unwrap_or(0);
+        if right != left {
+            return right > left;
+        }
+    }
+    false
+}
+
+/// Fetches the latest GitHub release JSON for this repository.
+fn fetch_latest_release() -> Result<Value, String> {
+    let output = Command::new("curl")
+        .args([
+            "-fsSL",
+            "--max-time",
+            "10",
+            "-H",
+            "Accept: application/vnd.github+json",
+            "https://api.github.com/repos/omawarden/omawarden-app/releases/latest",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| format!("Could not run curl: {error}"))?;
+    if !output.status.success() {
+        let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if message.is_empty() {
+            "No published release was found.".to_string()
+        } else {
+            message
+        });
+    }
+    serde_json::from_slice::<Value>(&output.stdout)
+        .map_err(|error| format!("Could not read the release response: {error}"))
+}
+
+/// Reads an image attachment into a `data:` URL the image element can show.
+///
+/// The decrypted file lives outside the app's own assets, so it cannot be
+/// referenced as an `asset:` or remote URL; a data URL also needs no network
+/// grant.
+fn attachment_image_data_url(path: Option<&str>, filename: Option<&str>) -> Option<String> {
+    const MAX_PREVIEW_BYTES: u64 = 16 * 1024 * 1024;
+    let path = path?;
+    let metadata = std::fs::metadata(path).ok()?;
+    if !metadata.is_file() || metadata.len() > MAX_PREVIEW_BYTES {
+        return None;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    let extension = filename
+        .and_then(|name| name.rsplit('.').next())
+        .unwrap_or_default()
+        .to_lowercase();
+    let mime = match extension.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "bmp" => "image/bmp",
+        _ => "application/octet-stream",
+    };
+    use base64::Engine as _;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Some(format!("data:{mime};base64,{encoded}"))
+}
+
+/// Expands a leading `~` to the current user's home directory.
+fn expand_home(path: &str) -> PathBuf {    let trimmed = path.trim();
+    if trimmed == "~" || trimmed.starts_with("~/") {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let rest = trimmed.strip_prefix('~').unwrap_or(trimmed).trim_start_matches('/');
+        if rest.is_empty() {
+            return PathBuf::from(home);
+        }
+        return PathBuf::from(home).join(rest);
+    }
+    PathBuf::from(trimmed)
 }
 
 /// The real settings snapshot.
@@ -4143,11 +4850,18 @@ fn real_settings() -> SettingsSnapshotView {
         health,
         diagnostics: DiagnosticsView {
             server_url_sanitized: sanitize_server_url(&config.server_url),
-            logs: vec![sanitize_log_message("omawarden diagnostics ready")],
+            logs: {
+                let mut logs = recent_logs();
+                if logs.is_empty() {
+                    logs.push("[app] omawarden diagnostics ready".to_string());
+                }
+                logs
+            },
             app_version: env!("CARGO_PKG_VERSION").to_string(),
             engine_version,
-            git_commit: String::new(),
-            build_date: String::new(),
+            git_commit: option_env!("GIT_HASH").unwrap_or("unknown").to_string(),
+            build_date: option_env!("BUILD_DATE").unwrap_or("unknown").to_string(),
+            memory_rss_mb: process_rss_mb(),
         },
         error: None,
     }
@@ -4240,14 +4954,70 @@ mod tests {
     #[test]
     fn card_masking_and_formatting() {
         assert_eq!(mask_card_number("4111111111111234"), "•••• •••• •••• 1234");
-        assert_eq!(mask_card_number("1234"), "•••• •••• •••• 1234");
+        assert_eq!(mask_card_number("1234"), "••••");
         assert_eq!(mask_card_number(""), "•••• •••• •••• ••••");
         assert_eq!(format_card_number("4111111111111234"), "4111 1111 1111 1234");
         assert_eq!(format_card_number("4111-1111-1111-1234"), "4111 1111 1111 1234");
+        assert_eq!(
+            format_card_number_for("378282246310005", "American Express"),
+            "3782 822463 10005"
+        );
+        assert_eq!(
+            mask_card_number_for("378282246310005", "Amex"),
+            "•••• •••••• •0005"
+        );
+        assert_eq!(
+            format_card_number_for("36123456789012", "Diners Club"),
+            "3612 345678 9012"
+        );
         assert_eq!(format_expiration("1", "2030"), "01 / 2030");
         assert_eq!(format_expiration("12", "2030"), "12 / 2030");
         assert_eq!(format_size(512), "512 B");
         assert_eq!(format_size(2048), "2.0 KB");
+    }
+
+    #[test]
+    fn version_comparison_detects_newer_releases() {
+        assert!(version_is_newer("1.0.0", "1.0.1"));
+        assert!(version_is_newer("v1.2.3", "1.3.0"));
+        assert!(version_is_newer("1.0", "1.0.1"));
+        assert!(!version_is_newer("1.2.3", "1.2.3"));
+        assert!(!version_is_newer("2.0.0", "1.9.9"));
+        assert!(!version_is_newer("1.0.0", "1.0.0-beta.2"));
+    }
+
+    #[test]
+    fn category_counts_follow_search_and_scope() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let snapshot = OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {"id": "1", "title": "GitHub", "category": "login", "username": "octocat", "organization": "Acme"},
+                {"id": "2", "title": "Personal Mail", "category": "login", "username": "me"},
+                {"id": "3", "title": "Visa", "category": "card", "card": {"number": "4111111111111234"}, "organization": "Acme"}
+            ]
+        })));
+        assert_eq!(snapshot.category_counts.all, 3);
+
+        let searched = OmawardenBridge::query_vault(VaultFilterInput {
+            search: "github".to_string(),
+            category: ItemCategory::All,
+            scope_id: None,
+            folder_id: None,
+        });
+        assert_eq!(searched.category_counts.all, 1);
+        assert_eq!(searched.category_counts.logins, 1);
+        assert_eq!(searched.category_counts.cards, 0);
+
+        let scoped = OmawardenBridge::query_vault(VaultFilterInput {
+            search: String::new(),
+            category: ItemCategory::All,
+            scope_id: Some("org:Acme".to_string()),
+            folder_id: None,
+        });
+        assert_eq!(scoped.category_counts.all, 2);
+        assert_eq!(scoped.category_counts.logins, 1);
+        assert_eq!(scoped.category_counts.cards, 1);
     }
 
     #[test]

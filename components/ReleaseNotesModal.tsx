@@ -24,6 +24,11 @@ export function ReleaseNotesModal() {
                 ? "You are running the latest version. No newer release notes are available."
                 : "No update check has run yet."}
             </EmptyHint>
+            {status()?.error ? (
+              <Text testID="release-notes-error" style={{ color: palette().danger, fontSize: 12 }}>
+                {status()?.error}
+              </Text>
+            ) : null}
             <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
               <ActionButton
                 label="Check for Updates"
