@@ -14,7 +14,6 @@ const rememberEmail = signal(true);
 const pendingPassword = signal("");
 const twoFactorCode = signal("");
 const newDeviceOtp = signal("");
-const selectedProvider = signal(0);
 const unlockPassword = signal("");
 const confirmLogout = signal(false);
 
@@ -204,6 +203,21 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
   );
 }
 
+function fido2StatusText(status: string | null | undefined): string {
+  switch (status) {
+    case "available":
+      return "Security key ready. Touch it to continue.";
+    case "no_device":
+      return "No security key found. Insert your key and try again.";
+    case "tool_not_found":
+      return "libfido2 tools were not found. Install the libfido2 package.";
+    case "other_error":
+      return "The security key could not be checked. Try again.";
+    default:
+      return "Touch your security key to continue.";
+  }
+}
+
 function submitLogin(): void {
   if (loginTab() === "apiKey") {
     store.authenticate({
@@ -239,7 +253,7 @@ function TwoFactorForm() {
   const snap = store.snapshot;
   const challenge = () => snap().twoFactor;
   const providers = () => challenge()?.providers ?? [];
-  const provider = () => selectedProvider();
+  const provider = () => store.selectedProvider();
   const active = () =>
     providers().find((entry) => entry.id === provider()) ?? providers()[0];
   const isEmail = () => active()?.id === 1;
@@ -275,7 +289,7 @@ function TwoFactorForm() {
               label={entry().label}
               active={entry().id === provider()}
               disabled={!entry().available}
-              onPress={() => selectedProvider.set(entry().id)}
+              onPress={() => store.selectedProvider.set(entry().id)}
               testID={`twofactor-provider-${entry().id}`}
             />
           )}
@@ -285,7 +299,7 @@ function TwoFactorForm() {
       {isFido2() ? (
         <View style={{ gap: 6 }}>
           <Text style={{ color: palette().muted, fontSize: 12 }}>
-            {challenge()?.fido2Status ?? "Touch your security key to continue."}
+            {fido2StatusText(challenge()?.fido2Status)}
           </Text>
           <ActionButton
             label="Retry Security Key"

@@ -2641,7 +2641,11 @@ impl OmawardenBridge {
                         }
                     }
                     AuthKind::TwoFactor | AuthKind::NewDevice => {
-                        if input.code.trim().is_empty()
+                        // Provider 7 is FIDO2: the engine performs the key
+                        // assertion itself, so no typed code is required.
+                        let fido2 = input.provider == Some(7);
+                        if !fido2
+                            && input.code.trim().is_empty()
                             && input.new_device_otp.as_deref().unwrap_or("").trim().is_empty()
                         {
                             state.error = Some("Enter a verification code.".to_string());

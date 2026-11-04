@@ -222,6 +222,56 @@ test("two-factor verification rejects an empty code", async () => {
   expect(app.shows("id:vault-workspace")).toBe(true);
 });
 
+test("two-factor selects the server's default FIDO2 provider", async () => {
+  const app = await openMock({
+    phase: "login",
+    email: "user@example.com",
+    twoFactorRequired: true,
+    twoFactor: {
+      email: "user@example.com",
+      providers: [
+        { id: 0, name: "authenticator", label: "Authenticator App", available: true },
+        { id: 7, name: "fido2", label: "FIDO2 Security Key", available: true },
+      ],
+      selectedProvider: 7,
+      fido2Status: "available",
+    },
+  });
+
+  await app.type("id:login-email", "user@example.com");
+  await app.type("id:login-password", "master-password");
+  await app.press("id:login-submit");
+
+  expect(app.shows("id:auth-view-twoFactor")).toBe(true);
+  expect(app.shows("id:twofactor-retry-fido2")).toBe(true);
+  expect(app.texts()).toContain("Security key ready. Touch it to continue.");
+});
+
+test("FIDO2 retry performs the security key assertion and unlocks", async () => {
+  const app = await openMock({
+    phase: "login",
+    email: "user@example.com",
+    twoFactorRequired: true,
+    twoFactor: {
+      email: "user@example.com",
+      providers: [
+        { id: 0, name: "authenticator", label: "Authenticator App", available: true },
+        { id: 7, name: "fido2", label: "FIDO2 Security Key", available: true },
+      ],
+      selectedProvider: 7,
+      fido2Status: "available",
+    },
+  });
+
+  await app.type("id:login-email", "user@example.com");
+  await app.type("id:login-password", "master-password");
+  await app.press("id:login-submit");
+
+  expect(app.shows("id:twofactor-retry-fido2")).toBe(true);
+  await app.press("id:twofactor-retry-fido2");
+  expect(app.shows("id:vault-workspace")).toBe(true);
+});
+
 test("locked vault offers quick unlock and master password unlock", async () => {
   const app = await openMock({
     phase: "locked",
