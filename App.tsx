@@ -6,6 +6,7 @@ import { CategoryTabBar } from "./components/CategoryTabBar";
 import { DependencyCheckView } from "./components/DependencyCheckView";
 import { FooterBar } from "./components/FooterBar";
 import { ItemInspector } from "./components/ItemInspector";
+import { MasterPasswordModal } from "./components/MasterPasswordModal";
 import { PasswordGeneratorModal } from "./components/PasswordGeneratorModal";
 import { PasswordHistoryModal } from "./components/PasswordHistoryModal";
 import { ReleaseNotesModal } from "./components/ReleaseNotesModal";
@@ -92,6 +93,9 @@ function App() {
       </If>
       <If when={store.activeModal() === "releaseNotes"}>
         <ReleaseNotesModal />
+      </If>
+      <If when={store.activeModal() === "reprompt"}>
+        <MasterPasswordModal />
       </If>
       <If when={store.sshPrompt() !== null}>
         <SshApprovalModal />

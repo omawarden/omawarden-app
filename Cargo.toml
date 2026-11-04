@@ -12,10 +12,12 @@ nsh-base = "0.3.0"
 omawarden = { path = "../omarchy-bitwarden/omawarden" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+base64 = "0.22"
 url = "2.5"
 which = "8.0"
 chrono = "0.4"
 regex = "1.10"
+rfd = "0.15"
 
 # Keep the debug host small: `nsh run` builds the dev profile, and full debug
 # info alone put ~60 MB of the host binary's pages into RSS.

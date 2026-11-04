@@ -42,8 +42,9 @@ function CategoryTab(props: {
   tab: { category: ItemCategory; label: string; count: keyof CategoryCountsView };
 }) {
   const palette = store.palette;
-  const snap = store.snapshot;
+  const counts = store.categoryCounts;
   const active = () => store.category() === props.tab.category;
+  const count = () => counts()[props.tab.count];
   const id = actionID(`category-${props.tab.category}`);
   useAction(id, () => store.setCategory(props.tab.category));
   const focused = () => store.focusedAction() === id;
@@ -71,15 +72,27 @@ function CategoryTab(props: {
       activeStyle={{ backgroundColor: tint(accent(), background(), 0.26) }}
       focusStyle={{ borderColor: accent() }}
     >
-      <Text
-        style={{
-          color: active() ? palette().menu.selectedText : palette().menu.text,
-          fontSize: 12,
-          fontWeight: active() ? "bold" : "normal",
-        }}
-      >
-        {props.tab.label} ({snap().categoryCounts[props.tab.count]})
-      </Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+        <Text
+          style={{
+            color: active() ? palette().menu.selectedText : palette().menu.text,
+            fontSize: 12,
+            fontWeight: active() ? "bold" : "normal",
+          }}
+        >
+          {props.tab.label}
+        </Text>
+        <Text
+          testID={`category-count-${props.tab.category}`}
+          style={{
+            color: active() ? palette().menu.selectedText : palette().muted,
+            fontSize: 12,
+            opacity: count() === 0 ? 0.4 : 1,
+          }}
+        >
+          ({count()})
+        </Text>
+      </View>
     </Button>
   );
 }

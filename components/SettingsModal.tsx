@@ -86,6 +86,13 @@ export function SettingsModal() {
                   testID="settings-download-dir"
                   value={draft().downloadDir ?? config().downloadDir}
                   onChange={(value) => store.updateSettingsDraft({ downloadDir: value })}
+                  browseTestID="settings-download-browse"
+                  onBrowse={() => {
+                    const path = store.chooseFolder("Select Download Directory");
+                    if (path) {
+                      store.updateSettingsDraft({ downloadDir: path });
+                    }
+                  }}
                 />
                 <DraftNumber
                   label="Max Attachment Size (MB)"
@@ -210,6 +217,8 @@ export function SettingsModal() {
                   value={draft().clientCertPath ?? config().clientCertPath}
                   onChange={(value) => store.updateSettingsDraft({ clientCertPath: value })}
                   hint="PEM client certificate for mutual TLS."
+                  browseTestID="settings-client-cert-browse"
+                  onBrowse={store.browseClientCert}
                 />
                 <DraftText
                   label="Client Key Path"
@@ -217,6 +226,8 @@ export function SettingsModal() {
                   value={draft().clientKeyPath ?? config().clientKeyPath}
                   onChange={(value) => store.updateSettingsDraft({ clientKeyPath: value })}
                   hint="PEM private key for mutual TLS."
+                  browseTestID="settings-client-key-browse"
+                  onBrowse={store.browseClientKey}
                 />
 
                 <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
@@ -353,6 +364,11 @@ export function SettingsModal() {
                     value={diagnostics().buildDate}
                     testID="about-build-date"
                   />
+                  <InfoRow
+                    label="Memory (RSS)"
+                    value={`${diagnostics().memoryRssMb.toFixed(1)} MiB`}
+                    testID="about-memory"
+                  />
                 </Panel>
 
                 <Panel testID="settings-updates">
@@ -455,19 +471,31 @@ function DraftText(props: {
   value: string;
   onChange: (value: string) => void;
   hint?: string;
+  browseLabel?: string;
+  browseTestID?: string;
+  onBrowse?: () => void;
 }) {
   const palette = store.palette;
   return (
     <View style={{ gap: 4 }}>
       <Text style={{ color: palette().muted, fontSize: 12 }}>{props.label}</Text>
-      <Input
-        testID={props.testID}
-        value={props.value}
-        autoCapitalize="none"
-        autoCorrect={false}
-        onChange={props.onChange}
-        style={inputStyle()}
-      />
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Input
+          testID={props.testID}
+          value={props.value}
+          autoCapitalize="none"
+          autoCorrect={false}
+          onChange={props.onChange}
+          style={{ ...inputStyle(), flex: 1 }}
+        />
+        {props.onBrowse ? (
+          <ActionButton
+            label={props.browseLabel ?? "Browse…"}
+            testID={props.browseTestID}
+            onPress={props.onBrowse}
+          />
+        ) : null}
+      </View>
       {props.hint ? (
         <Text style={{ color: palette().muted, fontSize: 10 }}>{props.hint}</Text>
       ) : null}

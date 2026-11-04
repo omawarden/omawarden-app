@@ -1,7 +1,10 @@
-import { Scroll, Text, View } from "nsh";
+import { Image, Scroll, Text, View } from "nsh";
+import { signal } from "nsh";
 import { Button } from "nsh/base";
 import type { CipherRowView, ItemCategory } from "omawarden-app/native";
 import * as store from "../store/appStore";
+import { formatMaskedCardNumber } from "../store/CardFormatter";
+import { iconUrlFor, resolve } from "../store/IconPolicy";
 import { tint } from "../theme/palette";
 import { actionID, EmptyHint, focusOutline, useAction } from "./ui";
 
@@ -106,6 +109,7 @@ function ShowMoreRow(props: { remaining: () => number }) {
 
 function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
   const palette = store.palette;
+  const failedIcon = signal(false);
   const id = actionID(`cipher-row-slot-${props.index()}`);
   useAction(id, () => store.selectCipher(props.index()));
   const focused = () => store.focusedAction() === id;
@@ -114,6 +118,24 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
   const accent = () => palette().popups.selectedText;
   const background = () =>
     active() ? palette().popups.selectedBackground : palette().popups.background;
+  const iconUrl = () => {
+    if (failedIcon()) {
+      return "";
+    }
+    const current = store.settings();
+    if (!resolve(current !== null, current?.config.showWebsiteIcons)) {
+      return "";
+    }
+    return iconUrlFor(store.snapshot().serverUrl, props.item().uris);
+  };
+  const subtitle = () => {
+    const item = props.item();
+    if (item.category === "card" && item.cardMask) {
+      const masked = formatMaskedCardNumber(item.cardMask, item.cardBrand ?? "");
+      return item.cardBrand ? `${item.cardBrand} · ${masked}` : masked;
+    }
+    return item.subtitle || item.category;
+  };
   return (
     <Button
       testID={`cipher-row-${props.item().id}`}
@@ -138,7 +160,18 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
       activeStyle={{ backgroundColor: tint(accent(), background(), 0.26) }}
       focusStyle={{ borderColor: accent() }}
     >
-      <Text style={{ fontSize: 16 }}>{categoryGlyph(props.item().category)}</Text>
+      <If when={iconUrl() !== ""}>
+        <Image
+          testID={`cipher-icon-${props.item().id}`}
+          src={iconUrl()}
+          resizeMode="contain"
+          style={{ width: 16, height: 16, borderRadius: 3 }}
+          onError={() => failedIcon.set(true)}
+        />
+      </If>
+      <If when={iconUrl() === ""}>
+        <Text style={{ fontSize: 16 }}>{categoryGlyph(props.item().category)}</Text>
+      </If>
       <View style={{ flex: 1, gap: 1 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
           <Text
@@ -154,8 +187,11 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
             <Text style={{ color: palette().warning, fontSize: 11 }}>★</Text>
           </If>
         </View>
-        <Text style={{ color: palette().muted, fontSize: 11 }}>
-          {props.item().subtitle || props.item().category}
+        <Text
+          testID={`cipher-subtitle-${props.item().id}`}
+          style={{ color: palette().muted, fontSize: 11 }}
+        >
+          {subtitle()}
         </Text>
         <View style={{ flexDirection: "row", gap: 4, flexWrap: "wrap" }}>
           <If when={props.item().organization}>
