@@ -1,0 +1,47 @@
+# Common nsh development and packaging commands.
+#
+#   mise run check
+#   mise run test
+#   mise run run -- --window-size 1440x960
+#   mise run package -- --icon assets/icon.png
+#
+# Extra arguments are appended to `nsh run`, `nsh dev`, `nsh check`,
+# `nsh test` and `nsh build`. The packaging tasks forward them too.
+
+[tasks.run]
+description = "Run the app in the native development host"
+run = "nsh run"
+
+[tasks.dev]
+description = "Run the app with hot reload"
+run = "nsh dev"
+
+[tasks.check]
+description = "Type-check the Rust crate and the TSX UI"
+run = "nsh check"
+
+[tasks.test]
+description = "Run cargo tests and the headless App.test.tsx suite"
+run = "nsh test"
+
+[tasks.build]
+description = "Build the release bundle without packaging"
+run = "nsh build --release"
+
+[tasks.package]
+description = "Package a release (TARGET defaults to linux, OUT to .nsh/out)"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+nsh package --target "${TARGET:-linux}" --out "${OUT:-.nsh/out}" "$@"
+'''
+
+[tasks.release]
+description = "Check, test, then package the Linux release"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+nsh check
+nsh test
+nsh package --target "${TARGET:-linux}" --out "${OUT:-.nsh/out}" "$@"
+'''
