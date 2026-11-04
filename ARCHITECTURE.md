@@ -25,7 +25,10 @@ Following deep-module design principles ("Design It Twice" Hybrid Design 3 + Des
 ### 2.1 Execution Routing Inside `OmawardenBridge`
 1. **Stateful Vault & SSH Agent Operations**: Talk to the running `omawarden` Unix socket daemon (`omawarden::daemon::send_daemon_request` / `omawarden::daemon::ensure_daemon_running`) using the existing IPC actions (`ping`, `status`, `unlock`, `quick_unlock`, `wipe_quick_unlock`, `set_quick_unlock`, `lock`, `sync`, `list`, `search`, `ssh_key_create`, `get_item`, `get_ssh_key`, `get_attachment_key`, `totp`, `ssh_agent_apply`, `ssh_agent_status`, `ssh_agent_pending`, `ssh_agent_reply`).
    - Background status/ping polls **MUST** pass `"touch": false` so daemon idle auto-lock is never reset by background UI timers.
-2. **Stateless Operations**: Call `omawarden` Rust library functions directly in-process:
+2. **Authentication**: Run the installed `omawarden` CLI in a child process (`auth login-password`, `auth login-apikey`, `auth unlock`, `auth quick-unlock`), feed the credentials as one JSON line on stdin, and parse its JSON stdout.
+   - **Why not `AuthManager` in-process**: `AuthManager::login_password` and `AuthManager::unlock` call `ensure_daemon_running()`, which spawns `std::env::current_exe()`. Inside an nsh host that is the host binary itself, so the daemon start opened a second app window and the original window fell back to the login screen because no daemon answered. The CLI's `current_exe` is `omawarden`, so it starts the real daemon correctly.
+   - **Never** put the master password, API secret, or verification code on the command line; stdin only.
+3. **Stateless Operations**: Call `omawarden` Rust library functions directly in-process:
    - `omawarden::generator::{generate_password, generate_passphrase, PasswordOptions, PassphraseOptions}`
    - `omawarden::config::{ConfigManager, ConfigUpdateOptions}`
    - `omawarden::totp::generate_totp`
@@ -33,8 +36,8 @@ Following deep-module design principles ("Design It Twice" Hybrid Design 3 + Des
    - `omawarden::health::check_system_health`
    - `omawarden::ssh::{generate_keypair, parse_private_key, write_keypair_files_named, SshAlgorithm}`
    - `omawarden::attachment::{get_attachment, clear_preview_attachments}`
-   - `omawarden::auth::AuthManager`
-3. **Deterministic Headless Test / Mock Mode**:
+   - `omawarden::auth::AuthManager` only for operations that never call `ensure_daemon_running` (`send_two_factor_email`, `lock`, `logout`).
+4. **Deterministic Headless Test / Mock Mode**:
    - `OmawardenBridge` **MUST** include an in-memory mock/test mode (`set_mock_mode(enabled: bool)`) so `nsh test` (`App.test.tsx`) can deterministically test every view state (`dependency_check`, `login`, `two_factor`, `unlock`, `search`, `ssh_approval`) and every modal without touching the host user's real keyring, filesystem config, or live daemon socket.
 
 ### 2.2 Required `OmawardenBridge` Methods (`src/lib.rs`)
