@@ -44,9 +44,11 @@ jobs:
           PY
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
+        run: |
+          TOOLCHAIN=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$TOOLCHAIN" --profile minimal --component rustfmt
+          rustup default "$TOOLCHAIN"
+          cargo fmt --version
 
       - name: Install Linux build dependencies
         run: |
