@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 nsh-core = "0.3.0"
 nsh-base = "0.3.0"
-omawarden = { path = "../omarchy-bitwarden/omawarden" }
+omawarden = { git = "https://github.com/icyleaf/omarchy-bitwarden.git", branch = "develop" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 base64 = "0.22"

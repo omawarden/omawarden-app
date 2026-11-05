@@ -12,3 +12,8 @@ opt-level = "s"
 lto = "thin"
 strip = "symbols"
 codegen-units = 1
+
+# Local development builds against the sibling checkout. CI removes this table
+# before building so the git dependency in Cargo.toml is used instead.
+[patch."https://github.com/icyleaf/omarchy-bitwarden.git"]
+omawarden = { path = "../omarchy-bitwarden/omawarden" }

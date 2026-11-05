@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test & Verify (x86_64-linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # .cargo/config.toml patches the engine to the developer's sibling
+      # checkout. CI has no such checkout, so drop the patch and let Cargo
+      # fetch the git dependency declared in Cargo.toml.
+      - name: Use the git dependency in CI
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path(".cargo/config.toml")
+          lines = path.read_text().splitlines()
+          output = []
+          skipping = False
+          for line in lines:
+              if line.startswith("[patch."):
+                  skipping = True
+                  continue
+              if skipping and line.startswith("[") and not line.startswith("[patch."):
+                  skipping = False
+              if not skipping:
+                  output.append(line)
+          path.write_text("\n".join(output).rstrip() + "\n")
+          PY
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang pkg-config libgtk-4-dev libssl-dev libxcb1-dev libsecret-1-dev
+
+      # The release tarball carries the runtimes next to `bin/nsh`, which the
+      # CLI needs to run apps; keep the official installer's layout (~/.nsh)
+      # instead of extracting the bare binary somewhere else.
+      - name: Install nsh CLI (v0.3.0)
+        run: |
+          curl -fsSL https://github.com/longbridge/nsh/releases/download/v0.3.0/install.sh | NSH_VERSION=v0.3.0 sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
+          nsh --version
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ci-x86_64
+
+      - name: Verify version consistency
+        run: |
+          CARGO_VER=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)
+          NSH_VER=$(grep '"version":' nsh.json | head -1 | cut -d'"' -f4)
+          echo "Cargo.toml version: $CARGO_VER, nsh.json version: $NSH_VER"
+          if [ "$CARGO_VER" != "$NSH_VER" ]; then
+            echo "::error::Cargo.toml ($CARGO_VER) and nsh.json ($NSH_VER) version mismatch!"
+            exit 1
+          fi
+
+      - name: Check Rust formatting
+        run: cargo fmt --all --check
+
+      - name: TypeScript type-check
+        run: nsh check
+
+      - name: Headless tests
+        run: nsh test

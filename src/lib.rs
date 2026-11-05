@@ -16,14 +16,16 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use nsh_core::prelude::*;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use omawarden::api::is_loopback_host;
-use omawarden::generator::{generate_passphrase, generate_password, PassphraseOptions, PasswordOptions};
+use omawarden::generator::{
+    PassphraseOptions, PasswordOptions, generate_passphrase, generate_password,
+};
 use omawarden::health::check_system_health;
 use omawarden::logging::sanitize_log_message;
 use omawarden::totp::generate_totp;
-use omawarden::vault::{is_fuzzy_match, VaultItem};
+use omawarden::vault::{VaultItem, is_fuzzy_match};
 
 /// Pins Linux rendering to one lightweight GPU driver before GTK or `wgpu`
 /// initializes.
@@ -101,8 +103,7 @@ fn native(registry: &mut Registry) {
 }
 
 /// The exact validation message for an out-of-range password length.
-pub const ERR_PASSWORD_LENGTH: &str =
-    "Password length must be between 5 and 128 characters. Use 14 or more characters for a strong password.";
+pub const ERR_PASSWORD_LENGTH: &str = "Password length must be between 5 and 128 characters. Use 14 or more characters for a strong password.";
 
 /// The exact validation message for an out-of-range passphrase word count.
 pub const ERR_PASSPHRASE_WORDS: &str = "Passphrase word count must be between 3 and 20 words.";
@@ -1193,7 +1194,11 @@ fn format_expiration(month: &str, year: &str) -> String {
     }
     let month = month.trim();
     let year = year.trim();
-    let month = if month.len() == 1 { format!("0{month}") } else { month.to_string() };
+    let month = if month.len() == 1 {
+        format!("0{month}")
+    } else {
+        month.to_string()
+    };
     if year.is_empty() {
         month
     } else if month.is_empty() {
@@ -1266,7 +1271,11 @@ fn totp_view(seed: Option<&str>) -> Option<TotpLiveView> {
         Some(result) => Some(TotpLiveView {
             valid: true,
             code: result.code.clone(),
-            formatted: format!("{} {}", &result.code[..3.min(result.code.len())], &result.code[3.min(result.code.len())..]),
+            formatted: format!(
+                "{} {}",
+                &result.code[..3.min(result.code.len())],
+                &result.code[3.min(result.code.len())..]
+            ),
             remaining: result.ttl as u32,
             period: result.period as u32,
             error: None,
@@ -1288,10 +1297,7 @@ fn parse_items(value: &Value) -> (Vec<VaultItem>, HashMap<String, u32>) {
     if let Some(entries) = value.as_array() {
         for entry in entries {
             if let Some(id) = entry.get("id").and_then(Value::as_str) {
-                let reprompt = entry
-                    .get("reprompt")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0) as u32;
+                let reprompt = entry.get("reprompt").and_then(Value::as_u64).unwrap_or(0) as u32;
                 reprompts.insert(id.to_string(), reprompt);
             }
         }
@@ -1458,7 +1464,10 @@ fn build_snapshot(
             id: "personal".to_string(),
             name: "My Vault".to_string(),
             kind: "personal".to_string(),
-            count: all_rows.iter().filter(|row| row.organization.is_none()).count() as u32,
+            count: all_rows
+                .iter()
+                .filter(|row| row.organization.is_none())
+                .count() as u32,
         },
     ];
     let mut organizations: Vec<(String, u32)> = Vec::new();
@@ -1751,23 +1760,34 @@ fn mock_state() -> &'static Mutex<MockState> {
 
 /// Runs `f` with the locked mock state.
 fn with_mock<T>(f: impl FnOnce(&mut MockState) -> T) -> T {
-    let mut guard = mock_state().lock().unwrap_or_else(|error| error.into_inner());
+    let mut guard = mock_state()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     f(&mut guard)
 }
 
 /// Parses a string field from JSON.
 fn json_string(value: &Value, key: &str) -> Option<String> {
-    value.get(key).and_then(|field| field.as_str()).map(str::to_string)
+    value
+        .get(key)
+        .and_then(|field| field.as_str())
+        .map(str::to_string)
 }
 
 /// Parses a boolean field from JSON with a default.
 fn json_bool(value: &Value, key: &str, default: bool) -> bool {
-    value.get(key).and_then(|field| field.as_bool()).unwrap_or(default)
+    value
+        .get(key)
+        .and_then(|field| field.as_bool())
+        .unwrap_or(default)
 }
 
 /// Parses an integer field from JSON.
 fn json_u32(value: &Value, key: &str) -> Option<u32> {
-    value.get(key).and_then(|field| field.as_u64()).map(|number| number as u32)
+    value
+        .get(key)
+        .and_then(|field| field.as_u64())
+        .map(|number| number as u32)
 }
 
 /// Parses an item category.
@@ -1785,7 +1805,12 @@ fn parse_category(raw: &str) -> ItemCategory {
 impl MockItem {
     /// Builds a mock cipher from a JSON object.
     fn from_json(value: &Value) -> Self {
-        let category = parse_category(value.get("category").and_then(|v| v.as_str()).unwrap_or("login"));
+        let category = parse_category(
+            value
+                .get("category")
+                .and_then(|v| v.as_str())
+                .unwrap_or("login"),
+        );
         let mut item = Self {
             id: json_string(value, "id").unwrap_or_else(|| "mock-item".to_string()),
             title: json_string(value, "title")
@@ -1803,7 +1828,10 @@ impl MockItem {
                     array
                         .iter()
                         .filter_map(|entry| {
-                            entry.as_str().map(str::to_string).or_else(|| json_string(entry, "uri"))
+                            entry
+                                .as_str()
+                                .map(str::to_string)
+                                .or_else(|| json_string(entry, "uri"))
                         })
                         .collect()
                 })
@@ -1811,10 +1839,7 @@ impl MockItem {
             favorite: json_bool(value, "favorite", false),
             folder: json_string(value, "folder"),
             organization: json_string(value, "organization"),
-            reprompt: value
-                .get("reprompt")
-                .and_then(Value::as_u64)
-                .unwrap_or(0) as u32,
+            reprompt: value.get("reprompt").and_then(Value::as_u64).unwrap_or(0) as u32,
             totp_remaining: value
                 .get("totpRemaining")
                 .and_then(Value::as_u64)
@@ -1940,9 +1965,10 @@ impl MockItem {
             uris: self.uris.clone(),
             reprompt: self.reprompt,
             card_brand: self.card.as_ref().map(|card| card.brand.clone()),
-            card_mask: self.card.as_ref().map(|card| {
-                mask_card_number_for(&card.number, &card.brand)
-            }),
+            card_mask: self
+                .card
+                .as_ref()
+                .map(|card| mask_card_number_for(&card.number, &card.brand)),
         }
     }
 
@@ -1966,7 +1992,11 @@ impl MockItem {
             exp_month: card.exp_month.clone(),
             exp_year: card.exp_year.clone(),
             expiration: format_expiration(&card.exp_month, &card.exp_year),
-            cvv: if reveal.reveal_cvv { card.code.clone() } else { mask_secret(&card.code) },
+            cvv: if reveal.reveal_cvv {
+                card.code.clone()
+            } else {
+                mask_secret(&card.code)
+            },
             cvv_masked: mask_secret(&card.code),
         });
         let identity = self.identity.as_ref().map(|identity| IdentityView {
@@ -2009,7 +2039,11 @@ impl MockItem {
                     index,
                     name: field.name.clone(),
                     kind: field.kind.clone(),
-                    value: if revealed { field.value.clone() } else { mask_secret(&field.value) },
+                    value: if revealed {
+                        field.value.clone()
+                    } else {
+                        mask_secret(&field.value)
+                    },
                     value_masked: mask_secret(&field.value),
                 }
             })
@@ -2185,12 +2219,20 @@ fn configure_mock_from_json(state: &mut MockState, value: &Value) {
         state.email = email;
         state.settings.email = state.email.clone();
     }
-    if let Some(server_url) = json_string(value, "serverUrl").or_else(|| json_string(value, "server_url")) {
+    if let Some(server_url) =
+        json_string(value, "serverUrl").or_else(|| json_string(value, "server_url"))
+    {
         state.server_url = server_url.clone();
         state.settings.server_url = server_url;
     }
-    if let Some(identity_url) = json_string(value, "identityUrl").or_else(|| json_string(value, "identity_url")) {
-        state.identity_url = if identity_url.is_empty() { None } else { Some(identity_url.clone()) };
+    if let Some(identity_url) =
+        json_string(value, "identityUrl").or_else(|| json_string(value, "identity_url"))
+    {
+        state.identity_url = if identity_url.is_empty() {
+            None
+        } else {
+            Some(identity_url.clone())
+        };
         state.settings.identity_url = identity_url;
     }
     state.quick_unlock_ready = json_bool(value, "quickUnlockReady", state.quick_unlock_ready);
@@ -2237,9 +2279,11 @@ fn configure_mock_from_json(state: &mut MockState, value: &Value) {
         state.ssh_prompt = Some(SshPromptView {
             id: json_u32(prompt, "id").unwrap_or(1),
             title: json_string(prompt, "title").unwrap_or_else(|| "Sign a Git commit?".to_string()),
-            action: json_string(prompt, "action").unwrap_or_else(|| "SSH login as git@github.com".to_string()),
+            action: json_string(prompt, "action")
+                .unwrap_or_else(|| "SSH login as git@github.com".to_string()),
             key_name: json_string(prompt, "keyName").unwrap_or_else(|| "GitHub".to_string()),
-            fingerprint: json_string(prompt, "fingerprint").unwrap_or_else(|| "SHA256:mock".to_string()),
+            fingerprint: json_string(prompt, "fingerprint")
+                .unwrap_or_else(|| "SHA256:mock".to_string()),
             client: json_string(prompt, "client").unwrap_or_else(|| "git (ssh)".to_string()),
             command: json_string(prompt, "command").unwrap_or_else(|| "git push".to_string()),
             forwarded: json_bool(prompt, "forwarded", false),
@@ -2252,18 +2296,45 @@ fn configure_mock_from_json(state: &mut MockState, value: &Value) {
     }
     if let Some(settings) = value.get("settings") {
         let mock = &mut state.settings;
-        if let Some(v) = json_string(settings, "serverUrl") { mock.server_url = v; }
-        if let Some(v) = json_string(settings, "identityUrl") { mock.identity_url = v; }
-        if let Some(v) = json_string(settings, "downloadDir") { mock.download_dir = v; }
-        if let Some(v) = settings.get("autoLockMinutes").and_then(|v| v.as_i64()) { mock.auto_lock_minutes = v; }
-        if let Some(v) = settings.get("clipboardClearSeconds").and_then(|v| v.as_i64()) { mock.clipboard_clear_seconds = v; }
-        if let Some(v) = json_string(settings, "email") { mock.email = v; }
-        if let Some(v) = settings.get("rememberEmail").and_then(|v| v.as_bool()) { mock.remember_email = v; }
-        if let Some(v) = settings.get("checkUpdates").and_then(|v| v.as_bool()) { mock.check_updates = v; }
-        if let Some(v) = settings.get("showWebsiteIcons").and_then(|v| v.as_bool()) { mock.show_website_icons = v; }
-        if let Some(v) = settings.get("rememberLastSearch").and_then(|v| v.as_bool()) { mock.remember_last_search = v; }
-        if let Some(v) = settings.get("maxAttachmentSizeMb").and_then(|v| v.as_u64()) { mock.max_attachment_size_mb = v; }
-        if let Some(v) = settings.get("sshAgentEnabled").and_then(|v| v.as_bool()) { mock.ssh_agent_enabled = v; }
+        if let Some(v) = json_string(settings, "serverUrl") {
+            mock.server_url = v;
+        }
+        if let Some(v) = json_string(settings, "identityUrl") {
+            mock.identity_url = v;
+        }
+        if let Some(v) = json_string(settings, "downloadDir") {
+            mock.download_dir = v;
+        }
+        if let Some(v) = settings.get("autoLockMinutes").and_then(|v| v.as_i64()) {
+            mock.auto_lock_minutes = v;
+        }
+        if let Some(v) = settings
+            .get("clipboardClearSeconds")
+            .and_then(|v| v.as_i64())
+        {
+            mock.clipboard_clear_seconds = v;
+        }
+        if let Some(v) = json_string(settings, "email") {
+            mock.email = v;
+        }
+        if let Some(v) = settings.get("rememberEmail").and_then(|v| v.as_bool()) {
+            mock.remember_email = v;
+        }
+        if let Some(v) = settings.get("checkUpdates").and_then(|v| v.as_bool()) {
+            mock.check_updates = v;
+        }
+        if let Some(v) = settings.get("showWebsiteIcons").and_then(|v| v.as_bool()) {
+            mock.show_website_icons = v;
+        }
+        if let Some(v) = settings.get("rememberLastSearch").and_then(|v| v.as_bool()) {
+            mock.remember_last_search = v;
+        }
+        if let Some(v) = settings.get("maxAttachmentSizeMb").and_then(|v| v.as_u64()) {
+            mock.max_attachment_size_mb = v;
+        }
+        if let Some(v) = settings.get("sshAgentEnabled").and_then(|v| v.as_bool()) {
+            mock.ssh_agent_enabled = v;
+        }
         if let Some(v) = json_string(settings, "sshAgentConfirm") {
             mock.ssh_agent_confirm = match v.as_str() {
                 "always" => SshAgentPolicy::Always,
@@ -2271,11 +2342,21 @@ fn configure_mock_from_json(state: &mut MockState, value: &Value) {
                 _ => SshAgentPolicy::FirstUse,
             };
         }
-        if let Some(v) = settings.get("quickUnlock").and_then(|v| v.as_bool()) { mock.quick_unlock = v; }
-        if let Some(v) = json_string(settings, "clientCertPath") { mock.client_cert_path = v; }
-        if let Some(v) = json_string(settings, "clientKeyPath") { mock.client_key_path = v; }
+        if let Some(v) = settings.get("quickUnlock").and_then(|v| v.as_bool()) {
+            mock.quick_unlock = v;
+        }
+        if let Some(v) = json_string(settings, "clientCertPath") {
+            mock.client_cert_path = v;
+        }
+        if let Some(v) = json_string(settings, "clientKeyPath") {
+            mock.client_key_path = v;
+        }
         if let Some(v) = json_string(settings, "theme") {
-            mock.theme = if v == "light" { ThemeAppearance::Light } else { ThemeAppearance::Dark };
+            mock.theme = if v == "light" {
+                ThemeAppearance::Light
+            } else {
+                ThemeAppearance::Dark
+            };
         }
     }
 }
@@ -2283,10 +2364,30 @@ fn configure_mock_from_json(state: &mut MockState, value: &Value) {
 /// The default two-factor provider list.
 fn default_two_factor_providers() -> Vec<TwoFactorProviderView> {
     vec![
-        TwoFactorProviderView { id: 0, name: "authenticator".to_string(), label: "Authenticator App".to_string(), available: true },
-        TwoFactorProviderView { id: 1, name: "email".to_string(), label: "Email".to_string(), available: true },
-        TwoFactorProviderView { id: 3, name: "yubikey".to_string(), label: "YubiKey OTP".to_string(), available: true },
-        TwoFactorProviderView { id: 7, name: "fido2".to_string(), label: "FIDO2 Security Key".to_string(), available: true },
+        TwoFactorProviderView {
+            id: 0,
+            name: "authenticator".to_string(),
+            label: "Authenticator App".to_string(),
+            available: true,
+        },
+        TwoFactorProviderView {
+            id: 1,
+            name: "email".to_string(),
+            label: "Email".to_string(),
+            available: true,
+        },
+        TwoFactorProviderView {
+            id: 3,
+            name: "yubikey".to_string(),
+            label: "YubiKey OTP".to_string(),
+            available: true,
+        },
+        TwoFactorProviderView {
+            id: 7,
+            name: "fido2".to_string(),
+            label: "FIDO2 Security Key".to_string(),
+            available: true,
+        },
     ]
 }
 
@@ -2469,7 +2570,12 @@ fn snapshot_from_auth_result(
 }
 
 /// Checks one package.
-fn package_status(binary: &str, name: &str, description: &str, required: bool) -> PackageStatusView {
+fn package_status(
+    binary: &str,
+    name: &str,
+    description: &str,
+    required: bool,
+) -> PackageStatusView {
     let installed_path = which::which(binary).ok();
     let installed = installed_path.is_some();
     let version = installed_path.and_then(|path| {
@@ -2495,10 +2601,25 @@ fn package_status(binary: &str, name: &str, description: &str, required: bool) -
 /// The real dependency check.
 fn real_dependencies() -> DependencyStatusView {
     let packages = vec![
-        package_status("omawarden", "omawarden", "Omawarden engine and daemon", true),
-        package_status("secret-tool", "libsecret", "Secret Service keyring bridge", true),
+        package_status(
+            "omawarden",
+            "omawarden",
+            "Omawarden engine and daemon",
+            true,
+        ),
+        package_status(
+            "secret-tool",
+            "libsecret",
+            "Secret Service keyring bridge",
+            true,
+        ),
         package_status("wl-copy", "wl-clipboard", "Wayland clipboard", true),
-        package_status("fido2-token", "libfido2", "FIDO2 security keys (optional)", false),
+        package_status(
+            "fido2-token",
+            "libfido2",
+            "FIDO2 security keys (optional)",
+            false,
+        ),
     ];
     let missing_packages: Vec<String> = packages
         .iter()
@@ -2746,20 +2867,54 @@ fn parse_prompt(value: &Value, offset: usize) -> Option<SshPromptView> {
     let prompt = prompts.get(offset)?;
     Some(SshPromptView {
         id: prompt.get("id").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-        title: prompt.get("title").and_then(|v| v.as_str()).unwrap_or("SSH request").to_string(),
-        action: prompt.get("action").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-        key_name: prompt.get("key_name").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-        fingerprint: prompt.get("fingerprint").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-        client: prompt.get("client").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-        command: prompt.get("command").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-        forwarded: prompt.get("forwarded").and_then(|v| v.as_bool()).unwrap_or(false),
-        remembered: prompt.get("remembered").and_then(|v| v.as_bool()).unwrap_or(false),
+        title: prompt
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("SSH request")
+            .to_string(),
+        action: prompt
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        key_name: prompt
+            .get("key_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        fingerprint: prompt
+            .get("fingerprint")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        client: prompt
+            .get("client")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        command: prompt
+            .get("command")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        forwarded: prompt
+            .get("forwarded")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        remembered: prompt
+            .get("remembered")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
         remaining: prompts.len().saturating_sub(offset + 1) as u32,
     })
 }
 
 /// Builds an inspector from a real vault item.
-fn vault_item_inspector(item: &VaultItem, reveal: &RevealStateInput, reprompt: u32) -> InspectorView {
+fn vault_item_inspector(
+    item: &VaultItem,
+    reveal: &RevealStateInput,
+    reprompt: u32,
+) -> InspectorView {
     let login = item.login.as_ref();
     let username = login
         .and_then(|value| value.get("username"))
@@ -2796,31 +2951,58 @@ fn vault_item_inspector(item: &VaultItem, reveal: &RevealStateInput, reprompt: u
             array
                 .iter()
                 .map(|entry| PasswordHistoryEntryView {
-                    password: entry.get("password").and_then(|value| value.as_str()).unwrap_or_default().to_string(),
-                    changed_at: entry.get("lastUsedDate").and_then(|value| value.as_str()).unwrap_or_default().to_string(),
+                    password: entry
+                        .get("password")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    changed_at: entry
+                        .get("lastUsedDate")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
                 })
                 .collect()
         })
         .unwrap_or_default();
     let card = item.card.as_ref().map(|card| {
-        let field = |name: &str| card.get(name).and_then(|value| value.as_str()).unwrap_or_default().to_string();
+        let field = |name: &str| {
+            card.get(name)
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string()
+        };
         let number = field("number");
         let brand = field("brand");
         let code = field("code");
         CardView {
             cardholder_name: field("cardholderName"),
             brand: brand.clone(),
-            number: if reveal.reveal_card_number { format_card_number_for(&number, &brand) } else { mask_card_number_for(&number, &brand) },
+            number: if reveal.reveal_card_number {
+                format_card_number_for(&number, &brand)
+            } else {
+                mask_card_number_for(&number, &brand)
+            },
             number_masked: mask_card_number_for(&number, &brand),
             exp_month: field("expMonth"),
             exp_year: field("expYear"),
             expiration: format_expiration(&field("expMonth"), &field("expYear")),
-            cvv: if reveal.reveal_cvv { code.clone() } else { mask_secret(&code) },
+            cvv: if reveal.reveal_cvv {
+                code.clone()
+            } else {
+                mask_secret(&code)
+            },
             cvv_masked: mask_secret(&code),
         }
     });
     let identity = item.identity.as_ref().map(|identity| {
-        let field = |name: &str| identity.get(name).and_then(|value| value.as_str()).unwrap_or_default().to_string();
+        let field = |name: &str| {
+            identity
+                .get(name)
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string()
+        };
         IdentityView {
             full_name: field("firstName").trim().to_string() + " " + field("lastName").trim(),
             username: field("username"),
@@ -2856,9 +3038,20 @@ fn vault_item_inspector(item: &VaultItem, reveal: &RevealStateInput, reprompt: u
         .enumerate()
         .map(|(index, field)| {
             let index = index as u32;
-            let name = field.get("name").and_then(|value| value.as_str()).unwrap_or_default().to_string();
-            let value = field.get("value").and_then(|value| value.as_str()).unwrap_or_default().to_string();
-            let field_type = field.get("type").and_then(|value| value.as_u64()).unwrap_or(0);
+            let name = field
+                .get("name")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let value = field
+                .get("value")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let field_type = field
+                .get("type")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0);
             let kind = match field_type {
                 1 => "hidden",
                 2 => "boolean",
@@ -2871,7 +3064,11 @@ fn vault_item_inspector(item: &VaultItem, reveal: &RevealStateInput, reprompt: u
                 index,
                 name,
                 kind: kind.to_string(),
-                value: if revealed { value.clone() } else { mask_secret(&value) },
+                value: if revealed {
+                    value.clone()
+                } else {
+                    mask_secret(&value)
+                },
                 value_masked: mask_secret(&value),
             }
         })
@@ -2880,10 +3077,21 @@ fn vault_item_inspector(item: &VaultItem, reveal: &RevealStateInput, reprompt: u
         .attachments
         .iter()
         .map(|attachment| {
-            let size = attachment.get("size").and_then(|value| value.as_u64()).unwrap_or(0);
+            let size = attachment
+                .get("size")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0);
             AttachmentView {
-                id: attachment.get("id").and_then(|value| value.as_str()).unwrap_or_default().to_string(),
-                filename: attachment.get("fileName").and_then(|value| value.as_str()).unwrap_or_default().to_string(),
+                id: attachment
+                    .get("id")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                filename: attachment
+                    .get("fileName")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
                 size,
                 size_label: format_size(size),
             }
@@ -2896,7 +3104,11 @@ fn vault_item_inspector(item: &VaultItem, reveal: &RevealStateInput, reprompt: u
         favorite: item.favorite,
         notes: item.notes.clone(),
         username,
-        password: if reveal.reveal_password { password.clone() } else { None },
+        password: if reveal.reveal_password {
+            password.clone()
+        } else {
+            None
+        },
         password_masked: mask_secret(password.as_deref().unwrap_or("")),
         totp: totp_view(totp_seed),
         uris,
@@ -2960,7 +3172,12 @@ fn parse_ssh_algorithm(raw: &str) -> Result<omawarden::ssh::SshAlgorithm, String
 }
 
 /// Builds a preview by generating or importing a key.
-fn build_ssh_preview(mode: &str, algorithm: &str, comment: &str, private_key_pem: &str) -> SshKeyPreviewView {
+fn build_ssh_preview(
+    mode: &str,
+    algorithm: &str,
+    comment: &str,
+    private_key_pem: &str,
+) -> SshKeyPreviewView {
     if mode == "import" {
         return match omawarden::ssh::parse_private_key(private_key_pem) {
             Ok(key) => SshKeyPreviewView {
@@ -3000,7 +3217,10 @@ fn build_ssh_preview(mode: &str, algorithm: &str, comment: &str, private_key_pem
             };
         }
     };
-    match omawarden::ssh::generate_keypair(algorithm, Some(comment).filter(|value| !value.is_empty())) {
+    match omawarden::ssh::generate_keypair(
+        algorithm,
+        Some(comment).filter(|value| !value.is_empty()),
+    ) {
         Ok(key) => SshKeyPreviewView {
             ok: true,
             mode: mode.to_string(),
@@ -3113,7 +3333,10 @@ impl OmawardenBridge {
                         state.phase = AppPhase::Unlocked;
                         if state.ssh_prompt.is_none() {
                             state.ssh_prompt = Some(SshPromptView {
-                                id: payload.get("id").and_then(|value| value.as_u64()).unwrap_or(1) as u32,
+                                id: payload
+                                    .get("id")
+                                    .and_then(|value| value.as_u64())
+                                    .unwrap_or(1) as u32,
                                 title: "Sign a Git commit?".to_string(),
                                 action: "SSH login as git@github.com".to_string(),
                                 key_name: "GitHub".to_string(),
@@ -3159,8 +3382,15 @@ impl OmawardenBridge {
             return true;
         }
         let command = format!("sudo pacman -S --noconfirm {}", safe.join(" "));
-        for terminal in ["omarchy-launch-floating-terminal-with-presentation", "alacritty", "foot", "kitty"] {
-            let Ok(path) = which::which(terminal) else { continue };
+        for terminal in [
+            "omarchy-launch-floating-terminal-with-presentation",
+            "alacritty",
+            "foot",
+            "kitty",
+        ] {
+            let Ok(path) = which::which(terminal) else {
+                continue;
+            };
             let mut process = Command::new(path);
             if terminal == "omarchy-launch-floating-terminal-with-presentation" {
                 process.arg("sh").arg("-c").arg(&command);
@@ -3186,7 +3416,8 @@ impl OmawardenBridge {
                 match input.kind {
                     AuthKind::Password => {
                         if input.email.trim().is_empty() || input.password.is_empty() {
-                            state.error = Some("Email and master password are required.".to_string());
+                            state.error =
+                                Some("Email and master password are required.".to_string());
                         } else if state.two_factor_required {
                             state.email = input.email.clone();
                             state.phase = AppPhase::TwoFactor;
@@ -3207,7 +3438,8 @@ impl OmawardenBridge {
                     }
                     AuthKind::ApiKey => {
                         if input.client_id.trim().is_empty() || input.client_secret.is_empty() {
-                            state.error = Some("Client ID and client secret are required.".to_string());
+                            state.error =
+                                Some("Client ID and client secret are required.".to_string());
                         } else if state.two_factor_required {
                             state.phase = AppPhase::TwoFactor;
                         } else {
@@ -3246,7 +3478,10 @@ impl OmawardenBridge {
                         if state.quick_unlock_ready {
                             state.phase = AppPhase::Unlocked;
                         } else {
-                            state.error = Some("Quick unlock is not available. Use your master password.".to_string());
+                            state.error = Some(
+                                "Quick unlock is not available. Use your master password."
+                                    .to_string(),
+                            );
                         }
                     }
                 }
@@ -3341,7 +3576,11 @@ impl OmawardenBridge {
     pub fn lock_or_logout(logout: bool) -> VaultSnapshotView {
         if with_mock(|state| state.enabled) {
             return with_mock(|state| {
-                state.phase = if logout { AppPhase::Login } else { AppPhase::Locked };
+                state.phase = if logout {
+                    AppPhase::Login
+                } else {
+                    AppPhase::Locked
+                };
                 state.selected_cipher_id = None;
                 state.ssh_prompt = None;
                 state.two_factor = None;
@@ -3396,7 +3635,9 @@ impl OmawardenBridge {
         ensure_app_daemon_running();
         let response = daemon(json!({ "action": "sync", "touch": true }));
         let failure = match response {
-            Some(response) if response.get("ok").and_then(|value| value.as_bool()) == Some(true) => {
+            Some(response)
+                if response.get("ok").and_then(|value| value.as_bool()) == Some(true) =>
+            {
                 None
             }
             Some(response) => Some(
@@ -3424,15 +3665,17 @@ impl OmawardenBridge {
     /// Inspect a specific cipher item, computing masked/revealed fields, TOTP state, and actions.
     pub fn inspect_cipher(cipher_id: String, reveal: RevealStateInput) -> InspectorView {
         if with_mock(|state| state.enabled) {
-            return with_mock(|state| {
-                match state.items.iter().find(|item| item.id == cipher_id) {
+            return with_mock(
+                |state| match state.items.iter().find(|item| item.id == cipher_id) {
                     Some(item) => {
                         state.selected_cipher_id = Some(cipher_id.clone());
                         item.inspector(&reveal)
                     }
-                    None => empty_inspector(&cipher_id, format!("Item '{cipher_id}' was not found.")),
-                }
-            });
+                    None => {
+                        empty_inspector(&cipher_id, format!("Item '{cipher_id}' was not found."))
+                    }
+                },
+            );
         }
         if let Ok(guard) = cached_vault().lock() {
             if let Some(cached) = guard.as_ref() {
@@ -3444,7 +3687,10 @@ impl OmawardenBridge {
         }
         let response = daemon(json!({ "action": "get_item", "query": cipher_id, "touch": false }));
         let Some(response) = response else {
-            return empty_inspector(&cipher_id, "The Omawarden daemon is not running.".to_string());
+            return empty_inspector(
+                &cipher_id,
+                "The Omawarden daemon is not running.".to_string(),
+            );
         };
         if response.get("ok").and_then(|value| value.as_bool()) != Some(true) {
             return empty_inspector(
@@ -3461,7 +3707,11 @@ impl OmawardenBridge {
             .and_then(|item| item.get("reprompt"))
             .and_then(Value::as_u64)
             .unwrap_or(0) as u32;
-        match response.get("item").cloned().and_then(|value| serde_json::from_value::<VaultItem>(value).ok()) {
+        match response
+            .get("item")
+            .cloned()
+            .and_then(|value| serde_json::from_value::<VaultItem>(value).ok())
+        {
             Some(item) => vault_item_inspector(&item, &reveal, reprompt),
             None => empty_inspector(&cipher_id, "Could not read the vault item.".to_string()),
         }
@@ -3542,19 +3792,37 @@ impl OmawardenBridge {
                     .or_else(|| Some("No TOTP code is available.".to_string())),
             };
         }
-        let code = response.get("code").and_then(|value| value.as_str()).unwrap_or_default().to_string();
+        let code = response
+            .get("code")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string();
         TotpLiveView {
             valid: !code.is_empty(),
-            formatted: format!("{} {}", &code[..3.min(code.len())], &code[3.min(code.len())..]),
+            formatted: format!(
+                "{} {}",
+                &code[..3.min(code.len())],
+                &code[3.min(code.len())..]
+            ),
             code,
-            remaining: response.get("ttl").and_then(|value| value.as_u64()).unwrap_or(0) as u32,
-            period: response.get("period").and_then(|value| value.as_u64()).unwrap_or(30) as u32,
+            remaining: response
+                .get("ttl")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0) as u32,
+            period: response
+                .get("period")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(30) as u32,
             error: None,
         }
     }
 
     /// Copy a specific field of a cipher item to the Wayland clipboard with Clipboard Guard TTL.
-    pub fn copy_cipher_field(cipher_id: String, field: String, custom_index: Option<u32>) -> CopyOutcomeView {
+    pub fn copy_cipher_field(
+        cipher_id: String,
+        field: String,
+        custom_index: Option<u32>,
+    ) -> CopyOutcomeView {
         if with_mock(|state| state.enabled) {
             return with_mock(|state| {
                 let Some(item) = state.items.iter().find(|item| item.id == cipher_id) else {
@@ -3649,14 +3917,19 @@ impl OmawardenBridge {
             });
         }
         let cached_item = cached_vault().lock().ok().and_then(|guard| {
-            guard
-                .as_ref()
-                .and_then(|cached| cached.items.iter().find(|item| item.id == cipher_id).cloned())
+            guard.as_ref().and_then(|cached| {
+                cached
+                    .items
+                    .iter()
+                    .find(|item| item.id == cipher_id)
+                    .cloned()
+            })
         });
         let item = match cached_item {
             Some(item) => item,
             None => {
-                let response = daemon(json!({ "action": "get_item", "query": cipher_id, "touch": false }));
+                let response =
+                    daemon(json!({ "action": "get_item", "query": cipher_id, "touch": false }));
                 let Some(response) = response else {
                     return CopyOutcomeView {
                         ok: false,
@@ -3801,7 +4074,11 @@ impl OmawardenBridge {
             },
             sensitive,
             cleared_after_seconds: ttl,
-            error: if ok { None } else { Some("Could not access the clipboard.".to_string()) },
+            error: if ok {
+                None
+            } else {
+                Some("Could not access the clipboard.".to_string())
+            },
         }
     }
 
@@ -3841,27 +4118,51 @@ impl OmawardenBridge {
             label,
             sensitive,
             cleared_after_seconds: ttl,
-            error: if ok { None } else { Some("Could not access the clipboard.".to_string()) },
+            error: if ok {
+                None
+            } else {
+                Some("Could not access the clipboard.".to_string())
+            },
         }
     }
 
     /// Preview or download an encrypted attachment (`0600` permissions in `$XDG_RUNTIME_DIR`).
-    pub fn open_attachment(cipher_id: String, attachment_id: String, mode: String) -> AttachmentOutcomeView {
+    pub fn open_attachment(
+        cipher_id: String,
+        attachment_id: String,
+        mode: String,
+    ) -> AttachmentOutcomeView {
         if with_mock(|state| state.enabled) {
             return with_mock(|state| {
                 let attachment = state
                     .items
                     .iter()
                     .find(|item| item.id == cipher_id)
-                    .and_then(|item| item.attachments.iter().find(|attachment| attachment.id == attachment_id));
+                    .and_then(|item| {
+                        item.attachments
+                            .iter()
+                            .find(|attachment| attachment.id == attachment_id)
+                    });
                 match attachment {
                     Some(attachment) => {
                         let is_image = matches!(
-                            attachment.filename.rsplit('.').next().unwrap_or_default().to_lowercase().as_str(),
+                            attachment
+                                .filename
+                                .rsplit('.')
+                                .next()
+                                .unwrap_or_default()
+                                .to_lowercase()
+                                .as_str(),
                             "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg"
                         );
                         let is_text = matches!(
-                            attachment.filename.rsplit('.').next().unwrap_or_default().to_lowercase().as_str(),
+                            attachment
+                                .filename
+                                .rsplit('.')
+                                .next()
+                                .unwrap_or_default()
+                                .to_lowercase()
+                                .as_str(),
                             "txt" | "md" | "json" | "log" | "csv"
                         );
                         AttachmentOutcomeView {
@@ -3870,7 +4171,11 @@ impl OmawardenBridge {
                             filename: Some(attachment.filename.clone()),
                             is_image,
                             is_text,
-                            text_content: if is_text { Some("Mock attachment preview".to_string()) } else { None },
+                            text_content: if is_text {
+                                Some("Mock attachment preview".to_string())
+                            } else {
+                                None
+                            },
                             preview_data_url: if is_image {
                                 Some(
                                     "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
@@ -3928,7 +4233,8 @@ impl OmawardenBridge {
                     .and_then(|attachments| attachments.as_array())
                     .and_then(|attachments| {
                         attachments.iter().find(|attachment| {
-                            attachment.get("id").and_then(|value| value.as_str()) == Some(attachment_id.as_str())
+                            attachment.get("id").and_then(|value| value.as_str())
+                                == Some(attachment_id.as_str())
                         })
                     })
                     .and_then(|attachment| attachment.get("fileName"))
@@ -3987,7 +4293,11 @@ impl OmawardenBridge {
                     .items
                     .iter()
                     .find(|item| item.id == cipher_id)
-                    .and_then(|item| item.attachments.iter().find(|entry| entry.id == attachment_id));
+                    .and_then(|item| {
+                        item.attachments
+                            .iter()
+                            .find(|entry| entry.id == attachment_id)
+                    });
                 match attachment {
                     Some(attachment) => AttachmentOutcomeView {
                         ok: true,
@@ -4194,7 +4504,11 @@ impl OmawardenBridge {
                 error: Some(ERR_PASSPHRASE_WORDS.to_string()),
             };
         }
-        let separator = if input.separator.is_empty() { "-".to_string() } else { input.separator.clone() };
+        let separator = if input.separator.is_empty() {
+            "-".to_string()
+        } else {
+            input.separator.clone()
+        };
         let options = PassphraseOptions {
             words: input.words as usize,
             separator,
@@ -4219,18 +4533,31 @@ impl OmawardenBridge {
     }
 
     /// Generate or import an SSH keypair without saving yet (for live preview in SshKeyModal).
-    pub fn preview_ssh_key(mode: String, algorithm: String, comment: String, private_key_pem: String) -> SshKeyPreviewView {
+    pub fn preview_ssh_key(
+        mode: String,
+        algorithm: String,
+        comment: String,
+        private_key_pem: String,
+    ) -> SshKeyPreviewView {
         let mode = if mode == "import" { "import" } else { "create" };
         build_ssh_preview(mode, &algorithm, &comment, &private_key_pem)
     }
 
     /// Save a generated or imported SSH key to the Bitwarden vault or export it to `~/.ssh`.
-    pub fn save_ssh_key(input: SshKeySaveInput, _filter: VaultFilterInput) -> SshKeySaveOutcomeView {
+    pub fn save_ssh_key(
+        input: SshKeySaveInput,
+        _filter: VaultFilterInput,
+    ) -> SshKeySaveOutcomeView {
         let mode = match input.mode {
             SshKeyMode::Import => "import",
             _ => "create",
         };
-        let preview = build_ssh_preview(mode, &input.algorithm, &input.comment, &input.private_key_pem);
+        let preview = build_ssh_preview(
+            mode,
+            &input.algorithm,
+            &input.comment,
+            &input.private_key_pem,
+        );
         if !preview.ok {
             return SshKeySaveOutcomeView {
                 ok: false,
@@ -4259,8 +4586,16 @@ impl OmawardenBridge {
                 } else {
                     "Saved SSH key to the vault.".to_string()
                 },
-                path: if input.export_to_ssh { Some(format!("{export_dir}/{filename}")) } else { None },
-                item_id: if input.save_to_vault { Some("mock-ssh-item".to_string()) } else { None },
+                path: if input.export_to_ssh {
+                    Some(format!("{export_dir}/{filename}"))
+                } else {
+                    None
+                },
+                item_id: if input.save_to_vault {
+                    Some("mock-ssh-item".to_string())
+                } else {
+                    None
+                },
                 error: None,
             };
         }
@@ -4325,7 +4660,9 @@ impl OmawardenBridge {
             "touch": true,
         }));
         match response {
-            Some(response) if response.get("ok").and_then(|value| value.as_bool()) == Some(true) => {
+            Some(response)
+                if response.get("ok").and_then(|value| value.as_bool()) == Some(true) =>
+            {
                 clear_cached_vault();
                 SshKeySaveOutcomeView {
                     ok: true,
@@ -4344,7 +4681,10 @@ impl OmawardenBridge {
                 message: "Could not save the SSH key.".to_string(),
                 path: None,
                 item_id: None,
-                error: response.get("error").and_then(|value| value.as_str()).map(str::to_string),
+                error: response
+                    .get("error")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string),
             },
             None => SshKeySaveOutcomeView {
                 ok: false,
@@ -4372,7 +4712,11 @@ impl OmawardenBridge {
                     unlocked: state.phase == AppPhase::Unlocked,
                     quick_unlock_ready: state.quick_unlock_ready,
                     ssh_prompt: state.ssh_prompt.clone(),
-                    ssh_pending_count: state.ssh_prompt.as_ref().map(|prompt| prompt.remaining + 1).unwrap_or(0),
+                    ssh_pending_count: state
+                        .ssh_prompt
+                        .as_ref()
+                        .map(|prompt| prompt.remaining + 1)
+                        .unwrap_or(0),
                     totp,
                     error: None,
                 }
@@ -4390,7 +4734,8 @@ impl OmawardenBridge {
                 error: Some("The Omawarden daemon is not running.".to_string()),
             };
         };
-        let pending = daemon(json!({ "action": "ssh_agent_pending", "touch": false })).unwrap_or(Value::Null);
+        let pending =
+            daemon(json!({ "action": "ssh_agent_pending", "touch": false })).unwrap_or(Value::Null);
         let ssh_prompt = parse_prompt(&pending, 0);
         let ssh_pending_count = pending
             .get("prompts")
@@ -4402,24 +4747,43 @@ impl OmawardenBridge {
             if response.get("ok").and_then(|value| value.as_bool()) != Some(true) {
                 return None;
             }
-            let code = response.get("code").and_then(|value| value.as_str())?.to_string();
+            let code = response
+                .get("code")
+                .and_then(|value| value.as_str())?
+                .to_string();
             Some(TotpLiveView {
                 valid: true,
-                formatted: format!("{} {}", &code[..3.min(code.len())], &code[3.min(code.len())..]),
+                formatted: format!(
+                    "{} {}",
+                    &code[..3.min(code.len())],
+                    &code[3.min(code.len())..]
+                ),
                 code,
-                remaining: response.get("ttl").and_then(|value| value.as_u64()).unwrap_or(0) as u32,
-                period: response.get("period").and_then(|value| value.as_u64()).unwrap_or(30) as u32,
+                remaining: response
+                    .get("ttl")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or(0) as u32,
+                period: response
+                    .get("period")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or(30) as u32,
                 error: None,
             })
         });
-        let unlocked = ping.get("unlocked").and_then(|value| value.as_bool()).unwrap_or(false);
+        let unlocked = ping
+            .get("unlocked")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
         if !unlocked {
             clear_cached_vault();
         }
         DaemonTickView {
             online: true,
             unlocked,
-            quick_unlock_ready: ping.get("quick_unlock").and_then(|value| value.as_bool()).unwrap_or(false),
+            quick_unlock_ready: ping
+                .get("quick_unlock")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false),
             ssh_prompt,
             ssh_pending_count,
             totp,
@@ -4431,14 +4795,20 @@ impl OmawardenBridge {
     pub fn resolve_ssh_prompt(prompt_id: u64, approve: bool) -> DaemonTickView {
         if with_mock(|state| state.enabled) {
             with_mock(|state| {
-                if state.ssh_prompt.as_ref().is_some_and(|prompt| prompt.id as u64 == prompt_id) {
+                if state
+                    .ssh_prompt
+                    .as_ref()
+                    .is_some_and(|prompt| prompt.id as u64 == prompt_id)
+                {
                     state.ssh_prompt = None;
                 }
                 state.error = None;
             });
             return Self::poll_daemon_tick(None);
         }
-        let _ = daemon(json!({ "action": "ssh_agent_reply", "id": prompt_id, "approve": approve, "touch": true }));
+        let _ = daemon(
+            json!({ "action": "ssh_agent_reply", "id": prompt_id, "approve": approve, "touch": true }),
+        );
         Self::poll_daemon_tick(None)
     }
 
@@ -4478,27 +4848,53 @@ impl OmawardenBridge {
                         }
                     }
                 }
-                if let Some(value) = &input.download_dir { state.settings.download_dir = value.clone(); }
-                if let Some(value) = input.auto_lock_minutes { state.settings.auto_lock_minutes = value; }
-                if let Some(value) = input.clipboard_clear_seconds { state.settings.clipboard_clear_seconds = value; }
+                if let Some(value) = &input.download_dir {
+                    state.settings.download_dir = value.clone();
+                }
+                if let Some(value) = input.auto_lock_minutes {
+                    state.settings.auto_lock_minutes = value;
+                }
+                if let Some(value) = input.clipboard_clear_seconds {
+                    state.settings.clipboard_clear_seconds = value;
+                }
                 if let Some(value) = &input.email {
                     state.settings.email = value.clone();
                     state.email = value.clone();
                 }
-                if let Some(value) = input.remember_email { state.settings.remember_email = value; }
-                if let Some(value) = input.check_updates { state.settings.check_updates = value; }
-                if let Some(value) = input.show_website_icons { state.settings.show_website_icons = value; }
-                if let Some(value) = input.remember_last_search { state.settings.remember_last_search = value; }
-                if let Some(value) = input.max_attachment_size_mb { state.settings.max_attachment_size_mb = value; }
-                if let Some(value) = input.ssh_agent_enabled { state.settings.ssh_agent_enabled = value; }
-                if let Some(value) = input.ssh_agent_confirm { state.settings.ssh_agent_confirm = value; }
+                if let Some(value) = input.remember_email {
+                    state.settings.remember_email = value;
+                }
+                if let Some(value) = input.check_updates {
+                    state.settings.check_updates = value;
+                }
+                if let Some(value) = input.show_website_icons {
+                    state.settings.show_website_icons = value;
+                }
+                if let Some(value) = input.remember_last_search {
+                    state.settings.remember_last_search = value;
+                }
+                if let Some(value) = input.max_attachment_size_mb {
+                    state.settings.max_attachment_size_mb = value;
+                }
+                if let Some(value) = input.ssh_agent_enabled {
+                    state.settings.ssh_agent_enabled = value;
+                }
+                if let Some(value) = input.ssh_agent_confirm {
+                    state.settings.ssh_agent_confirm = value;
+                }
                 if let Some(value) = input.quick_unlock {
                     state.settings.quick_unlock = value;
                     state.quick_unlock_usable = value;
                 }
-                if let Some(value) = &input.client_cert_path { state.settings.client_cert_path = value.clone(); }
-                if let Some(value) = &input.client_key_path { state.settings.client_key_path = value.clone(); }
-                if let Some(value) = input.theme { state.settings.theme = value; }
+                if let Some(value) = &input.client_cert_path {
+                    state.settings.client_cert_path = value.clone();
+                }
+                if let Some(value) = &input.client_key_path {
+                    state.settings.client_key_path = value.clone();
+                }
+                if let Some(value) = input.theme {
+                    state.settings.theme = value;
+                }
                 let mut snapshot = state.settings_snapshot();
                 snapshot.error = error;
                 snapshot
@@ -4559,7 +4955,10 @@ impl OmawardenBridge {
             HealthCheckView {
                 name: "Engine Installed".to_string(),
                 ok: status.installed,
-                detail: status.version.clone().unwrap_or_else(|| "unknown".to_string()),
+                detail: status
+                    .version
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string()),
             },
             HealthCheckView {
                 name: "Server Reachable".to_string(),
@@ -4569,17 +4968,29 @@ impl OmawardenBridge {
             HealthCheckView {
                 name: "Secret Service Keyring".to_string(),
                 ok: status.keyring_available,
-                detail: if status.keyring_available { "secret-tool is available".to_string() } else { "secret-tool is missing".to_string() },
+                detail: if status.keyring_available {
+                    "secret-tool is available".to_string()
+                } else {
+                    "secret-tool is missing".to_string()
+                },
             },
             HealthCheckView {
                 name: "Wayland Clipboard".to_string(),
                 ok: status.clipboard_available,
-                detail: if status.clipboard_available { "wl-copy is available".to_string() } else { "wl-copy is missing".to_string() },
+                detail: if status.clipboard_available {
+                    "wl-copy is available".to_string()
+                } else {
+                    "wl-copy is missing".to_string()
+                },
             },
             HealthCheckView {
                 name: "Memory Locked".to_string(),
                 ok: memory_locked,
-                detail: if memory_locked { "mlock is active".to_string() } else { "mlock is not active".to_string() },
+                detail: if memory_locked {
+                    "mlock is active".to_string()
+                } else {
+                    "mlock is not active".to_string()
+                },
             },
         ];
         HealthSnapshotView {
@@ -4808,7 +5219,11 @@ fn push_log(line: impl Into<String>) {
 fn recent_logs() -> Vec<String> {
     LOG_RING
         .get()
-        .and_then(|ring| ring.lock().ok().map(|guard| guard.iter().cloned().collect()))
+        .and_then(|ring| {
+            ring.lock()
+                .ok()
+                .map(|guard| guard.iter().cloned().collect())
+        })
         .unwrap_or_default()
 }
 
@@ -4910,10 +5325,14 @@ fn attachment_image_data_url(path: Option<&str>, filename: Option<&str>) -> Opti
 }
 
 /// Expands a leading `~` to the current user's home directory.
-fn expand_home(path: &str) -> PathBuf {    let trimmed = path.trim();
+fn expand_home(path: &str) -> PathBuf {
+    let trimmed = path.trim();
     if trimmed == "~" || trimmed.starts_with("~/") {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let rest = trimmed.strip_prefix('~').unwrap_or(trimmed).trim_start_matches('/');
+        let rest = trimmed
+            .strip_prefix('~')
+            .unwrap_or(trimmed)
+            .trim_start_matches('/');
         if rest.is_empty() {
             return PathBuf::from(home);
         }
@@ -5023,7 +5442,11 @@ mod tests {
         }
         for length in [5, 14, 128] {
             let result = OmawardenBridge::generate_password(password_input(length));
-            assert!(result.ok, "length {length} must be accepted: {:?}", result.error);
+            assert!(
+                result.ok,
+                "length {length} must be accepted: {:?}",
+                result.error
+            );
             assert_eq!(result.value.chars().count(), length as usize);
             assert!(result.entropy > 0.0);
         }
@@ -5038,7 +5461,11 @@ mod tests {
         }
         for words in [3, 6, 20] {
             let result = OmawardenBridge::generate_passphrase(passphrase_input(words));
-            assert!(result.ok, "words {words} must be accepted: {:?}", result.error);
+            assert!(
+                result.ok,
+                "words {words} must be accepted: {:?}",
+                result.error
+            );
             assert_eq!(result.value.split('|').count(), words as usize);
         }
     }
@@ -5060,8 +5487,14 @@ mod tests {
         assert_eq!(mask_card_number("4111111111111234"), "•••• •••• •••• 1234");
         assert_eq!(mask_card_number("1234"), "••••");
         assert_eq!(mask_card_number(""), "•••• •••• •••• ••••");
-        assert_eq!(format_card_number("4111111111111234"), "4111 1111 1111 1234");
-        assert_eq!(format_card_number("4111-1111-1111-1234"), "4111 1111 1111 1234");
+        assert_eq!(
+            format_card_number("4111111111111234"),
+            "4111 1111 1111 1234"
+        );
+        assert_eq!(
+            format_card_number("4111-1111-1111-1234"),
+            "4111 1111 1111 1234"
+        );
         assert_eq!(
             format_card_number_for("378282246310005", "American Express"),
             "3782 822463 10005"
@@ -5298,7 +5731,9 @@ mod tests {
         let dependencies = OmawardenBridge::check_dependencies();
         assert!(!dependencies.all_required_installed);
         assert_eq!(dependencies.missing_required, vec!["libsecret".to_string()]);
-        assert!(OmawardenBridge::install_missing_dependencies(vec!["libsecret".to_string()]));
+        assert!(OmawardenBridge::install_missing_dependencies(vec![
+            "libsecret".to_string()
+        ]));
 
         let settings = OmawardenBridge::update_settings(SettingsUpdateInput {
             server_url: Some("http://example.com".to_string()),
@@ -5319,7 +5754,10 @@ mod tests {
             client_key_path: None,
             theme: None,
         });
-        assert!(settings.error.is_some(), "plain http to a remote host must be rejected");
+        assert!(
+            settings.error.is_some(),
+            "plain http to a remote host must be rejected"
+        );
 
         let settings = OmawardenBridge::update_settings(SettingsUpdateInput {
             server_url: Some("http://localhost:8080".to_string()),
@@ -5416,9 +5854,15 @@ mod tests {
     fn launch_url_rejects_unsafe_schemes() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         OmawardenBridge::set_mock_mode(true);
-        assert!(!OmawardenBridge::launch_url("javascript:alert(1)".to_string()));
-        assert!(!OmawardenBridge::launch_url("file:///etc/passwd".to_string()));
-        assert!(OmawardenBridge::launch_url("https://example.com".to_string()));
+        assert!(!OmawardenBridge::launch_url(
+            "javascript:alert(1)".to_string()
+        ));
+        assert!(!OmawardenBridge::launch_url(
+            "file:///etc/passwd".to_string()
+        ));
+        assert!(OmawardenBridge::launch_url(
+            "https://example.com".to_string()
+        ));
     }
 
     #[test]
@@ -5447,6 +5891,9 @@ mod tests {
         );
         let code = " 123456 ";
         let code = code.trim();
-        assert_eq!(if code.is_empty() { None } else { Some(code) }, Some("123456"));
+        assert_eq!(
+            if code.is_empty() { None } else { Some(code) },
+            Some("123456")
+        );
     }
 }
