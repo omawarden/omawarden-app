@@ -249,10 +249,10 @@ export function Icon(props: IconProps) {
   return (
     <Canvas
       testID={props.testID}
-      pointerEvents="none"
       style={{
         width: size,
         height: size,
+        pointerEvents: "none",
         ...props.style,
       }}
       draw={(cx, { width }) => {

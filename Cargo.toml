@@ -1,14 +1,14 @@
 [package]
 name = "nsh-app-omawarden-app"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 publish = false
 
 [workspace]
 
 [dependencies]
-nsh-core = "0.3.0"
-nsh-base = "0.3.0"
+nsh-core = "0.4.0"
+nsh-base = "0.4.0"
 omawarden = { git = "https://github.com/icyleaf/omarchy-bitwarden.git", branch = "develop" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

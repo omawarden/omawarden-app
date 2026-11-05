@@ -51,7 +51,7 @@ omawarden Rust crate ── Unix socket ── in-process daemon
 
 - **Linux** (primary target) with GTK 4 and WebKitGTK 6.0.
 - **Rust** `1.98.0` — pinned by [`rust-toolchain.toml`](rust-toolchain.toml).
-- **`nsh`** `0.3.0` — the Native Shell CLI.
+- **`nsh`** `0.4.0` — the Native Shell CLI.
 - **`mise`** — recommended for running the project tasks.
 - A sibling checkout of the engine at `../omarchy-bitwarden/omawarden`, because `Cargo.toml` links it by path.
 - Runtime tools used by engine features: `secret-tool` (libsecret) for the keyring, `wl-copy` (wl-clipboard) for the Wayland clipboard, and optionally `fido2-token` (libfido2) for security keys.

@@ -19,13 +19,13 @@ export function ToastAlert() {
     <If when={current()}>
       {(toast) => (
         <View
-          pointerEvents="box-none"
           style={{
             position: "absolute",
             bottom: 42,
             left: 0,
             right: 0,
             alignItems: "center",
+            pointerEvents: "box-none",
           }}
         >
           <View

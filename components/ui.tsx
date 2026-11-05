@@ -237,8 +237,8 @@ export function FieldRow(props: {
           </View>
           <Text
             testID={props.testID}
-            selectable
             style={{
+              userSelect: "text",
               flex: 1,
               color: props.mutedValue ? palette().muted : palette().popups.text,
               fontSize: 13,

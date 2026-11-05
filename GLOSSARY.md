@@ -61,7 +61,7 @@ the app shows the quick-unlock action only when both hold.
 ## Dev Release
 
 A rolling pre-release published on every push to `main` under the tag `dev`.
-Carries a SemVer string formatted as `0.3.0-dev.<short-sha>` and produces
+Carries a SemVer string formatted as `0.4.0-dev.<short-sha>` and produces
 multi-architecture tarballs (`.tar.gz`) and standalone AppImages.
 
 ## Release Bundle

@@ -39,7 +39,7 @@ export function SearchHeader() {
           placeholder="Search your vault…"
           autoCapitalize="none"
           autoCorrect={false}
-          onChange={(text: string) => store.setSearch(text)}
+          onChange={({ value }) => store.setSearch(value)}
           style={{ ...inputStyle(), flex: 1 }}
         />
         {store.search() ? (

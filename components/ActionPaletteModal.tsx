@@ -54,7 +54,7 @@ export function ActionPaletteModal() {
         autoFocus
         autoCapitalize="none"
         autoCorrect={false}
-        onChange={(text: string) => paletteActions.setQuery(text)}
+        onChange={({ value }) => paletteActions.setQuery(value)}
         style={inputStyle()}
       />
 

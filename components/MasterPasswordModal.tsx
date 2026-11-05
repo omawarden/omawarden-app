@@ -44,7 +44,7 @@ export function MasterPasswordModal() {
           autoCapitalize="none"
           autoCorrect={false}
           readonly={submitting()}
-          onChange={(text: string) => secret.set(text)}
+          onChange={({ value }) => secret.set(value)}
           onSubmit={submit}
           style={inputStyle()}
         />
