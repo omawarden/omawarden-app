@@ -9,9 +9,8 @@ use serde_json::json;
 use crate::diagnostics::push_log;
 use crate::{
     ActionOutcomeView, AppPhase, AuthActionInput, AuthKind, MockState, TwoFactorChallengeView,
-    TwoFactorProviderView, VaultFilterInput, VaultSnapshotView, clear_cached_vault, config_manager,
-    daemon, default_two_factor_providers, ensure_app_daemon_running, load_config, real_snapshot,
-    with_mock,
+    TwoFactorProviderView, VaultFilterInput, VaultSnapshotView, config_manager, daemon,
+    default_two_factor_providers, ensure_app_daemon_running, load_config, vault, with_mock,
 };
 
 /// The authentication capabilities the bridge exposes.
@@ -155,7 +154,7 @@ fn snapshot_from_auth_result(
         .filter(|id| *id >= 0)
         .map(|id| id as u32);
 
-    let mut snapshot = real_snapshot(VaultFilterInput::default());
+    let mut snapshot = vault::real_snapshot(VaultFilterInput::default());
     if let Some(error) = result.error.clone() {
         snapshot.error = Some(error);
     }
@@ -266,9 +265,9 @@ fn real_send_two_factor_email(email: &str, password: &str) -> ActionOutcomeView 
 fn real_lock_or_logout(logout: bool) -> VaultSnapshotView {
     let auth = auth_manager();
     let _ = if logout { auth.logout() } else { auth.lock() };
-    clear_cached_vault();
+    vault::clear_cached_vault();
     omawarden::attachment::clear_preview_attachments(None);
-    real_snapshot(VaultFilterInput::default())
+    vault::real_snapshot(VaultFilterInput::default())
 }
 
 /// Applies the mock's sign-in transitions.

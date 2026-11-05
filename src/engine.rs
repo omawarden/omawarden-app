@@ -13,6 +13,7 @@ use crate::diagnostics::{
     DiagnosticsEngine, InProcess as InProcessDiagnostics, Mock as MockDiagnostics,
 };
 use crate::settings::{InProcess as InProcessSettings, Mock as MockSettings, SettingsEngine};
+use crate::vault::{InProcess as InProcessVault, Mock as MockVault, VaultEngine};
 
 /// The attachments adapter for the current run mode.
 pub(crate) fn attachments() -> &'static dyn AttachmentsEngine {
@@ -43,6 +44,17 @@ pub(crate) fn clipboard() -> &'static dyn ClipboardEngine {
         &MOCK
     } else {
         static IN_PROCESS: InProcessClipboard = InProcessClipboard;
+        &IN_PROCESS
+    }
+}
+
+/// The vault adapter for the current run mode.
+pub(crate) fn vault() -> &'static dyn VaultEngine {
+    if crate::with_mock(|state| state.enabled) {
+        static MOCK: MockVault = MockVault;
+        &MOCK
+    } else {
+        static IN_PROCESS: InProcessVault = InProcessVault;
         &IN_PROCESS
     }
 }
