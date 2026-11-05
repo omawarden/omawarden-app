@@ -3,6 +3,7 @@
 #   mise run check
 #   mise run test
 #   mise run run -- --window-size 1440x960
+#   mise run gpui -- --window-size 1440x960
 #   mise run package -- --icon assets/icon.png
 #
 # Extra arguments are appended to `nsh run`, `nsh dev`, `nsh check`,
@@ -21,6 +22,13 @@ run = "nsh run"
 [tasks.dev]
 description = "Run the app with hot reload"
 run = "nsh dev"
+
+# GPUI is a development/embedding backend in NSH 0.4.0, not a packaged target:
+# `nsh package` only ships the GTK 4 Linux runner. This task previews the app
+# as GPUI and GPUI Kit apps that embed it would draw it.
+[tasks.gpui]
+description = "Preview the app in the GPUI development host (not packaged)"
+run = "nsh run --target gpui"
 
 [tasks.check]
 description = "Type-check the Rust crate and the TSX UI"
