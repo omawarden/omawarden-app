@@ -12,6 +12,7 @@ use crate::clipboard::{ClipboardEngine, InProcess as InProcessClipboard, Mock as
 use crate::diagnostics::{
     DiagnosticsEngine, InProcess as InProcessDiagnostics, Mock as MockDiagnostics,
 };
+use crate::generator::{GeneratorEngine, InProcess as InProcessGenerator, Mock as MockGenerator};
 use crate::inspector::{InProcess as InProcessInspector, InspectorEngine, Mock as MockInspector};
 use crate::settings::{InProcess as InProcessSettings, Mock as MockSettings, SettingsEngine};
 use crate::ssh::{InProcess as InProcessSsh, Mock as MockSsh, SshEngine};
@@ -46,6 +47,17 @@ pub(crate) fn clipboard() -> &'static dyn ClipboardEngine {
         &MOCK
     } else {
         static IN_PROCESS: InProcessClipboard = InProcessClipboard;
+        &IN_PROCESS
+    }
+}
+
+/// The generator adapter for the current run mode.
+pub(crate) fn generator() -> &'static dyn GeneratorEngine {
+    if crate::with_mock(|state| state.enabled) {
+        static MOCK: MockGenerator = MockGenerator;
+        &MOCK
+    } else {
+        static IN_PROCESS: InProcessGenerator = InProcessGenerator;
         &IN_PROCESS
     }
 }
