@@ -1,10 +1,9 @@
 import { Image, Scroll, Text, View } from "nsh";
-import { signal } from "nsh";
 import { Button } from "nsh/base";
 import type { CipherRowView, ItemCategory } from "omawarden-app/native";
 import * as store from "../store/appStore";
 import { formatMaskedCardNumber } from "../store/CardFormatter";
-import { iconUrlFor, resolve } from "../store/IconPolicy";
+import { markIconFailed, rowIcon } from "../store/Icons";
 import { tint } from "../theme/palette";
 import { Icon, type IconName } from "./Icon";
 import { actionID, EmptyHint, focusOutline, useAction } from "./ui";
@@ -110,7 +109,6 @@ function ShowMoreRow(props: { remaining: () => number }) {
 
 function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
   const palette = store.palette;
-  const failedIcon = signal(false);
   const id = actionID(`cipher-row-slot-${props.index()}`);
   useAction(id, () => store.selectCipher(props.index()));
   const focused = () => store.focusedAction() === id;
@@ -119,16 +117,7 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
   const accent = () => palette().popups.selectedText;
   const background = () =>
     active() ? palette().popups.selectedBackground : palette().popups.background;
-  const iconUrl = () => {
-    if (failedIcon()) {
-      return "";
-    }
-    const current = store.settings();
-    if (!resolve(current !== null, current?.config.showWebsiteIcons)) {
-      return "";
-    }
-    return iconUrlFor(store.snapshot().serverUrl, props.item().uris);
-  };
+  const iconUrl = () => rowIcon(props.item);
   const subtitle = () => {
     const item = props.item();
     if (item.category === "card" && item.cardMask) {
@@ -166,7 +155,7 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
           testID={`cipher-icon-${props.item().id}`}
           src={iconUrl()}
           style={{ width: 16, height: 16, borderRadius: 3, objectFit: "contain" }}
-          onError={() => failedIcon.set(true)}
+          onError={() => markIconFailed(props.item)}
         />
       </If>
       <If when={iconUrl() === ""}>
