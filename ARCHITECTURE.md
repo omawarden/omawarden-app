@@ -10,7 +10,7 @@
 
 ### Toolchain Paths
 - `nsh` binary: `/home/icyleaf/.local/share/mise/installs/github-longbridge-nsh/latest/bin/nsh` (version `0.4.0`, installed via `mise`).
-- Primary desktop target: Linux GTK 4 (`--target linux`), also compatible with GPUI and Web.
+- Primary desktop target: Linux GTK 4 (`--target linux`). GPUI is a development and embedding backend (`nsh run --target gpui`), not a package target; the web build uses `--target web`.
 - Reference implementation for 1:1 behavioral parity: `/home/icyleaf/Development/linux/omarchy-bitwarden/OmarchyBitwarden.qml` and `/home/icyleaf/Development/linux/omarchy-bitwarden/components/*.qml`.
 
 ---

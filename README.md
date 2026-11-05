@@ -72,6 +72,7 @@ mise run check      # type-check the Rust crate and TSX UI
 mise run test       # cargo tests + headless App.test.tsx suite
 mise run run        # run in the native development host
 mise run dev        # run with hot reload
+mise run gpui       # preview in the GPUI development host (not packaged)
 mise run build      # build the release bundle (no package)
 mise run package    # package a release (Linux by default)
 mise run release    # check, test, then package
@@ -88,6 +89,14 @@ OUT=dist mise run package
 The app icon is declared in `nsh.json` (`"icon": "assets/icon.png"`), so packaging uses
 `assets/icon.png` by default; `--icon` overrides it for a one-off package.
 
+### GPUI preview
+
+NSH 0.4.0 packages Linux with GTK 4 only. GPUI is a development and embedding
+backend (`nsh run --target gpui`), not a package target: `nsh package` has no
+GPUI runner, so `mise run gpui` opens the app as GPUI apps that embed it draw
+it but does not produce a release artifact. A GPUI preview needs Vulkan, GTK 3,
+WebKitGTK 4.1 and GStreamer, besides the GTK 4 packages above.
+
 ### Direct `nsh` and Cargo commands
 
 ```sh
@@ -95,6 +104,7 @@ nsh check
 nsh test
 nsh run
 nsh dev
+nsh run --target gpui
 nsh build --release
 nsh package --target linux
 nsh package --target linux --run
