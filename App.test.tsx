@@ -1167,5 +1167,5 @@ test("footer shows shortcut hints, theme, and engine version", async () => {
   expect(app.texts()).toContain("Ctrl+K");
   expect(app.texts()).toContain("Ctrl+,");
   expect(app.texts()).toContain("Theme: Dark");
-  expect(app.texts()).toContain("Engine 0.3.0");
+  expect(app.texts()).toContain("Engine 0.4.0");
 });

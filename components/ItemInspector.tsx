@@ -101,8 +101,8 @@ function InspectorBody(props: { item: () => InspectorView }) {
                 <Text style={{ color: palette().muted, fontSize: 12, width: 132 }}>Password</Text>
                 <Text
                   testID="inspector-password"
-                  selectable
                   style={{
+                    userSelect: "text",
                     flex: 1,
                     color: palette().popups.text,
                     fontSize: 13,
@@ -164,8 +164,8 @@ function InspectorBody(props: { item: () => InspectorView }) {
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                   <Text
                     testID="inspector-totp-code"
-                    selectable={!reprompt()}
                     style={{
+                      userSelect: !reprompt() ? "text" : "none",
                       flex: 1,
                       color: reprompt() ? palette().muted : totpColor(),
                       fontSize: 24,
@@ -227,8 +227,12 @@ function InspectorBody(props: { item: () => InspectorView }) {
                       }}
                     >
                       <Text
-                        selectable
-                        style={{ color: palette().popups.text, fontSize: 12, flex: 1 }}
+                        style={{
+                          color: palette().popups.text,
+                          fontSize: 12,
+                          flex: 1,
+                          userSelect: "text",
+                        }}
                       >
                         {uri().host || uri().uri}
                       </Text>
@@ -267,8 +271,8 @@ function InspectorBody(props: { item: () => InspectorView }) {
               </Text>
               <Text
                 testID="inspector-card-number"
-                selectable
                 style={{
+                  userSelect: "text",
                   flex: 1,
                   color: palette().popups.text,
                   fontSize: 14,
@@ -309,8 +313,8 @@ function InspectorBody(props: { item: () => InspectorView }) {
               </Text>
               <Text
                 testID="inspector-cvv"
-                selectable
                 style={{
+                  userSelect: "text",
                   flex: 1,
                   color: palette().popups.text,
                   fontSize: 13,
@@ -439,9 +443,9 @@ function InspectorBody(props: { item: () => InspectorView }) {
               </Text>
               <Text
                 testID="inspector-private-key"
-                selectable
-                numberOfLines={4}
                 style={{
+                  userSelect: "text",
+                  numberOfLines: 4,
                   flex: 1,
                   color: palette().popups.text,
                   fontSize: 12,
@@ -489,7 +493,14 @@ function InspectorBody(props: { item: () => InspectorView }) {
                 onPress={() => store.copyField("notes")}
               />
             </View>
-            <Text selectable style={{ color: palette().popups.text, fontSize: 13, lineHeight: 19 }}>
+            <Text
+              style={{
+                color: palette().popups.text,
+                fontSize: 13,
+                lineHeight: 19,
+                userSelect: "text",
+              }}
+            >
               {item().notes}
             </Text>
           </Panel>
@@ -507,8 +518,12 @@ function InspectorBody(props: { item: () => InspectorView }) {
                     </Text>
                     <Text
                       testID={`field-value-${field().index}`}
-                      selectable
-                      style={{ flex: 1, color: palette().popups.text, fontSize: 13 }}
+                      style={{
+                        flex: 1,
+                        color: palette().popups.text,
+                        fontSize: 13,
+                        userSelect: "text",
+                      }}
                     >
                       {field().kind === "hidden" &&
                       !store.reveal().revealFields.includes(field().index)
@@ -619,12 +634,12 @@ function InspectorBody(props: { item: () => InspectorView }) {
                       <Image
                         testID="attachment-image"
                         src={attachment()?.dataUrl ?? ""}
-                        resizeMode="contain"
                         style={{
                           width: "100%",
                           maxHeight: 320,
                           minHeight: 120,
                           borderRadius: 6,
+                          objectFit: "contain",
                         }}
                       />
                     </If>
@@ -640,8 +655,8 @@ function InspectorBody(props: { item: () => InspectorView }) {
                     <Scroll style={{ maxHeight: 320 }}>
                       <Text
                         testID="attachment-text"
-                        selectable
                         style={{
+                          userSelect: "text",
                           color: palette().popups.text,
                           fontSize: 12,
                           fontFamily: "monospace",

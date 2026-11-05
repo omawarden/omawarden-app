@@ -87,12 +87,12 @@ jobs:
       - name: Install nsh CLI (x86_64)
         if: matrix.arch == 'x86_64'
         run: |
-          curl -fsSL https://github.com/longbridge/nsh/releases/download/v0.3.0/install.sh | NSH_VERSION=v0.3.0 sh
+          curl -fsSL https://github.com/longbridge/nsh/releases/download/v0.4.0/install.sh | NSH_VERSION=v0.4.0 sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/.local/bin:$PATH"
           nsh --version
 
-      # v0.3.0 has no aarch64 prebuilt. Build the CLI from a checkout (as the
+      # v0.4.0 has no aarch64 prebuilt. Build the CLI from a checkout (as the
       # installer's --source mode does) so it can also build the aarch64
       # release runner from that same checkout.
       - name: Install nsh CLI (aarch64)
@@ -102,7 +102,7 @@ jobs:
         env:
           RUSTUP_TOOLCHAIN: stable
         run: |
-          git clone --depth 1 --branch v0.3.0 https://github.com/longbridge/nsh.git "$HOME/.nsh-src"
+          git clone --depth 1 --branch v0.4.0 https://github.com/longbridge/nsh.git "$HOME/.nsh-src"
           cargo build --release --locked --manifest-path "$HOME/.nsh-src/Cargo.toml" -p nsh-cli
           mkdir -p "$HOME/.nsh/bin" "$HOME/.local/bin"
           ln -sf "$HOME/.nsh-src/target/release/nsh" "$HOME/.nsh/bin/nsh"
@@ -235,7 +235,7 @@ jobs:
           body: |
             ## Omawarden App Development Build
 
-            - **Version**: `0.3.0-dev.${{ github.sha }}`
+            - **Version**: `0.4.0-dev.${{ github.sha }}`
             - **Commit**: [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
             - **Date**: ${{ steps.meta.outputs.date }}
 

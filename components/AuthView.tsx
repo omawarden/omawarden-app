@@ -1,5 +1,5 @@
 import { Text, View } from "nsh";
-import { Button, Checkbox, Input } from "nsh/base";
+import { Button, Checkbox, Input, OtpInput } from "nsh/base";
 import * as store from "../store/appStore";
 import {
   clientId,
@@ -132,7 +132,7 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
             autoCorrect={false}
             readonly={submitting()}
             submitBehavior="submit"
-            onChange={(text: string) => email.set(text)}
+            onChange={({ value }) => email.set(value)}
             style={inputStyle()}
           />
           <Text style={{ color: palette().muted, fontSize: 12 }}>Master Password</Text>
@@ -145,7 +145,7 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
             autoCorrect={false}
             readonly={submitting()}
             submitBehavior="submit"
-            onChange={(text: string) => password.set(text)}
+            onChange={({ value }) => password.set(value)}
             onSubmit={() => submitLogin()}
             style={inputStyle()}
           />
@@ -153,7 +153,7 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
             testID="login-remember-email"
             checked={rememberEmail()}
             disabled={submitting()}
-            onChange={(checked: boolean) => rememberEmail.set(checked)}
+            onChange={({ checked }) => rememberEmail.set(checked)}
             indicator={
               <Icon
                 name="check"
@@ -176,7 +176,7 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
             autoCorrect={false}
             readonly={submitting()}
             submitBehavior="submit"
-            onChange={(text: string) => clientId.set(text)}
+            onChange={({ value }) => clientId.set(value)}
             style={inputStyle()}
           />
           <Text style={{ color: palette().muted, fontSize: 12 }}>Client Secret</Text>
@@ -189,7 +189,7 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
             autoCorrect={false}
             readonly={submitting()}
             submitBehavior="submit"
-            onChange={(text: string) => clientSecret.set(text)}
+            onChange={({ value }) => clientSecret.set(value)}
             style={inputStyle()}
           />
         </View>
@@ -214,11 +214,11 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
         }}
       >
         <Text style={{ color: palette().muted, fontSize: 11 }}>Server</Text>
-        <Text selectable style={{ color: palette().popups.text, fontSize: 12 }}>
+        <Text style={{ color: palette().popups.text, fontSize: 12, userSelect: "text" }}>
           {props.serverUrl || "https://vault.bitwarden.com"}
         </Text>
         {props.identityUrl ? (
-          <Text selectable style={{ color: palette().muted, fontSize: 11 }}>
+          <Text style={{ color: palette().muted, fontSize: 11, userSelect: "text" }}>
             Identity: {props.identityUrl}
           </Text>
         ) : null}
@@ -276,7 +276,7 @@ function MtlsCard() {
           <Checkbox
             testID="login-mtls-enabled"
             checked={enabled()}
-            onChange={(checked: boolean) => enabled.set(checked)}
+            onChange={({ checked }) => enabled.set(checked)}
             indicator={
               <Icon
                 name="check"
@@ -298,7 +298,7 @@ function MtlsCard() {
               placeholder="~/.config/omawarden/client.crt"
               autoCapitalize="none"
               autoCorrect={false}
-              onChange={(text: string) => mtlsCertPath.set(text)}
+              onChange={({ value }) => mtlsCertPath.set(value)}
               style={{ ...inputStyle(), flex: 1 }}
             />
             <ActionButton
@@ -325,7 +325,7 @@ function MtlsCard() {
               placeholder="~/.config/omawarden/client.key"
               autoCapitalize="none"
               autoCorrect={false}
-              onChange={(text: string) => mtlsKeyPath.set(text)}
+              onChange={({ value }) => mtlsKeyPath.set(value)}
               style={{ ...inputStyle(), flex: 1 }}
             />
             <ActionButton
@@ -477,31 +477,53 @@ function TwoFactorForm() {
       ) : challenge()?.newDevice ? (
         <View style={{ gap: 6 }}>
           <Text style={{ color: palette().muted, fontSize: 12 }}>Verification code</Text>
-          <Input
+          <OtpInput
             testID="twofactor-code"
+            length={6}
             value={newDeviceOtp()}
-            placeholder="Enter the code from your email"
-            autoCapitalize="none"
-            autoCorrect={false}
-            readonly={submitting()}
-            onChange={(text: string) => newDeviceOtp.set(text)}
-            onSubmit={submit}
-            style={inputStyle()}
+            disabled={submitting()}
+            accessibilityLabel="Verification code, 6 digits"
+            onChange={({ value }) => newDeviceOtp.set(value)}
+            style={{ flexDirection: "row" }}
+            groupStyle={{ flexDirection: "row", gap: 6 }}
+            cellStyle={{
+              width: 40,
+              height: 44,
+              alignItems: "center",
+              justifyContent: "center",
+              borderWidth: 1,
+              borderColor: palette().menu.border,
+              borderRadius: 8,
+              backgroundColor: palette().menu.background,
+              color: palette().menu.text,
+              fontSize: 18,
+            }}
           />
         </View>
       ) : (
         <View style={{ gap: 6 }}>
           <Text style={{ color: palette().muted, fontSize: 12 }}>Code</Text>
-          <Input
+          <OtpInput
             testID="twofactor-code"
+            length={6}
             value={twoFactorCode()}
-            placeholder={isEmail() ? "Email verification code" : "123456"}
-            autoCapitalize="none"
-            autoCorrect={false}
-            readonly={submitting()}
-            onChange={(text: string) => twoFactorCode.set(text)}
-            onSubmit={submit}
-            style={inputStyle()}
+            disabled={submitting()}
+            accessibilityLabel="Verification code, 6 digits"
+            onChange={({ value }) => twoFactorCode.set(value)}
+            style={{ flexDirection: "row" }}
+            groupStyle={{ flexDirection: "row", gap: 6 }}
+            cellStyle={{
+              width: 40,
+              height: 44,
+              alignItems: "center",
+              justifyContent: "center",
+              borderWidth: 1,
+              borderColor: palette().menu.border,
+              borderRadius: 8,
+              backgroundColor: palette().menu.background,
+              color: palette().menu.text,
+              fontSize: 18,
+            }}
           />
         </View>
       )}
@@ -561,7 +583,7 @@ function UnlockForm() {
         <Text style={{ color: palette().popups.text, fontSize: 14, fontWeight: "bold" }}>
           {snap().email || "Signed in"}
         </Text>
-        <Text selectable style={{ color: palette().muted, fontSize: 12 }}>
+        <Text style={{ color: palette().muted, fontSize: 12, userSelect: "text" }}>
           {snap().serverUrl}
         </Text>
       </View>
@@ -575,7 +597,7 @@ function UnlockForm() {
         autoCapitalize="none"
         autoCorrect={false}
         readonly={submitting()}
-        onChange={(text: string) => unlockPassword.set(text)}
+        onChange={({ value }) => unlockPassword.set(value)}
         onSubmit={unlock}
         style={inputStyle()}
       />

@@ -56,9 +56,9 @@ jobs:
       # The release tarball carries the runtimes next to `bin/nsh`, which the
       # CLI needs to run apps; keep the official installer's layout (~/.nsh)
       # instead of extracting the bare binary somewhere else.
-      - name: Install nsh CLI (v0.3.0)
+      - name: Install nsh CLI (v0.4.0)
         run: |
-          curl -fsSL https://github.com/longbridge/nsh/releases/download/v0.3.0/install.sh | NSH_VERSION=v0.3.0 sh
+          curl -fsSL https://github.com/longbridge/nsh/releases/download/v0.4.0/install.sh | NSH_VERSION=v0.4.0 sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/.local/bin:$PATH"
           nsh --version

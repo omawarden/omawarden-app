@@ -165,8 +165,7 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
         <Image
           testID={`cipher-icon-${props.item().id}`}
           src={iconUrl()}
-          resizeMode="contain"
-          style={{ width: 16, height: 16, borderRadius: 3 }}
+          style={{ width: 16, height: 16, borderRadius: 3, objectFit: "contain" }}
           onError={() => failedIcon.set(true)}
         />
       </If>

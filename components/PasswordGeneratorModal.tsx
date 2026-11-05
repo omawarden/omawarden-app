@@ -112,8 +112,8 @@ export function PasswordGeneratorModal() {
         }}
       >
         <Text
-          selectable
           style={{
+            userSelect: "text",
             color: palette().popups.text,
             fontSize: 20,
             fontFamily: "monospace",
@@ -154,7 +154,7 @@ export function PasswordGeneratorModal() {
               testID="generator-length"
               value={lengthText()}
               keyboardType="numeric"
-              onChange={(text: string) => lengthText.set(text)}
+              onChange={({ value }) => lengthText.set(value)}
               style={{ ...inputStyle(), width: 110 }}
             />
           </View>
@@ -216,7 +216,7 @@ export function PasswordGeneratorModal() {
               testID="generator-words"
               value={wordsText()}
               keyboardType="numeric"
-              onChange={(text: string) => wordsText.set(text)}
+              onChange={({ value }) => wordsText.set(value)}
               style={{ ...inputStyle(), width: 110 }}
             />
           </View>
@@ -225,7 +225,7 @@ export function PasswordGeneratorModal() {
             <Input
               testID="generator-separator"
               value={separator()}
-              onChange={(text: string) => separator.set(text)}
+              onChange={({ value }) => separator.set(value)}
               style={{ ...inputStyle(), width: 110 }}
             />
           </View>
@@ -289,7 +289,7 @@ function SwitchRow(props: {
       <Switch
         testID={props.testID}
         checked={props.checked}
-        onChange={props.onChange}
+        onChange={({ checked }) => props.onChange(checked)}
         trackClass="h-5 w-9 rounded-full"
         thumbClass="h-4 w-4 rounded-full"
         trackStyle={{

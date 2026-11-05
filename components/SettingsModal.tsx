@@ -305,19 +305,18 @@ export function SettingsModal() {
                   </SectionTitle>
                   <Text
                     testID="diagnostic-server-url"
-                    selectable
-                    style={{ color: palette().popups.text, fontSize: 12 }}
+                    style={{ color: palette().popups.text, fontSize: 12, userSelect: "text" }}
                   >
                     {diagnostics().serverUrlSanitized}
                   </Text>
                   <Each of={diagnostics().logs ?? []} key="index">
                     {(line) => (
                       <Text
-                        selectable
                         style={{
                           color: palette().muted,
                           fontSize: 11,
                           fontFamily: "monospace",
+                          userSelect: "text",
                         }}
                       >
                         {line()}
@@ -485,7 +484,7 @@ function DraftText(props: {
           value={props.value}
           autoCapitalize="none"
           autoCorrect={false}
-          onChange={props.onChange}
+          onChange={({ value }) => props.onChange(value)}
           style={{ ...inputStyle(), flex: 1 }}
         />
         {props.onBrowse ? (
@@ -517,8 +516,8 @@ function DraftNumber(props: {
         testID={props.testID}
         value={String(props.value)}
         keyboardType="numeric"
-        onChange={(text: string) => {
-          const parsed = Number.parseInt(text, 10);
+        onChange={({ value }) => {
+          const parsed = Number.parseInt(value, 10);
           if (Number.isFinite(parsed)) {
             props.onChange(parsed);
           }
@@ -565,8 +564,7 @@ function InfoRow(props: { label: string; value: string; testID?: string }) {
       </View>
       <Text
         testID={props.testID}
-        selectable
-        style={{ flex: 1, color: palette().popups.text, fontSize: 12 }}
+        style={{ flex: 1, color: palette().popups.text, fontSize: 12, userSelect: "text" }}
       >
         {props.value || "—"}
       </Text>

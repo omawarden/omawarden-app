@@ -2,14 +2,14 @@
 
 ## 1. Overview & Repository Role
 
-`omawarden-app` (`/home/icyleaf/Development/linux/omawarden-app`, GitHub: `https://github.com/omawarden/omawarden-app`) is the standalone cross-platform Native Shell (`nsh` `0.3.0`) frontend for the `@omawarden` ecosystem:
+`omawarden-app` (`/home/icyleaf/Development/linux/omawarden-app`, GitHub: `https://github.com/omawarden/omawarden-app`) is the standalone cross-platform Native Shell (`nsh` `0.4.0`) frontend for the `@omawarden` ecosystem:
 
 1. **`omawarden-cli`** (currently located at `/home/icyleaf/Development/linux/omarchy-bitwarden/omawarden`): The Rust cryptographic engine, keyring bridge, SSH agent, and Unix socket daemon.
 2. **`omawarden-app`** (`/home/icyleaf/Development/linux/omawarden-app`): This repository — a 100% **TSX + Tailwind + `nsh/base`** UI backed by a thin Rust native module (`#[native_module("omawarden-app/native")]`) that links directly against the `omawarden` crate (`path = "../omarchy-bitwarden/omawarden"`).
 3. **`omarchy-bitwarden-plugin`**: Thin Quickshell/Omarchy Shell wrapper (to be slimmed down in a later phase; **DO NOT modify `/home/icyleaf/Development/linux/omarchy-bitwarden` in this phase**).
 
 ### Toolchain Paths
-- `nsh` binary: `/home/icyleaf/.local/share/mise/installs/github-longbridge-nsh/latest/bin/nsh` (version `0.3.0`, installed via `mise`).
+- `nsh` binary: `/home/icyleaf/.local/share/mise/installs/github-longbridge-nsh/latest/bin/nsh` (version `0.4.0`, installed via `mise`).
 - Primary desktop target: Linux GTK 4 (`--target linux`), also compatible with GPUI and Web.
 - Reference implementation for 1:1 behavioral parity: `/home/icyleaf/Development/linux/omarchy-bitwarden/OmarchyBitwarden.qml` and `/home/icyleaf/Development/linux/omarchy-bitwarden/components/*.qml`.
 

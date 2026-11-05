@@ -34,8 +34,8 @@ export function PasswordHistoryModal() {
             >
               <Text
                 testID={`password-history-value-${index()}`}
-                selectable
                 style={{
+                  userSelect: "text",
                   flex: 1,
                   minWidth: 180,
                   color: palette().popups.text,

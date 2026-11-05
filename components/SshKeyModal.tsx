@@ -178,7 +178,7 @@ export function SshKeyModal() {
                 multiline
                 autoCapitalize="none"
                 autoCorrect={false}
-                onChange={(text: string) => importedPem.set(text)}
+                onChange={({ value }) => importedPem.set(value)}
                 style={{ ...inputStyle(), minHeight: 110, fontFamily: "monospace" }}
               />
               <ActionButton
@@ -283,9 +283,9 @@ export function SshKeyModal() {
                 </Text>
                 <Text
                   testID="ssh-private-key-preview"
-                  selectable
-                  numberOfLines={3}
                   style={{
+                    userSelect: "text",
+                    numberOfLines: 3,
                     flex: 1,
                     color: palette().popups.text,
                     fontSize: 11,
@@ -346,7 +346,7 @@ function SettingInput(props: {
           value={props.value}
           autoCapitalize="none"
           autoCorrect={false}
-          onChange={props.onChange}
+          onChange={({ value }) => props.onChange(value)}
           style={{ ...inputStyle(), flex: 1 }}
         />
         {props.onBrowse ? (
