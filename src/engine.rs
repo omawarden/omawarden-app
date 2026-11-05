@@ -9,6 +9,7 @@ use crate::attachments::{
 };
 use crate::auth::{AuthEngine, InProcess as InProcessAuth, Mock as MockAuth};
 use crate::clipboard::{ClipboardEngine, InProcess as InProcessClipboard, Mock as MockClipboard};
+use crate::daemon::{DaemonEngine, InProcess as InProcessDaemon, Mock as MockDaemon};
 use crate::diagnostics::{
     DiagnosticsEngine, InProcess as InProcessDiagnostics, Mock as MockDiagnostics,
 };
@@ -103,6 +104,17 @@ pub(crate) fn vault() -> &'static dyn VaultEngine {
         &MOCK
     } else {
         static IN_PROCESS: InProcessVault = InProcessVault;
+        &IN_PROCESS
+    }
+}
+
+/// The daemon adapter for the current run mode.
+pub(crate) fn daemon() -> &'static dyn DaemonEngine {
+    if crate::with_mock(|state| state.enabled) {
+        static MOCK: MockDaemon = MockDaemon;
+        &MOCK
+    } else {
+        static IN_PROCESS: InProcessDaemon = InProcessDaemon;
         &IN_PROCESS
     }
 }

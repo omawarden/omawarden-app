@@ -12,11 +12,12 @@ use omawarden::vault::VaultItem;
 use serde_json::{Value, json};
 
 use crate::auth::auth_manager;
+use crate::daemon::parse_prompt;
 use crate::diagnostics::push_log;
 use crate::projection::{build_snapshot, parse_items, row_from_item};
 use crate::{
     AppPhase, CipherRowView, MockState, VaultFilterInput, VaultSnapshotView, daemon,
-    ensure_app_daemon_running, load_config, parse_prompt, sanitize_server_url, with_mock,
+    ensure_app_daemon_running, load_config, sanitize_server_url, with_mock,
 };
 
 /// The vault capabilities the bridge exposes.
