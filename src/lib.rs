@@ -18,15 +18,13 @@ use nsh_core::prelude::*;
 use serde_json::{Value, json};
 
 use omawarden::api::is_loopback_host;
-use omawarden::generator::{
-    PassphraseOptions, PasswordOptions, generate_passphrase, generate_password,
-};
 
 mod attachments;
 mod auth;
 mod clipboard;
 mod diagnostics;
 mod engine;
+mod generator;
 mod inspector;
 mod projection;
 mod settings;
@@ -1127,21 +1125,6 @@ fn format_size(bytes: u64) -> String {
     }
 }
 
-/// The strength label for an entropy in bits.
-fn strength_label(entropy: f64) -> &'static str {
-    if entropy < 40.0 {
-        "Weak"
-    } else if entropy < 60.0 {
-        "Fair"
-    } else if entropy < 80.0 {
-        "Good"
-    } else if entropy < 100.0 {
-        "Strong"
-    } else {
-        "Very Strong"
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Mock state
 // ---------------------------------------------------------------------------
@@ -2044,80 +2027,12 @@ impl OmawardenBridge {
 
     /// Generate a random password with strict range validation (5..=128) and entropy calculation.
     pub fn generate_password(input: PasswordGenInput) -> GeneratedSecretView {
-        if !(5..=128).contains(&input.length) {
-            return GeneratedSecretView {
-                ok: false,
-                value: String::new(),
-                entropy: 0.0,
-                strength: "Weak".to_string(),
-                error: Some(ERR_PASSWORD_LENGTH.to_string()),
-            };
-        }
-        let options = PasswordOptions {
-            length: input.length as usize,
-            uppercase: input.uppercase,
-            lowercase: input.lowercase,
-            numbers: input.numbers,
-            special: input.special,
-            avoid_ambiguous: input.avoid_ambiguous,
-            min_numbers: input.min_numbers as usize,
-            min_special: input.min_special as usize,
-        };
-        match generate_password(&options) {
-            Ok(secret) => GeneratedSecretView {
-                ok: true,
-                value: secret.value.clone(),
-                entropy: secret.entropy,
-                strength: strength_label(secret.entropy).to_string(),
-                error: None,
-            },
-            Err(error) => GeneratedSecretView {
-                ok: false,
-                value: String::new(),
-                entropy: 0.0,
-                strength: "Weak".to_string(),
-                error: Some(error),
-            },
-        }
+        engine::generator().password(input)
     }
 
     /// Generate an EFF Diceware passphrase with strict word count validation (3..=20) and entropy.
     pub fn generate_passphrase(input: PassphraseGenInput) -> GeneratedSecretView {
-        if !(3..=20).contains(&input.words) {
-            return GeneratedSecretView {
-                ok: false,
-                value: String::new(),
-                entropy: 0.0,
-                strength: "Weak".to_string(),
-                error: Some(ERR_PASSPHRASE_WORDS.to_string()),
-            };
-        }
-        let separator = if input.separator.is_empty() {
-            "-".to_string()
-        } else {
-            input.separator.clone()
-        };
-        let options = PassphraseOptions {
-            words: input.words as usize,
-            separator,
-            capitalize: input.capitalize,
-        };
-        match generate_passphrase(&options) {
-            Ok(secret) => GeneratedSecretView {
-                ok: true,
-                value: secret.value.clone(),
-                entropy: secret.entropy,
-                strength: strength_label(secret.entropy).to_string(),
-                error: None,
-            },
-            Err(error) => GeneratedSecretView {
-                ok: false,
-                value: String::new(),
-                entropy: 0.0,
-                strength: "Weak".to_string(),
-                error: Some(error),
-            },
-        }
+        engine::generator().passphrase(input)
     }
 
     /// Generate or import an SSH keypair without saving yet (for live preview in SshKeyModal).
