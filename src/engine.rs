@@ -4,12 +4,26 @@
 //! one-line delegations and the mock fork lives in exactly one place instead of
 //! at the top of every bridge method.
 
+use crate::attachments::{
+    AttachmentsEngine, InProcess as InProcessAttachments, Mock as MockAttachments,
+};
 use crate::auth::{AuthEngine, InProcess as InProcessAuth, Mock as MockAuth};
 use crate::clipboard::{ClipboardEngine, InProcess as InProcessClipboard, Mock as MockClipboard};
 use crate::diagnostics::{
     DiagnosticsEngine, InProcess as InProcessDiagnostics, Mock as MockDiagnostics,
 };
 use crate::settings::{InProcess as InProcessSettings, Mock as MockSettings, SettingsEngine};
+
+/// The attachments adapter for the current run mode.
+pub(crate) fn attachments() -> &'static dyn AttachmentsEngine {
+    if crate::with_mock(|state| state.enabled) {
+        static MOCK: MockAttachments = MockAttachments;
+        &MOCK
+    } else {
+        static IN_PROCESS: InProcessAttachments = InProcessAttachments;
+        &IN_PROCESS
+    }
+}
 
 /// The auth adapter for the current run mode.
 pub(crate) fn auth() -> &'static dyn AuthEngine {
