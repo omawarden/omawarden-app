@@ -14,6 +14,7 @@ use crate::diagnostics::{
 };
 use crate::generator::{GeneratorEngine, InProcess as InProcessGenerator, Mock as MockGenerator};
 use crate::inspector::{InProcess as InProcessInspector, InspectorEngine, Mock as MockInspector};
+use crate::platform::{InProcess as InProcessPlatform, Mock as MockPlatform, PlatformEngine};
 use crate::settings::{InProcess as InProcessSettings, Mock as MockSettings, SettingsEngine};
 use crate::ssh::{InProcess as InProcessSsh, Mock as MockSsh, SshEngine};
 use crate::vault::{InProcess as InProcessVault, Mock as MockVault, VaultEngine};
@@ -80,6 +81,17 @@ pub(crate) fn ssh() -> &'static dyn SshEngine {
         &MOCK
     } else {
         static IN_PROCESS: InProcessSsh = InProcessSsh;
+        &IN_PROCESS
+    }
+}
+
+/// The platform adapter for the current run mode.
+pub(crate) fn platform() -> &'static dyn PlatformEngine {
+    if crate::with_mock(|state| state.enabled) {
+        static MOCK: MockPlatform = MockPlatform;
+        &MOCK
+    } else {
+        static IN_PROCESS: InProcessPlatform = InProcessPlatform;
         &IN_PROCESS
     }
 }

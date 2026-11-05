@@ -9,7 +9,6 @@
 //! socket.
 
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -26,6 +25,7 @@ mod diagnostics;
 mod engine;
 mod generator;
 mod inspector;
+mod platform;
 mod projection;
 mod settings;
 mod ssh;
@@ -976,21 +976,6 @@ fn validate_server_url(raw: &str, field: &str) -> Result<String, String> {
         }
     }
     Ok(normalized.trim_end_matches('/').to_string())
-}
-
-/// Parses a URL that may be opened in the browser.
-fn validate_launch_url(raw: &str) -> Result<url::Url, String> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Err("No URL to open.".to_string());
-    }
-    let parsed = url::Url::parse(trimmed).map_err(|error| format!("Invalid URL: {error}"))?;
-    match parsed.scheme() {
-        "http" | "https" => Ok(parsed),
-        other => Err(format!(
-            "Only http:// and https:// URLs can be opened (got {other})."
-        )),
-    }
 }
 
 /// Masks a secret with a fixed run of dots.
@@ -2192,19 +2177,7 @@ impl OmawardenBridge {
 
     /// Safely open an `http://` or `https://` URL via `xdg-open` (rejecting all other schemes).
     pub fn launch_url(raw_url: String) -> bool {
-        let Ok(parsed) = validate_launch_url(&raw_url) else {
-            return false;
-        };
-        if with_mock(|state| state.enabled) {
-            return true;
-        }
-        Command::new("xdg-open")
-            .arg(parsed.as_str())
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .is_ok()
+        engine::platform().launch_url(raw_url)
     }
 
     /// Show the desktop's native file picker and return the chosen path.
@@ -2213,70 +2186,22 @@ impl OmawardenBridge {
         filter_name: Option<String>,
         extensions: Option<Vec<String>>,
     ) -> Option<String> {
-        if with_mock(|state| state.enabled) {
-            return Some("/tmp/omawarden-mock/client.pem".to_string());
-        }
-        let mut dialog = rfd::FileDialog::new();
-        if let Some(title) = title {
-            dialog = dialog.set_title(title);
-        }
-        if let (Some(name), Some(extensions)) = (filter_name, extensions) {
-            let extensions: Vec<&str> = extensions.iter().map(String::as_str).collect();
-            if !extensions.is_empty() {
-                dialog = dialog.add_filter(name, &extensions);
-            }
-        }
-        dialog.pick_file().map(|path| path.display().to_string())
+        engine::platform().pick_file(title, filter_name, extensions)
     }
 
     /// Show the desktop's native folder picker and return the chosen path.
     pub fn pick_folder(title: Option<String>) -> Option<String> {
-        if with_mock(|state| state.enabled) {
-            return Some("/tmp/omawarden-mock/folder".to_string());
-        }
-        let mut dialog = rfd::FileDialog::new();
-        if let Some(title) = title {
-            dialog = dialog.set_title(title);
-        }
-        if let Some(home) = std::env::var_os("HOME") {
-            dialog = dialog.set_directory(home);
-        }
-        dialog.pick_folder().map(|path| path.display().to_string())
+        engine::platform().pick_folder(title)
     }
 
     /// Show the desktop's native save dialog and return the chosen path.
     pub fn save_file(title: Option<String>, default_name: Option<String>) -> Option<String> {
-        if with_mock(|state| state.enabled) {
-            let name = default_name.unwrap_or_else(|| "attachment.bin".to_string());
-            return Some(format!("/tmp/omawarden-mock/{name}"));
-        }
-        let mut dialog = rfd::FileDialog::new();
-        if let Some(title) = title {
-            dialog = dialog.set_title(title);
-        }
-        if let Some(name) = default_name {
-            dialog = dialog.set_file_name(name);
-        }
-        dialog.save_file().map(|path| path.display().to_string())
+        engine::platform().save_file(title, default_name)
     }
 
     /// Read a UTF-8 text file (used to import SSH keys from the file picker).
     pub fn read_text_file(path: String) -> Option<String> {
-        if with_mock(|state| state.enabled) {
-            return Some(
-                "-----BEGIN OPENSSH PRIVATE KEY-----\nmock-key-material\n-----END OPENSSH PRIVATE KEY-----"
-                    .to_string(),
-            );
-        }
-        let path = PathBuf::from(path.trim());
-        if !path.is_file() {
-            return None;
-        }
-        let metadata = std::fs::metadata(&path).ok()?;
-        if metadata.len() > 2 * 1024 * 1024 {
-            return None;
-        }
-        std::fs::read_to_string(path).ok()
+        engine::platform().read_text_file(path)
     }
 
     /// Verify the master password without unlocking the daemon.
@@ -2306,6 +2231,7 @@ fn expand_home(path: &str) -> PathBuf {
 mod tests {
     use super::*;
     use crate::auth::{normalize_optional_code, two_factor_provider_view};
+    use crate::platform::validate_launch_url;
     use crate::projection::fuzzy_score;
 
     /// Serializes tests that share the process-wide mock state.
