@@ -854,7 +854,6 @@ fn parse_prompt(value: &Value, offset: usize) -> Option<SshPromptView> {
     })
 }
 
-/// Builds an inspector from a real vault item.
 // ---------------------------------------------------------------------------
 // The native module
 // ---------------------------------------------------------------------------

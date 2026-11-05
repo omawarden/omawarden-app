@@ -364,6 +364,7 @@ fn real_totp(cipher_id: String) -> TotpLiveView {
     }
 }
 
+/// Builds an inspector from a real vault item.
 fn vault_item_inspector(
     item: &VaultItem,
     reveal: &RevealStateInput,
