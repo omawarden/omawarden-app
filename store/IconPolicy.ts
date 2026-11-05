@@ -120,18 +120,32 @@ export function extractDomain(uri: string | null | undefined): string {
   return cleaned;
 }
 
-/** Resolves the first usable login URI into an icon URL. */
-export function iconUrlFor(
-  serverUrl: string | null | undefined,
-  uris: string[] | null | undefined,
-): string {
+/** The first usable login URI's icon domain, or "" when none is usable. */
+export function iconDomainFor(uris: string[] | null | undefined): string {
   for (const uri of uris ?? []) {
     const domain = extractDomain(uri);
     if (domain) {
-      return resolveIconUrl(serverUrl, domain);
+      return domain;
     }
   }
   return "";
+}
+
+/** Resolves a row's icon URL, or "" when it draws the category glyph. */
+export function iconFor(
+  serverUrl: string | null | undefined,
+  uris: string[] | null | undefined,
+  enabled: boolean,
+  failed: (domain: string) => boolean,
+): string {
+  if (!enabled) {
+    return "";
+  }
+  const domain = iconDomainFor(uris);
+  if (!domain || failed(domain)) {
+    return "";
+  }
+  return resolveIconUrl(serverUrl, domain);
 }
 
 export function urlToLocalPath(fileUrl: string | null | undefined): string {

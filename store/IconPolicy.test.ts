@@ -2,7 +2,8 @@ import { expect, test } from "nsh/test";
 import {
   extractDomain,
   getIconBaseUrl,
-  iconUrlFor,
+  iconDomainFor,
+  iconFor,
   isAppScheme,
   isOfficialServer,
   resolve,
@@ -47,13 +48,36 @@ test("icon policy extracts domains and ignores app schemes", () => {
   expect(isAppScheme("https://example.com")).toBe(false);
 });
 
+const never = () => false;
+
 test("icon policy builds icon URLs from the first usable URI", () => {
   expect(resolveIconUrl("https://vault.example.com", "github.com")).toBe(
     "https://vault.example.com/icons/github.com/icon.png",
   );
-  expect(iconUrlFor("https://vault.example.com", ["androidapp://app", "https://github.com/login"])).toBe(
-    "https://vault.example.com/icons/github.com/icon.png",
-  );
-  expect(iconUrlFor("https://vault.example.com", ["ssh://git@github.com"])).toBe("");
-  expect(iconUrlFor("https://vault.example.com", [])).toBe("");
+  expect(
+    iconFor("https://vault.example.com", ["androidapp://app", "https://github.com/login"], true, never),
+  ).toBe("https://vault.example.com/icons/github.com/icon.png");
+  expect(iconFor("https://vault.example.com", ["ssh://git@github.com"], true, never)).toBe("");
+  expect(iconFor("https://vault.example.com", [], true, never)).toBe("");
+});
+
+test("icon policy resolves the first usable domain", () => {
+  expect(iconDomainFor(["androidapp://app", "https://www.github.com/login"])).toBe("github.com");
+  expect(iconDomainFor(["ssh://git@github.com"])).toBe("");
+  expect(iconDomainFor([])).toBe("");
+  expect(iconDomainFor(null)).toBe("");
+});
+
+test("icon policy honors the config gate and failed domains", () => {
+  expect(iconFor("https://vault.example.com", ["https://github.com/login"], false, never)).toBe("");
+  expect(
+    iconFor("https://vault.example.com", ["https://github.com/login"], true, (domain) =>
+      domain === "github.com",
+    ),
+  ).toBe("");
+  expect(
+    iconFor("https://vault.example.com", ["https://gitlab.com/x"], true, (domain) =>
+      domain === "github.com",
+    ),
+  ).toBe("https://vault.example.com/icons/gitlab.com/icon.png");
 });
