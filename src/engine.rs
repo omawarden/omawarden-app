@@ -7,6 +7,7 @@
 use crate::diagnostics::{
     DiagnosticsEngine, InProcess as InProcessDiagnostics, Mock as MockDiagnostics,
 };
+use crate::settings::{InProcess as InProcessSettings, Mock as MockSettings, SettingsEngine};
 
 /// The diagnostics adapter for the current run mode.
 pub(crate) fn diagnostics() -> &'static dyn DiagnosticsEngine {
@@ -15,6 +16,17 @@ pub(crate) fn diagnostics() -> &'static dyn DiagnosticsEngine {
         &MOCK
     } else {
         static IN_PROCESS: InProcessDiagnostics = InProcessDiagnostics;
+        &IN_PROCESS
+    }
+}
+
+/// The settings adapter for the current run mode.
+pub(crate) fn settings() -> &'static dyn SettingsEngine {
+    if crate::with_mock(|state| state.enabled) {
+        static MOCK: MockSettings = MockSettings;
+        &MOCK
+    } else {
+        static IN_PROCESS: InProcessSettings = InProcessSettings;
         &IN_PROCESS
     }
 }
