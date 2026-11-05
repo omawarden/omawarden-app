@@ -31,7 +31,19 @@ The `omawarden` Rust crate linked directly into the `nsh` host binary and
 reached through the `OmawardenBridge` native module. Authentication, generators,
 health checks, clipboard handling, and vault reads execute in the app's own
 process instead of spawning the `omawarden` CLI. Stateful vault operations still
-talk to an in-process daemon over its Unix socket.
+talk to an in-process daemon over its Unix socket. It is the real adapter behind
+every `Engine Adapter`; the other adapter is the Mock Engine.
+
+## Engine Adapter
+
+The trait each domain module (`diagnostics`, `settings`, `auth`, `vault`, `ssh`,
+`clipboard`) exposes to the `OmawardenBridge` native module. Every trait has
+exactly two adapters: `InProcess`, which calls the linked `omawarden` crate and
+the in-process daemon, and `Mock`, which serves the headless UI tests from
+process-wide state. `engine::<domain>()` picks one per call, so bridge methods
+are one-line delegations and no method forks on mock mode. The seam is internal
+to the Rust crate: the TSX side keeps calling the single `OmawardenBridge`
+object.
 
 ## Clipboard Guard
 
