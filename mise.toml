@@ -8,6 +8,12 @@
 # Extra arguments are appended to `nsh run`, `nsh dev`, `nsh check`,
 # `nsh test` and `nsh build`. The packaging tasks forward them too.
 
+# Local development toolchain. Keep `rust` in sync with rust-toolchain.toml
+# and `nsh` in sync with the version installed by CI (.github/workflows/*.yml).
+[tools]
+rust = "1.98.0"
+"github:longbridge/nsh" = "0.4.0"
+
 [tasks.run]
 description = "Run the app in the native development host"
 run = "nsh run"
