@@ -1,0 +1,269 @@
+name: Release Omawarden App (Dev)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'App.tsx'
+      - 'assets/**'
+      - 'src/**'
+      - 'components/**'
+      - 'store/**'
+      - 'theme/**'
+      - 'packaging/**'
+      - 'build.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'nsh.json'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/release-dev.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: release-dev
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            arch: x86_64
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            arch: aarch64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # See ci.yml: CI has no sibling engine checkout, so let Cargo use the
+      # git dependency instead of the developer's local path patch.
+      - name: Use the git dependency in CI
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path(".cargo/config.toml")
+          lines = path.read_text().splitlines()
+          output = []
+          skipping = False
+          for line in lines:
+              if line.startswith("[patch."):
+                  skipping = True
+                  continue
+              if skipping and line.startswith("[") and not line.startswith("[patch."):
+                  skipping = False
+              if not skipping:
+                  output.append(line)
+          path.write_text("\n".join(output).rstrip() + "\n")
+          PY
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libclang-dev pkg-config \
+            libgtk-4-dev libwebkitgtk-6.0-dev libssl-dev libxcb1-dev libsecret-1-dev \
+            libzstd-dev file wget
+
+      # The release tarball carries the Linux release runner next to `bin/nsh`.
+      - name: Install nsh CLI (x86_64)
+        if: matrix.arch == 'x86_64'
+        run: |
+          curl -fsSL https://github.com/longbridge/nsh/releases/download/v0.3.0/install.sh | NSH_VERSION=v0.3.0 sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
+          nsh --version
+
+      # v0.3.0 has no aarch64 prebuilt. Build the CLI from a checkout (as the
+      # installer's --source mode does) so it can also build the aarch64
+      # release runner from that same checkout.
+      - name: Install nsh CLI (aarch64)
+        if: matrix.arch == 'aarch64'
+        # nsh's toolchain file lists its mobile targets; the host's stable
+        # toolchain is all this build needs.
+        env:
+          RUSTUP_TOOLCHAIN: stable
+        run: |
+          git clone --depth 1 --branch v0.3.0 https://github.com/longbridge/nsh.git "$HOME/.nsh-src"
+          cargo build --release --locked --manifest-path "$HOME/.nsh-src/Cargo.toml" -p nsh-cli
+          mkdir -p "$HOME/.nsh/bin" "$HOME/.local/bin"
+          ln -sf "$HOME/.nsh-src/target/release/nsh" "$HOME/.nsh/bin/nsh"
+          ln -sf "$HOME/.nsh/bin/nsh" "$HOME/.local/bin/nsh"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
+          nsh --version
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-dev-${{ matrix.target }}
+
+      - name: Validate version consistency
+        run: |
+          CARGO_VER=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)
+          NSH_VER=$(grep '"version":' nsh.json | head -1 | cut -d'"' -f4)
+          if [ "$CARGO_VER" != "$NSH_VER" ]; then
+            echo "::error::Cargo.toml ($CARGO_VER) and nsh.json ($NSH_VER) version mismatch!"
+            exit 1
+          fi
+
+      - name: Package native Linux app via nsh
+        run: |
+          nsh package --target linux --out dist-pkg
+
+      - name: Bundle release tarball and AppImage
+        env:
+          TARGET: ${{ matrix.target }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          CARGO_VER=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)
+          PKG_NAME="omawarden-app-${CARGO_VER}-dev.${SHORT_SHA}-${TARGET}"
+          PKG_DIR="dist-pkg/omawardenApp"
+          if [ ! -d "$PKG_DIR" ]; then
+            PKG_DIR=$(find dist-pkg -mindepth 1 -maxdepth 1 -type d | head -n 1)
+          fi
+          mkdir -p "dist/${PKG_NAME}"
+          cp -r "$PKG_DIR"/* "dist/${PKG_NAME}/"
+          cp packaging/org.omarchy.plugin.icyleaf.omarchy-bitwarden.policy "dist/${PKG_NAME}/"
+          cp packaging/omawarden-policy.install "dist/${PKG_NAME}/"
+          cp README.md "dist/${PKG_NAME}/"
+
+          # 1. Archive tar.gz
+          cd dist
+          tar -czvf "${PKG_NAME}.tar.gz" "${PKG_NAME}"
+          sha256sum "${PKG_NAME}.tar.gz" > "${PKG_NAME}.tar.gz.sha256"
+
+          # Generic name for AUR / direct download
+          cp "${PKG_NAME}.tar.gz" "omawarden-app-${TARGET}.tar.gz"
+          sha256sum "omawarden-app-${TARGET}.tar.gz" > "omawarden-app-${TARGET}.tar.gz.sha256"
+          cd ..
+
+          # 2. Build AppImage
+          bash packaging/build-appimage.sh "$PKG_DIR" "dist" "${PKG_NAME}.AppImage" "$ARCH"
+          cd dist
+          if [ -f "${PKG_NAME}.AppImage" ]; then
+            sha256sum "${PKG_NAME}.AppImage" > "${PKG_NAME}.AppImage.sha256"
+            cp "${PKG_NAME}.AppImage" "omawarden-app-${TARGET}.AppImage"
+            sha256sum "omawarden-app-${TARGET}.AppImage" > "omawarden-app-${TARGET}.AppImage.sha256"
+          fi
+          cd ..
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.AppImage
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+            dist/*.AppImage
+            dist/*.AppImage.sha256
+          if-no-files-found: warn
+
+  publish:
+    name: Publish Dev Pre-Release & AUR
+    needs: build
+    runs-on: ubuntu-24.04
+    env:
+      AUR_KEY: ${{ secrets.AUR_KEY }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+
+      - name: Generate SHA256SUMS
+        run: |
+          cd dist
+          cat *.sha256 | sort -u -k2 > SHA256SUMS
+          rm -f -- *.sha256
+          sha256sum --check SHA256SUMS
+
+      - name: Update rolling dev tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f dev
+          git push origin dev --force
+
+      - name: Release metadata
+        id: meta
+        run: |
+          echo "date=$(date -u +'%Y-%m-%d %H:%M UTC')" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev
+          name: "Omawarden App (dev)"
+          prerelease: true
+          make_latest: false
+          body: |
+            ## Omawarden App Development Build
+
+            - **Version**: `0.3.0-dev.${{ github.sha }}`
+            - **Commit**: [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
+            - **Date**: ${{ steps.meta.outputs.date }}
+
+            ### Included Artifacts
+            - Native Tarballs: `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`
+            - Standalone AppImages: `x86_64`, `aarch64`
+            - Verified Checksums: `SHA256SUMS`
+          files: |
+            dist/*
+
+      - name: Generate AUR PKGBUILD (omawarden-app-dev-bin)
+        id: aur
+        if: env.AUR_KEY != ''
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          bash packaging/generate-aur-pkgbuild.sh
+          echo "pkgver=$(cat dist/aur/pkgver)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish AUR package
+        if: env.AUR_KEY != ''
+        uses: KSXGitHub/github-actions-deploy-aur@2ac5a4c1d7035885d46b10e3193393be8460b6f1 # v4.1.1
+        with:
+          pkgname: omawarden-app-dev-bin
+          pkgbuild: ./dist/aur/PKGBUILD
+          assets: ./dist/aur/omawarden-policy.install
+          commit_username: ${{ secrets.AUR_USERNAME }}
+          commit_email: ${{ secrets.AUR_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_KEY }}
+          commit_message: "upgpkg: omawarden-app-dev-bin ${{ steps.aur.outputs.pkgver }}"
+          ssh_keyscan_types: rsa,ecdsa,ed25519

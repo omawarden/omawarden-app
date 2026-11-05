@@ -1,7 +1,7 @@
 {
   "name": "omawardenApp",
   "id": "com.icyleaf.omawarden",
-  "version": "1.0.0",
+  "version": "0.3.0",
   "build": 1,
   "icon": "assets/icon.png",
   "rust": ".",
