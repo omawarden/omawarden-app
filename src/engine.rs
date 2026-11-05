@@ -14,6 +14,7 @@ use crate::diagnostics::{
 };
 use crate::inspector::{InProcess as InProcessInspector, InspectorEngine, Mock as MockInspector};
 use crate::settings::{InProcess as InProcessSettings, Mock as MockSettings, SettingsEngine};
+use crate::ssh::{InProcess as InProcessSsh, Mock as MockSsh, SshEngine};
 use crate::vault::{InProcess as InProcessVault, Mock as MockVault, VaultEngine};
 
 /// The attachments adapter for the current run mode.
@@ -56,6 +57,17 @@ pub(crate) fn inspector() -> &'static dyn InspectorEngine {
         &MOCK
     } else {
         static IN_PROCESS: InProcessInspector = InProcessInspector;
+        &IN_PROCESS
+    }
+}
+
+/// The SSH adapter for the current run mode.
+pub(crate) fn ssh() -> &'static dyn SshEngine {
+    if crate::with_mock(|state| state.enabled) {
+        static MOCK: MockSsh = MockSsh;
+        &MOCK
+    } else {
+        static IN_PROCESS: InProcessSsh = InProcessSsh;
         &IN_PROCESS
     }
 }
