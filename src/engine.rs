@@ -12,6 +12,7 @@ use crate::clipboard::{ClipboardEngine, InProcess as InProcessClipboard, Mock as
 use crate::diagnostics::{
     DiagnosticsEngine, InProcess as InProcessDiagnostics, Mock as MockDiagnostics,
 };
+use crate::inspector::{InProcess as InProcessInspector, InspectorEngine, Mock as MockInspector};
 use crate::settings::{InProcess as InProcessSettings, Mock as MockSettings, SettingsEngine};
 use crate::vault::{InProcess as InProcessVault, Mock as MockVault, VaultEngine};
 
@@ -44,6 +45,17 @@ pub(crate) fn clipboard() -> &'static dyn ClipboardEngine {
         &MOCK
     } else {
         static IN_PROCESS: InProcessClipboard = InProcessClipboard;
+        &IN_PROCESS
+    }
+}
+
+/// The inspector adapter for the current run mode.
+pub(crate) fn inspector() -> &'static dyn InspectorEngine {
+    if crate::with_mock(|state| state.enabled) {
+        static MOCK: MockInspector = MockInspector;
+        &MOCK
+    } else {
+        static IN_PROCESS: InProcessInspector = InProcessInspector;
         &IN_PROCESS
     }
 }

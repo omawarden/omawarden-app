@@ -11,8 +11,9 @@ use std::time::Duration;
 use omawarden::vault::VaultItem;
 use serde_json::json;
 
+use crate::inspector::totp_view;
 use crate::vault;
-use crate::{CopyOutcomeView, MockState, daemon, load_config, totp_view, with_mock};
+use crate::{CopyOutcomeView, MockState, daemon, load_config, with_mock};
 
 /// The clipboard capabilities the bridge exposes.
 pub(crate) trait ClipboardEngine {
