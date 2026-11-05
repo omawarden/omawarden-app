@@ -11,7 +11,8 @@ use std::time::Duration;
 use omawarden::vault::VaultItem;
 use serde_json::json;
 
-use crate::{CopyOutcomeView, MockState, cached_vault, daemon, load_config, totp_view, with_mock};
+use crate::vault;
+use crate::{CopyOutcomeView, MockState, daemon, load_config, totp_view, with_mock};
 
 /// The clipboard capabilities the bridge exposes.
 pub(crate) trait ClipboardEngine {
@@ -109,14 +110,10 @@ fn real_copy_cipher_field(
     field: String,
     custom_index: Option<u32>,
 ) -> CopyOutcomeView {
-    let cached_item = cached_vault().lock().ok().and_then(|guard| {
-        guard.as_ref().and_then(|cached| {
-            cached
-                .items
-                .iter()
-                .find(|item| item.id == cipher_id)
-                .cloned()
-        })
+    let cached_item = vault::cached_vault().lock().ok().and_then(|guard| {
+        guard
+            .as_ref()
+            .and_then(|cached| cached.item(&cipher_id).cloned())
     });
     let item = match cached_item {
         Some(item) => item,

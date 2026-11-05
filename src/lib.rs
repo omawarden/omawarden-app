@@ -31,6 +31,7 @@ mod clipboard;
 mod diagnostics;
 mod engine;
 mod settings;
+mod vault;
 
 pub use settings::{SettingsSnapshotView, SettingsUpdateInput, SettingsView};
 
@@ -2289,193 +2290,6 @@ fn ensure_app_daemon_running() -> bool {
     false
 }
 
-/// Reads the daemon's unlocked item list.
-///
-/// It never calls `ensure_daemon_running`: that would spawn the nsh host as a
-/// "daemon" when the vault locks between the status probe and this call.
-fn real_items() -> (Vec<VaultItem>, HashMap<String, u32>) {
-    daemon(json!({ "action": "list", "touch": false }))
-        .map(|value| parse_items(&value))
-        .unwrap_or_default()
-}
-
-/// Cached in-memory state of the unlocked vault for zero-IPC hot-path queries and inspection.
-#[derive(Clone, Debug)]
-struct CachedVault {
-    email: String,
-    server_url: String,
-    identity_url: Option<String>,
-    quick_unlock_ready: bool,
-    quick_unlock_usable: bool,
-    last_sync: Option<String>,
-    engine_version: Option<String>,
-    items: Vec<VaultItem>,
-    rows: Vec<CipherRowView>,
-    reprompts: HashMap<String, u32>,
-}
-
-fn cached_vault() -> &'static Mutex<Option<CachedVault>> {
-    static CACHE: OnceLock<Mutex<Option<CachedVault>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(None))
-}
-
-fn clear_cached_vault() {
-    if let Ok(mut guard) = cached_vault().lock() {
-        *guard = None;
-    }
-}
-
-/// Builds an unlocked snapshot from the in-memory cache, carrying `error` when
-/// the daemon could not refresh the vault.
-///
-/// A failed sync or query must never drop the user back to the locked screen:
-/// the cache is the last known good unlocked view, so it wins over a status
-/// probe that happens to see the daemon mid-restart.
-fn cached_snapshot(filter: &VaultFilterInput, error: Option<String>) -> Option<VaultSnapshotView> {
-    let guard = cached_vault().lock().ok()?;
-    let cached = guard.as_ref()?;
-    Some(build_snapshot(
-        AppPhase::Unlocked,
-        cached.email.clone(),
-        cached.server_url.clone(),
-        cached.identity_url.clone(),
-        cached.quick_unlock_ready,
-        cached.quick_unlock_usable,
-        None,
-        error,
-        cached.rows.clone(),
-        filter,
-        cached.last_sync.clone(),
-        None,
-        None,
-        cached.engine_version.clone(),
-    ))
-}
-
-/// Reads the daemon status and builds a real snapshot.
-fn real_snapshot(filter: VaultFilterInput) -> VaultSnapshotView {
-    let config = load_config();
-    let ping = daemon(json!({ "action": "ping", "touch": false }));
-    let status = daemon(json!({ "action": "status", "touch": false })).unwrap_or(Value::Null);
-    let unlocked = status
-        .get("is_unlocked")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false);
-    // Before the daemon is up (or while the vault is locked) the socket has no
-    // useful status, so read the engine's stored session in-process. This keeps
-    // login vs locked, the account email, and the server URL accurate without
-    // spawning anything.
-    let auth_status = if unlocked {
-        None
-    } else {
-        Some(auth::auth_manager().get_status(false))
-    };
-    let has_session = status
-        .get("has_session")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false)
-        || auth_status
-            .as_ref()
-            .map(|value| value.has_session)
-            .unwrap_or(false);
-    let phase = if unlocked {
-        AppPhase::Unlocked
-    } else if has_session {
-        AppPhase::Locked
-    } else {
-        AppPhase::Login
-    };
-    let email = status
-        .get("user_email")
-        .and_then(|value| value.as_str())
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .or_else(|| {
-            auth_status
-                .as_ref()
-                .and_then(|value| value.user_email.clone())
-                .filter(|value| !value.is_empty())
-        })
-        .unwrap_or_else(|| config.email.clone());
-    let server_url = status
-        .get("server_url")
-        .and_then(|value| value.as_str())
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .or_else(|| {
-            auth_status
-                .as_ref()
-                .and_then(|value| value.server_url.clone())
-                .filter(|value| !value.is_empty())
-        })
-        .unwrap_or_else(|| config.server_url.clone());
-    let quick_unlock_ready = ping
-        .as_ref()
-        .and_then(|value| value.get("quick_unlock"))
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false);
-    let last_sync = status
-        .get("last_sync")
-        .and_then(|value| value.as_str())
-        .map(str::to_string)
-        .or_else(|| auth_status.and_then(|value| value.last_sync));
-    let engine_version = ping
-        .as_ref()
-        .and_then(|value| value.get("version"))
-        .and_then(|value| value.as_str())
-        .map(str::to_string);
-    let (items, reprompts) = if unlocked {
-        real_items()
-    } else {
-        (Vec::new(), HashMap::new())
-    };
-    let rows: Vec<CipherRowView> = items
-        .iter()
-        .map(|item| {
-            let reprompt = reprompts.get(&item.id).copied().unwrap_or(0);
-            row_from_item(item, reprompt)
-        })
-        .collect();
-    let ssh_prompt = daemon(json!({ "action": "ssh_agent_pending", "touch": false }))
-        .and_then(|value| parse_prompt(&value, 0));
-    let sanitized_server_url = sanitize_server_url(&server_url);
-    let sanitized_identity_url = config.identity_url.as_deref().map(sanitize_server_url);
-    if unlocked {
-        if let Ok(mut guard) = cached_vault().lock() {
-            *guard = Some(CachedVault {
-                email: email.clone(),
-                server_url: sanitized_server_url.clone(),
-                identity_url: sanitized_identity_url.clone(),
-                quick_unlock_ready,
-                quick_unlock_usable: config.quick_unlock,
-                last_sync: last_sync.clone(),
-                engine_version: engine_version.clone(),
-                items,
-                rows: rows.clone(),
-                reprompts,
-            });
-        }
-    } else {
-        clear_cached_vault();
-    }
-    build_snapshot(
-        phase,
-        email,
-        sanitized_server_url,
-        sanitized_identity_url,
-        quick_unlock_ready,
-        config.quick_unlock,
-        None,
-        None,
-        rows,
-        &filter,
-        last_sync,
-        None,
-        ssh_prompt,
-        engine_version,
-    )
-}
-
 /// Parses the first pending SSH prompt.
 fn parse_prompt(value: &Value, offset: usize) -> Option<SshPromptView> {
     let prompts = value.get("prompts")?.as_array()?;
@@ -2927,7 +2741,7 @@ impl OmawardenBridge {
                 state.snapshot()
             });
         }
-        real_snapshot(VaultFilterInput::default())
+        vault::real_snapshot(VaultFilterInput::default())
     }
 
     /// Re-check system dependencies (omawarden, libsecret, wl-clipboard, libfido2).
@@ -2961,64 +2775,12 @@ impl OmawardenBridge {
 
     /// Query, fuzzy-score, and filter the unlocked vault by search text, scope, folder, and category.
     pub fn query_vault(filter: VaultFilterInput) -> VaultSnapshotView {
-        if with_mock(|state| state.enabled) {
-            return with_mock(|state| {
-                state.filter = filter;
-                state.error = None;
-                state.snapshot()
-            });
-        }
-        if let Some(snapshot) = cached_snapshot(&filter, None) {
-            return snapshot;
-        }
-        real_snapshot(filter)
+        engine::vault().query(filter)
     }
 
     /// Synchronize the vault with the Bitwarden server and return the updated snapshot.
     pub fn sync_vault(filter: VaultFilterInput) -> VaultSnapshotView {
-        if with_mock(|state| state.enabled) {
-            return with_mock(|state| {
-                state.filter = filter;
-                match state.sync_error.clone() {
-                    Some(error) => state.error = Some(error),
-                    None => {
-                        state.last_sync =
-                            Some(chrono::Local::now().format("%Y-%m-%d %H:%M").to_string());
-                        state.error = None;
-                    }
-                }
-                state.snapshot()
-            });
-        }
-        diagnostics::push_log("vault sync requested");
-        ensure_app_daemon_running();
-        let response = daemon(json!({ "action": "sync", "touch": true }));
-        let failure = match response {
-            Some(response)
-                if response.get("ok").and_then(|value| value.as_bool()) == Some(true) =>
-            {
-                None
-            }
-            Some(response) => Some(
-                response
-                    .get("error")
-                    .and_then(|value| value.as_str())
-                    .map(str::to_string)
-                    .unwrap_or_else(|| "Sync failed.".to_string()),
-            ),
-            None => Some("The Omawarden daemon is not running.".to_string()),
-        };
-        let Some(error) = failure else {
-            // Only replace the cache once the daemon reports a successful sync.
-            return real_snapshot(filter);
-        };
-        // Keep the unlocked view and surface the failure instead of locking.
-        if let Some(snapshot) = cached_snapshot(&filter, Some(error.clone())) {
-            return snapshot;
-        }
-        let mut snapshot = real_snapshot(filter);
-        snapshot.error = Some(error);
-        snapshot
+        engine::vault().sync(filter)
     }
 
     /// Inspect a specific cipher item, computing masked/revealed fields, TOTP state, and actions.
@@ -3036,11 +2798,10 @@ impl OmawardenBridge {
                 },
             );
         }
-        if let Ok(guard) = cached_vault().lock() {
+        if let Ok(guard) = vault::cached_vault().lock() {
             if let Some(cached) = guard.as_ref() {
-                if let Some(item) = cached.items.iter().find(|item| item.id == cipher_id) {
-                    let reprompt = cached.reprompts.get(&item.id).copied().unwrap_or(0);
-                    return vault_item_inspector(item, &reveal, reprompt);
+                if let Some(item) = cached.item(&cipher_id) {
+                    return vault_item_inspector(item, &reveal, cached.reprompt(&cipher_id));
                 }
             }
         }
@@ -3107,9 +2868,9 @@ impl OmawardenBridge {
                 view
             });
         }
-        if let Ok(guard) = cached_vault().lock() {
+        if let Ok(guard) = vault::cached_vault().lock() {
             if let Some(cached) = guard.as_ref() {
-                if let Some(item) = cached.items.iter().find(|item| item.id == cipher_id) {
+                if let Some(item) = cached.item(&cipher_id) {
                     let seed = item
                         .login
                         .as_ref()
@@ -3427,7 +3188,7 @@ impl OmawardenBridge {
             Some(response)
                 if response.get("ok").and_then(|value| value.as_bool()) == Some(true) =>
             {
-                clear_cached_vault();
+                vault::clear_cached_vault();
                 SshKeySaveOutcomeView {
                     ok: true,
                     message: "Saved SSH key to the vault.".to_string(),
@@ -3539,7 +3300,7 @@ impl OmawardenBridge {
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
         if !unlocked {
-            clear_cached_vault();
+            vault::clear_cached_vault();
         }
         DaemonTickView {
             online: true,
