@@ -57,3 +57,16 @@ the app shows the quick-unlock action only when both hold.
   search keystrokes, row selection, and inspector refreshes. Hot paths must be
   served from the in-memory `CachedVault` on the Rust side and from
   `FilterProjection` signals on the TSX side.
+
+## Dev Release
+
+A rolling pre-release published on every push to `main` under the tag `dev`.
+Carries a SemVer string formatted as `0.3.0-dev.<short-sha>` and produces
+multi-architecture tarballs (`.tar.gz`) and standalone AppImages.
+
+## Release Bundle
+
+The complete distribution package produced by `nsh package --target linux` and
+augmented with the Polkit authorization policy (`.policy`), install scriptlet,
+desktop entry, and application icon. Distributable via GitHub Releases and
+packaged for Arch Linux as `omawarden-app-dev-bin`.
