@@ -2,6 +2,7 @@ import { Animated, createMotion, effect, Text, View } from "nsh";
 import { Button } from "nsh/base";
 import * as store from "../store/appStore";
 import * as paletteActions from "../store/actionPalette";
+import { formatLocalDateTime } from "../store/DateTime";
 import { SYNC_INDICATOR_SIZE, scaleLength } from "../theme/layout";
 import { tint } from "../theme/palette";
 import { Icon, type IconName } from "./Icon";
@@ -76,7 +77,9 @@ export function FooterBar() {
         Engine {snap().engineVersion ?? "unknown"}
       </Text>
       {snap().lastSync ? (
-        <Text style={{ color: palette().muted, fontSize: store.type().xs }}>Synced {snap().lastSync}</Text>
+        <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
+          Synced {formatLocalDateTime(snap().lastSync)}
+        </Text>
       ) : null}
       {update()?.available ? (
         <Button
