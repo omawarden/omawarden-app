@@ -3,6 +3,7 @@ import { Button, Input } from "nsh/base";
 import * as store from "../store/appStore";
 import * as paletteActions from "../store/actionPalette";
 import type { PaletteAction } from "../store/actionPalette";
+import { windowBelowMinimum } from "../store/windowGate";
 import { tint } from "../theme/palette";
 import { inputStyle } from "./AuthView";
 import { Icon } from "./Icon";
@@ -17,7 +18,12 @@ export function ActionPaletteModal() {
 
   // The palette owns the keyboard while it is open: arrows move the selection
   // even though the search input has focus, and each action's shortcut runs it.
+  // While the minimum window gate is up, the palette keeps its state but binds
+  // nothing, so the covered dialog cannot be operated from the keyboard.
   effect(() => {
+    if (windowBelowMinimum()) {
+      return;
+    }
     const unbind = keymap.bind(
       {
         up: () => paletteActions.moveSelection(-1),

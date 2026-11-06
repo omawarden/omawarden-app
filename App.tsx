@@ -1,6 +1,7 @@
 import { effect, host, keymap, mount, setColorScheme, View } from "nsh";
 import * as store from "./store/appStore";
 import * as palette from "./store/actionPalette";
+import { windowBelowMinimum } from "./store/windowGate";
 import { ActionPaletteModal } from "./components/ActionPaletteModal";
 import { AuthView } from "./components/AuthView";
 import { CategoryTabBar } from "./components/CategoryTabBar";
@@ -8,6 +9,7 @@ import { DependencyCheckView } from "./components/DependencyCheckView";
 import { FooterBar } from "./components/FooterBar";
 import { ItemInspector } from "./components/ItemInspector";
 import { MasterPasswordModal } from "./components/MasterPasswordModal";
+import { MinimumWindowGate } from "./components/MinimumWindowGate";
 import { PasswordGeneratorModal } from "./components/PasswordGeneratorModal";
 import { PasswordHistoryModal } from "./components/PasswordHistoryModal";
 import { ReleaseNotesModal } from "./components/ReleaseNotesModal";
@@ -103,6 +105,7 @@ function App() {
       </If>
 
       <ToastAlert />
+      <MinimumWindowGate />
     </View>
   );
 }
@@ -113,9 +116,17 @@ const hasOpenModal = () =>
   store.activeModal() !== "none" || store.sshPrompt() !== null;
 
 const canUseVaultShortcuts = () =>
-  store.phase() === "unlocked" && !hasOpenModal();
+  store.phase() === "unlocked" && !hasOpenModal() && !windowBelowMinimum();
 
 const paletteOpen = () => store.activeModal() === "actionPalette";
+
+// Bindings that do not go through the shared vault guard still have to stand
+// down while the minimum window gate is up.
+const whenWindowFits = (run: () => void) => () => {
+  if (!windowBelowMinimum()) {
+    run();
+  }
+};
 
 keymap.bind({
   "mod+k": () => {
@@ -173,12 +184,12 @@ keymap.bind({
       store.lockOrLogout(false);
     }
   },
-  "mod+,": () => {
+  "mod+,": whenWindowFits(() => {
     if (!paletteOpen()) {
       store.openSettings();
     }
-  },
-  up: () => {
+  }),
+  up: whenWindowFits(() => {
     // The palette owns its own key bindings while it is open.
     if (paletteOpen()) {
       return;
@@ -186,16 +197,16 @@ keymap.bind({
     if (canUseVaultShortcuts()) {
       store.moveSelection(-1);
     }
-  },
-  down: () => {
+  }),
+  down: whenWindowFits(() => {
     if (paletteOpen()) {
       return;
     }
     if (canUseVaultShortcuts()) {
       store.moveSelection(1);
     }
-  },
-  enter: () => {
+  }),
+  enter: whenWindowFits(() => {
     if (paletteOpen()) {
       return;
     }
@@ -205,8 +216,8 @@ keymap.bind({
     if (canUseVaultShortcuts()) {
       store.primaryCopy();
     }
-  },
-  escape: () => {
+  }),
+  escape: whenWindowFits(() => {
     if (store.scopeOpen()) {
       store.toggleScope();
       return;
@@ -218,15 +229,23 @@ keymap.bind({
     if (store.activeModal() !== "none") {
       store.closeModal();
     }
-  },
+  }),
 });
 
 // Linux/GTK's native Tab traversal only visits text fields, so the app moves
 // its own focus between the action controls. The bindings stay out of the way
 // while an input is being edited (the default already, made explicit here).
-keymap.bind("tab", () => store.cycleAction(1), { when: "notEditing", repeat: true });
-keymap.bind("shift+tab", () => store.cycleAction(-1), { when: "notEditing", repeat: true });
-keymap.bind("space", () => store.activateFocusedAction(), { when: "notEditing" });
+keymap.bind("tab", whenWindowFits(() => store.cycleAction(1)), {
+  when: "notEditing",
+  repeat: true,
+});
+keymap.bind("shift+tab", whenWindowFits(() => store.cycleAction(-1)), {
+  when: "notEditing",
+  repeat: true,
+});
+keymap.bind("space", whenWindowFits(() => store.activateFocusedAction()), {
+  when: "notEditing",
+});
 
 host.on("theme-update", (payload) => {
   store.applyHostTheme(payload);

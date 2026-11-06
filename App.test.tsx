@@ -1152,6 +1152,101 @@ test("SSH approval denies a request and handles a summon payload", async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Minimum window gate
+// ---------------------------------------------------------------------------
+
+test("minimum window gate covers a too-small window and clears when it grows", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  expect(app.shows("id:minimum-window-gate")).toBe(false);
+
+  await app.setViewport(800, 600);
+  expect(app.shows("id:minimum-window-gate")).toBe(true);
+  expect(app.shows("id:minimum-window-gate-size")).toBe(true);
+  expect(app.texts()).toContain("Window too small");
+  expect(app.texts()).toContain("Current size: 800 × 600");
+  expect(app.texts()).toContain("Minimum: 900 × 620");
+  expect(app.texts()).toContain("Resize the window to continue.");
+  expect(app.shows("id:vault-workspace")).toBe(true);
+
+  await app.setViewport(850, 650);
+  expect(app.shows("id:minimum-window-gate")).toBe(true);
+  expect(app.texts()).toContain("Current size: 850 × 650");
+
+  await app.setViewport(900, 620);
+  expect(app.shows("id:minimum-window-gate")).toBe(false);
+
+  await app.setViewport(1440, 960);
+  expect(app.shows("id:minimum-window-gate")).toBe(false);
+  expect(app.shows("id:vault-workspace")).toBe(true);
+});
+
+test("minimum window gate leaves the keyboard inert", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.setViewport(800, 600);
+
+  await app.keyboard.press("mod+k");
+  expect(app.shows("id:action-palette-modal")).toBe(false);
+
+  await app.keyboard.press("mod+,");
+  expect(app.shows("id:settings-modal")).toBe(false);
+
+  await app.keyboard.press("tab");
+  await app.keyboard.press("space");
+  expect(app.shows("id:item-inspector")).toBe(false);
+
+  await app.setViewport(1440, 960);
+  await app.keyboard.press("mod+k");
+  expect(app.shows("id:action-palette-modal")).toBe(true);
+
+  await app.setViewport(800, 600);
+  await app.keyboard.press("down");
+  await app.keyboard.press("enter");
+  expect(app.shows("id:minimum-window-gate")).toBe(true);
+  expect(app.shows("id:action-palette-modal")).toBe(true);
+  expect(app.texts()).not.toContain("Copied password to clipboard (clears in 30s).");
+
+  await app.setViewport(1440, 960);
+  expect(app.shows("id:minimum-window-gate")).toBe(false);
+  await app.keyboard.press("enter");
+  expect(app.shows("id:action-palette-modal")).toBe(false);
+  expect(app.texts()).toContain("Copied password to clipboard (clears in 30s).");
+});
+
+test("minimum window gate covers the app when it starts too small", async () => {
+  const app = await open("./App.tsx", {
+    width: 800,
+    height: 600,
+    platform: "linux",
+    host: { params: { mock: true, mockState: { phase: "login" } } },
+  });
+
+  expect(app.shows("id:minimum-window-gate")).toBe(true);
+  expect(app.texts()).toContain("Current size: 800 × 600");
+  expect(app.shows("id:auth-view-login")).toBe(true);
+});
+
+test("minimum window gate leaves form input and open dialogs mounted", async () => {
+  const app = await openMock({ phase: "login" });
+
+  await app.type("id:login-password", "half-typed");
+  await app.keyboard.press("mod+,");
+  expect(app.shows("id:settings-modal")).toBe(true);
+
+  await app.setViewport(800, 600);
+  expect(app.shows("id:minimum-window-gate")).toBe(true);
+
+  await app.keyboard.press("escape");
+  expect(app.shows("id:settings-modal")).toBe(true);
+
+  await app.setViewport(1440, 960);
+  expect(app.shows("id:minimum-window-gate")).toBe(false);
+  expect(app.shows("id:settings-modal")).toBe(true);
+  expect(app.value("id:login-password")).toBe("half-typed");
+});
+
+// ---------------------------------------------------------------------------
 // Footer
 // ---------------------------------------------------------------------------
 
