@@ -85,13 +85,13 @@ room for text.
 
 ## Font Scale
 
-The user's text-size factor, set by the Text size slider in Settings › General:
-100% to 400% in 10% steps, stored as `fontScale` in the UI preferences file.
-The **app factor** is what the setting holds; the **total factor** is the app
-factor multiplied by the system text scale (`totalScale()`), and it is what the
-icon sizes, the fixed gutters and the minimum-window threshold follow. The two
-are separate so the app's setting multiplies the system accessibility setting
-instead of replacing it.
+The user's text-size factor, set by the Text size slider in Settings ›
+Appearance: 100% to 400% in 10% steps, stored as `fontScale` in the UI
+preferences file. The **app factor** is what the setting holds; the **total
+factor** is the app factor multiplied by the system text scale
+(`totalScale()`), and it is what the icon sizes and the fixed gutters follow.
+The two are separate so the app's setting multiplies the system accessibility
+setting instead of replacing it.
 
 `Font Scale` is not the **Type Scale**: the type scale is the fixed ladder of
 thirteen named sizes, and the font scale is the factor applied to it. Text is
@@ -99,21 +99,19 @@ scaled by the app factor only (the system factor applies on top through
 `Text`), while everything that cannot read the system setting itself uses the
 total factor.
 
+The font scale changes how much room the content wants inside a window, never
+how large a window the shell requires: a window that fits at 100% fits at 400%
+too.
+
 ## Minimum Window Gate
 
 The opaque, full-window overlay shown when either dimension of the window is
-below its floor. The floor is `MIN_WINDOW_WIDTH` 900 by `MIN_WINDOW_HEIGHT`
-620 at 100%, and both multiply by the total font scale, rounded up, so the
-minimum follows the text size. It states the live current size, the required
-minimum at the current factor, and a one-line instruction to resize.
+below its floor. The floor is a fixed `MIN_WINDOW_WIDTH` 900 by
+`MIN_WINDOW_HEIGHT` 620: it does not follow the text size, so enlarging the
+text never makes a fitting window "too small". It states the live current size,
+the required minimum, and a one-line instruction to resize.
 
-When the window fits at 100% but not at the current factor, the gate also shows
-a "Reset text size to 100%" button: the factor is then the reason the window
-does not fit, and the setting lives behind the gate. When the window is too
-small even at 100%, the button is hidden, because resetting the text size would
-not help. The reset is pointer-only; it adds no keyboard shortcut, and every
-keyboard path stays inert while the gate is up. There is still no dismiss
-control for the size case itself.
+It has no controls and no dismiss action, because only resizing clears it.
 
 The gate is an overlay, not a replacement. The workspace, every dialog and the
 toast stay mounted underneath, so shrinking and restoring preserves form input,

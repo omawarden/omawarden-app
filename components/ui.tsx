@@ -326,7 +326,10 @@ export function ModalShell(props: {
             onPress={close}
           />
         </View>
-        <Scroll style={{ flexGrow: 0 }} contentStyle={{ padding: 16, gap: 12 }}>
+        <Scroll
+          style={{ flexShrink: 1 }}
+          contentStyle={{ padding: 16, gap: 12 }}
+        >
           {props.children}
         </Scroll>
       </View>

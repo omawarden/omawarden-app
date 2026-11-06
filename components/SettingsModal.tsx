@@ -7,12 +7,13 @@ import { tint } from "../theme/palette";
 import { TabButton, inputStyle } from "./AuthView";
 import { ActionButton, Chip, ModalShell, Panel, SectionTitle } from "./ui";
 
-type SettingsTab = "general" | "security" | "diagnose" | "about";
+type SettingsTab = "general" | "appearance" | "security" | "diagnose" | "about";
 
 const tab = signal<SettingsTab>("general");
 
 const TABS: Array<{ id: SettingsTab; label: string; testID: string }> = [
   { id: "general", label: "General", testID: "settings-tab-general" },
+  { id: "appearance", label: "Appearance", testID: "settings-tab-appearance" },
   { id: "security", label: "Security", testID: "settings-tab-security" },
   { id: "diagnose", label: "Diagnose", testID: "settings-tab-diagnose" },
   { id: "about", label: "About", testID: "settings-tab-about" },
@@ -46,7 +47,7 @@ export function SettingsModal() {
           <ModalShell
             title="Settings"
             testID="settings-modal"
-            subtitle="Configuration, security, diagnostics, and release information."
+            subtitle="Configuration, appearance, security, diagnostics, and release information."
             width={720}
           >
             <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
@@ -64,7 +65,7 @@ export function SettingsModal() {
 
             {tab() === "general" ? (
               <Panel testID="settings-general">
-                <SectionTitle hint="Connection, display, and update preferences.">
+                <SectionTitle hint="Connection and update preferences.">
                   General
                 </SectionTitle>
 
@@ -130,6 +131,14 @@ export function SettingsModal() {
                   checked={draft().checkUpdates ?? config().checkUpdates}
                   onChange={(value) => store.updateSettingsDraft({ checkUpdates: value })}
                 />
+
+                <SaveRow />
+              </Panel>
+            ) : null}
+
+            {tab() === "appearance" ? (
+              <Panel testID="settings-appearance">
+                <SectionTitle hint="Theme and text size.">Appearance</SectionTitle>
 
                 <View style={{ gap: 6 }}>
                   <Text style={{ color: palette().muted, fontSize: store.type().base }}>
@@ -207,9 +216,11 @@ export function SettingsModal() {
                       {`${percent()}%`}
                     </Text>
                   </View>
+                  <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
+                    Applies immediately and is saved with the rest of the interface
+                    preferences.
+                  </Text>
                 </View>
-
-                <SaveRow />
               </Panel>
             ) : null}
 

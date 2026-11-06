@@ -33,7 +33,7 @@ export function VaultItemList() {
     <View
       testID="vault-item-list"
       style={{
-        width: sidebarWidth(windowSize().width, store.totalScale()),
+        width: sidebarWidth(windowSize().width),
         backgroundColor: palette().popups.background,
         borderColor: palette().popups.border,
         borderWidth: 1,

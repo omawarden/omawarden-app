@@ -86,16 +86,6 @@ test("sidebar width rounds to whole points", () => {
   expect(sidebarWidth(1449)).toBe(435);
 });
 
-test("sidebar width accepts a font scale that defaults to 1", () => {
-  expect(sidebarWidth(1440)).toBe(432);
-  expect(sidebarWidth(1440, 1)).toBe(432);
-  expect(sidebarWidth(1440, 1.5)).toBe(648);
-  expect(sidebarWidth(1440, 2)).toBe(864);
-  // The scale multiplies the clamped base, not the raw window share.
-  expect(sidebarWidth(900, 2)).toBe(640);
-  expect(sidebarWidth(3840, 2)).toBe(1120);
-});
-
 test("window too small checks both thresholds at their boundaries", () => {
   // Width: just below, exactly at, just above the minimum.
   expect(windowTooSmall({ width: 899, height: 960 })).toBe(true);
@@ -110,30 +100,6 @@ test("window too small checks both thresholds at their boundaries", () => {
   expect(windowTooSmall({ width: 3840, height: 2160 })).toBe(false);
 });
 
-test("minimum window size multiplies both axes and rounds up", () => {
+test("minimum window size is a fixed floor", () => {
   expect(minimumWindowSize()).toEqual({ width: 900, height: 620 });
-  expect(minimumWindowSize(1)).toEqual({ width: 900, height: 620 });
-  expect(minimumWindowSize(1.5)).toEqual({ width: 1350, height: 930 });
-  expect(minimumWindowSize(2)).toEqual({ width: 1800, height: 1240 });
-  expect(minimumWindowSize(4)).toEqual({ width: 3600, height: 2480 });
-  // A factor that does not land on whole points rounds up so the stated
-  // minimum is always sufficient.
-  expect(minimumWindowSize(1.01)).toEqual({ width: 909, height: 627 });
-  expect(minimumWindowSize(1.333)).toEqual({ width: 1200, height: 827 });
-});
-
-test("window too small scales its threshold", () => {
-  // Width: just below, exactly at, just above the scaled minimum.
-  expect(windowTooSmall({ width: 1349, height: 930 }, 1.5)).toBe(true);
-  expect(windowTooSmall({ width: 1350, height: 930 }, 1.5)).toBe(false);
-  expect(windowTooSmall({ width: 1351, height: 930 }, 1.5)).toBe(false);
-  // Height: just below, exactly at, just above the scaled minimum.
-  expect(windowTooSmall({ width: 1350, height: 929 }, 1.5)).toBe(true);
-  expect(windowTooSmall({ width: 1350, height: 930 }, 1.5)).toBe(false);
-  expect(windowTooSmall({ width: 1350, height: 931 }, 1.5)).toBe(false);
-  // Either axis alone is enough at the scaled threshold.
-  expect(windowTooSmall({ width: 1349, height: 929 }, 1.5)).toBe(true);
-  // The same window fits at 100% and does not fit at 200%.
-  expect(windowTooSmall({ width: 1440, height: 960 }, 1)).toBe(false);
-  expect(windowTooSmall({ width: 1440, height: 960 }, 2)).toBe(true);
 });

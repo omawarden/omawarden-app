@@ -934,7 +934,7 @@ test("keyboard shortcuts navigate, copy, open modals, and lock", async () => {
 // Settings
 // ---------------------------------------------------------------------------
 
-test("settings modal exposes general, security, diagnose, and about tabs", async () => {
+test("settings modal exposes general, appearance, security, diagnose, and about tabs", async () => {
   const app = await openMock({
     phase: "unlocked",
     items: [LOGIN_ITEM],
@@ -954,6 +954,11 @@ test("settings modal exposes general, security, diagnose, and about tabs", async
   expect(app.shows("id:settings-general")).toBe(true);
   expect(app.value("id:settings-server-url")).toBe("https://vault.example.com");
   expect(app.value("id:settings-identity-url")).toBe("https://identity.example.com");
+
+  await app.press("id:settings-tab-appearance");
+  expect(app.shows("id:settings-appearance")).toBe(true);
+  expect(app.shows("id:settings-theme-dark")).toBe(true);
+  expect(app.shows("id:settings-text-size")).toBe(true);
 
   await app.press("id:settings-tab-security");
   expect(app.shows("id:settings-security")).toBe(true);
@@ -990,10 +995,41 @@ test("settings modal exposes general, security, diagnose, and about tabs", async
   );
 });
 
+test("settings scrolls to the lower rows at the minimum window size", async () => {
+  const app = await openMockAt(900, 620, { phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:open-settings");
+  expect(app.shows("id:settings-modal")).toBe(true);
+
+  // The panel is taller than a 620-point window, so the body has a bounded
+  // scroll range and reaches its end. A body sized to its content has no
+  // range at all: the drag is refused outright, which leaves the lower rows
+  // unreachable however far the user drags.
+  await app.scroll("id:settings-modal", 5000);
+  await expect(app.scroll("id:settings-modal", 100)).rejects.toThrow();
+  await app.scroll("id:settings-modal", -5000);
+});
+
+test("appearance preferences get a tab of their own", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:open-settings");
+  // How the app looks is not part of the connection form.
+  expect(app.shows("id:settings-theme-dark")).toBe(false);
+  expect(app.shows("id:settings-text-size")).toBe(false);
+
+  await app.press("id:settings-tab-appearance");
+  expect(app.shows("id:settings-appearance")).toBe(true);
+  expect(app.shows("id:settings-theme-dark")).toBe(true);
+  expect(app.shows("id:settings-theme-light")).toBe(true);
+  expect(app.shows("id:settings-text-size")).toBe(true);
+});
+
 test("settings switches between dark and light themes", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
   await app.press("id:open-settings");
+  await app.press("id:settings-tab-appearance");
   expect(app.shows("id:settings-theme-dark")).toBe(true);
 
   await app.press("id:settings-theme-light");
@@ -1010,6 +1046,7 @@ test("settings switches between dark and light themes", async () => {
   expect(reloaded.texts()).toContain("Theme: Light");
 
   await reloaded.press("id:open-settings");
+  await reloaded.press("id:settings-tab-appearance");
   await reloaded.press("id:settings-theme-dark");
   expect(reloaded.texts()).toContain("Theme: Dark");
 });
@@ -1033,14 +1070,15 @@ test("settings browse buttons fill the download and certificate paths", async ()
 // ---------------------------------------------------------------------------
 
 test("text size scales the type and saves the factor", async () => {
-  // 200% asks for 1800 × 1240, so the window has to be larger than the default
-  // or the gate would cover the settings modal before the drag ends.
-  const app = await openMockAt(1920, 1300, {
+  // A 1440 × 960 window fits at 100%, so enlarging the text must not gate it:
+  // the drag has to stay usable all the way to 200%.
+  const app = await openMock({
     phase: "unlocked",
     items: [LOGIN_ITEM],
   });
 
   await app.press("id:open-settings");
+  await app.press("id:settings-tab-appearance");
   expect(app.shows("id:settings-text-size")).toBe(true);
   expect(app.texts()).toContain("100%");
 
@@ -1057,6 +1095,7 @@ test("text size writes once after the slider settles", async () => {
   const app = await openMockWithClock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
   await app.press("id:open-settings");
+  await app.press("id:settings-tab-appearance");
   await app.dragAndHold("label:Text size", { x: 200, y: 0 });
 
   // The drag re-renders as it goes, but nothing reaches the preferences file
@@ -1221,50 +1260,46 @@ test("SSH approval denies a request and handles a summon payload", async () => {
 // Minimum window gate
 // ---------------------------------------------------------------------------
 
-test("minimum window gate resets a text size the window cannot fit", async () => {
+test("a large text size never makes a fitting window too small", async () => {
+  // 900 × 620 is exactly the floor, and the floor does not move with the text
+  // size: 400% has to fit as well as 100% does.
+  const app = await openMockAt(900, 620, {
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+    uiPrefs: { fontScale: 4 },
+  });
+
+  expect(app.shows("id:minimum-window-gate")).toBe(false);
+  expect(app.texts()).not.toContain("Window too small");
+
+  await app.press("id:open-settings");
+  await app.press("id:settings-tab-appearance");
+  expect(app.texts()).toContain("400%");
+  // The dialog still scrolls at 400% in a minimum window, so every row stays
+  // reachable even though the text is four times its base size.
+  await app.scroll("id:settings-modal", 300);
+
+  // The reporter's case: a 4K display at 2× is 1920 × 1080 points, and 400%
+  // used to demand 3600 × 2480 there.
+  await app.setViewport(1920, 1080);
+  expect(app.shows("id:minimum-window-gate")).toBe(false);
+});
+
+test("the window floor does not follow the text size", async () => {
   const app = await openMock({
     phase: "unlocked",
     items: [LOGIN_ITEM],
-    uiPrefs: { fontScale: 2 },
+    uiPrefs: { fontScale: 4 },
   });
 
-  expect(app.shows("id:minimum-window-gate")).toBe(true);
-  expect(app.texts()).toContain("Minimum: 1800 × 1240");
-  expect(app.shows("id:minimum-window-gate-reset")).toBe(true);
-
-  // The reset is a pointer escape hatch only; every keyboard path stays inert.
-  await app.keyboard.press("tab");
-  await app.keyboard.press("enter");
-  expect(app.shows("id:minimum-window-gate")).toBe(true);
-  expect(OmawardenBridge.getUiPrefs().fontScale).toBe(2);
-
-  await app.press("id:minimum-window-gate-reset");
-  expect(app.shows("id:minimum-window-gate")).toBe(false);
-  expect(OmawardenBridge.getUiPrefs().fontScale).toBe(1);
-
-  await app.press("id:open-settings");
-  expect(app.texts()).toContain("100%");
-  expect(app.spanStyle("id:settings-text-size-value >> text:100%").fontSize).toBe(12);
-});
-
-test("minimum window gate hides the text size reset when 100% does not fit", async () => {
-  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
-
+  // 400% does not raise the floor: the same 900 × 620 gate applies, and only
+  // a resize clears it.
   await app.setViewport(800, 600);
   expect(app.shows("id:minimum-window-gate")).toBe(true);
   expect(app.texts()).toContain("Minimum: 900 × 620");
-  expect(app.shows("id:minimum-window-gate-reset")).toBe(false);
 
-  // A large factor does not earn the reset when the window is too small at
-  // 100%: resetting the text size would not make it fit.
-  const scaled = await openMock({
-    phase: "unlocked",
-    items: [LOGIN_ITEM],
-    uiPrefs: { fontScale: 2 },
-  });
-  await scaled.setViewport(800, 600);
-  expect(scaled.shows("id:minimum-window-gate")).toBe(true);
-  expect(scaled.shows("id:minimum-window-gate-reset")).toBe(false);
+  await app.setViewport(900, 620);
+  expect(app.shows("id:minimum-window-gate")).toBe(false);
 });
 
 test("minimum window gate covers a too-small window and clears when it grows", async () => {
