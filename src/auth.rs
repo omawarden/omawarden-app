@@ -266,7 +266,7 @@ fn real_lock_or_logout(logout: bool) -> VaultSnapshotView {
     let auth = auth_manager();
     let _ = if logout { auth.logout() } else { auth.lock() };
     vault::clear_cached_vault();
-    omawarden::attachment::clear_preview_attachments(None);
+    crate::engine::attachments().clean_previews(None);
     vault::real_snapshot(VaultFilterInput::default())
 }
 
