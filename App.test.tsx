@@ -989,8 +989,19 @@ test("settings switches between dark and light themes", async () => {
   await app.press("id:settings-theme-light");
   expect(app.texts()).toContain("Theme: Light");
 
-  await app.press("id:settings-theme-dark");
-  expect(app.texts()).toContain("Theme: Dark");
+  // A reload starts a fresh app over the process-wide mock preferences, the
+  // same way a real launch reads `ui.json`; the theme must come back.
+  const reloaded = await open("./App.tsx", {
+    width: 1440,
+    height: 960,
+    platform: "linux",
+    host: { params: { mock: true } },
+  });
+  expect(reloaded.texts()).toContain("Theme: Light");
+
+  await reloaded.press("id:open-settings");
+  await reloaded.press("id:settings-theme-dark");
+  expect(reloaded.texts()).toContain("Theme: Dark");
 });
 
 test("settings browse buttons fill the download and certificate paths", async () => {

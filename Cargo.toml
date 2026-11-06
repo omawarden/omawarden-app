@@ -19,6 +19,9 @@ chrono = "0.4"
 regex = "1.10"
 rfd = "0.15"
 
+[dev-dependencies]
+tempfile = "3"
+
 # Keep the debug host small: `nsh run` builds the dev profile, and full debug
 # info alone put ~60 MB of the host binary's pages into RSS.
 [profile.dev]

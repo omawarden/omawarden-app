@@ -31,9 +31,11 @@ mod projection;
 mod settings;
 mod ssh;
 mod types;
+mod ui_prefs;
 mod vault;
 
 pub use settings::{SettingsSnapshotView, SettingsUpdateInput, SettingsView};
+pub use ui_prefs::{UiPrefsUpdateInput, UiPrefsView};
 
 /// Pins Linux rendering to one lightweight GPU driver before GTK or `wgpu`
 /// initializes.
@@ -221,7 +223,6 @@ pub(crate) struct MockSettings {
     quick_unlock: bool,
     client_cert_path: String,
     client_key_path: String,
-    theme: ThemeAppearance,
 }
 
 impl Default for MockSettings {
@@ -243,7 +244,6 @@ impl Default for MockSettings {
             quick_unlock: true,
             client_cert_path: String::new(),
             client_key_path: String::new(),
-            theme: ThemeAppearance::Dark,
         }
     }
 }
@@ -264,6 +264,7 @@ pub(crate) struct MockState {
     items: Vec<MockItem>,
     ssh_prompt: Option<SshPromptView>,
     settings: MockSettings,
+    ui_prefs: UiPrefsView,
     update_available: bool,
     last_sync: Option<String>,
     error: Option<String>,
@@ -301,6 +302,7 @@ impl Default for MockState {
             items: Vec::new(),
             ssh_prompt: None,
             settings: MockSettings::default(),
+            ui_prefs: UiPrefsView::default(),
             update_available: false,
             last_sync: None,
             error: None,
@@ -705,13 +707,9 @@ fn configure_mock_from_json(state: &mut MockState, value: &Value) {
         if let Some(v) = json_string(settings, "clientKeyPath") {
             mock.client_key_path = v;
         }
-        if let Some(v) = json_string(settings, "theme") {
-            mock.theme = if v == "light" {
-                ThemeAppearance::Light
-            } else {
-                ThemeAppearance::Dark
-            };
-        }
+    }
+    if let Some(ui_prefs) = value.get("uiPrefs") {
+        crate::ui_prefs::apply_mock_json(&mut state.ui_prefs, ui_prefs);
     }
 }
 
@@ -1033,6 +1031,16 @@ impl OmawardenBridge {
     /// Update configuration settings (validating URL scheme security and refreshing daemon state).
     pub fn update_settings(input: SettingsUpdateInput) -> SettingsSnapshotView {
         engine::settings().update(input)
+    }
+
+    /// Load the interface preferences (theme and text size).
+    pub fn get_ui_prefs() -> UiPrefsView {
+        engine::ui_prefs().get()
+    }
+
+    /// Update the interface preferences and return the stored snapshot.
+    pub fn update_ui_prefs(input: UiPrefsUpdateInput) -> UiPrefsView {
+        engine::ui_prefs().update(input)
     }
 
     /// Run system health diagnostics.
@@ -1453,7 +1461,6 @@ mod tests {
             quick_unlock: None,
             client_cert_path: None,
             client_key_path: None,
-            theme: None,
         });
         assert!(
             settings.error.is_some(),
@@ -1477,12 +1484,34 @@ mod tests {
             quick_unlock: None,
             client_cert_path: None,
             client_key_path: None,
-            theme: Some(ThemeAppearance::Light),
         });
         assert!(settings.error.is_none());
         assert_eq!(settings.config.auto_lock_minutes, 30);
         assert_eq!(settings.config.clipboard_clear_seconds, 45);
-        assert_eq!(settings.config.theme, ThemeAppearance::Light);
+    }
+
+    #[test]
+    fn mock_ui_prefs_round_trip() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "uiPrefs": { "theme": "light", "fontScale": 1.5 }
+        })));
+
+        let prefs = OmawardenBridge::get_ui_prefs();
+        assert_eq!(prefs.theme, ThemeAppearance::Light);
+        assert_eq!(prefs.font_scale, 1.5);
+
+        let updated = OmawardenBridge::update_ui_prefs(UiPrefsUpdateInput {
+            theme: Some(ThemeAppearance::Dark),
+            font_scale: Some(9.0),
+        });
+        assert_eq!(updated.theme, ThemeAppearance::Dark);
+        assert_eq!(updated.font_scale, 4.0);
+
+        let read_back = OmawardenBridge::get_ui_prefs();
+        assert_eq!(read_back.theme, ThemeAppearance::Dark);
+        assert_eq!(read_back.font_scale, 4.0);
     }
 
     #[test]

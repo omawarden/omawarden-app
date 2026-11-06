@@ -18,6 +18,7 @@ use crate::inspector::{InProcess as InProcessInspector, InspectorEngine, Mock as
 use crate::platform::{InProcess as InProcessPlatform, Mock as MockPlatform, PlatformEngine};
 use crate::settings::{InProcess as InProcessSettings, Mock as MockSettings, SettingsEngine};
 use crate::ssh::{InProcess as InProcessSsh, Mock as MockSsh, SshEngine};
+use crate::ui_prefs::{InProcess as InProcessUiPrefs, Mock as MockUiPrefs, UiPrefsEngine};
 use crate::vault::{InProcess as InProcessVault, Mock as MockVault, VaultEngine};
 
 /// The attachments adapter for the current run mode.
@@ -137,6 +138,17 @@ pub(crate) fn settings() -> &'static dyn SettingsEngine {
         &MOCK
     } else {
         static IN_PROCESS: InProcessSettings = InProcessSettings;
+        &IN_PROCESS
+    }
+}
+
+/// The UI preferences adapter for the current run mode.
+pub(crate) fn ui_prefs() -> &'static dyn UiPrefsEngine {
+    if crate::with_mock(|state| state.enabled) {
+        static MOCK: MockUiPrefs = MockUiPrefs;
+        &MOCK
+    } else {
+        static IN_PROCESS: InProcessUiPrefs = InProcessUiPrefs;
         &IN_PROCESS
     }
 }
