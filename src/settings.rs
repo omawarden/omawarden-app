@@ -12,8 +12,8 @@ use nsh_core::prelude::*;
 
 use crate::diagnostics::{process_rss_mb, recent_logs};
 use crate::{
-    DiagnosticsView, HealthSnapshotView, MockState, SshAgentPolicy, ThemeAppearance,
-    config_manager, load_config, sanitize_server_url, validate_server_url, with_mock,
+    DiagnosticsView, HealthSnapshotView, MockState, SshAgentPolicy, config_manager, load_config,
+    sanitize_server_url, validate_server_url, with_mock,
 };
 
 /// The configuration shown in settings.
@@ -51,8 +51,6 @@ pub struct SettingsView {
     pub client_cert_path: String,
     /// The client key path.
     pub client_key_path: String,
-    /// The appearance.
-    pub theme: ThemeAppearance,
 }
 
 /// The full settings snapshot.
@@ -103,8 +101,6 @@ pub struct SettingsUpdateInput {
     pub client_cert_path: Option<String>,
     /// The client key path.
     pub client_key_path: Option<String>,
-    /// The appearance.
-    pub theme: Option<ThemeAppearance>,
 }
 
 /// The settings capabilities the bridge exposes.
@@ -169,7 +165,6 @@ fn real_settings() -> SettingsSnapshotView {
             quick_unlock: config.quick_unlock,
             client_cert_path: config.client_cert_path.clone().unwrap_or_default(),
             client_key_path: config.client_key_path.clone().unwrap_or_default(),
-            theme: ThemeAppearance::Dark,
         },
         health,
         diagnostics: DiagnosticsView {
@@ -251,7 +246,6 @@ fn mock_snapshot(state: &MockState) -> SettingsSnapshotView {
         quick_unlock: settings.quick_unlock,
         client_cert_path: settings.client_cert_path.clone(),
         client_key_path: settings.client_key_path.clone(),
-        theme: settings.theme,
     };
     SettingsSnapshotView {
         config,
@@ -341,9 +335,6 @@ fn mock_update(state: &mut MockState, input: SettingsUpdateInput) -> SettingsSna
     }
     if let Some(value) = &input.client_key_path {
         state.settings.client_key_path = value.clone();
-    }
-    if let Some(value) = input.theme {
-        state.settings.theme = value;
     }
     let mut snapshot = mock_snapshot(state);
     snapshot.error = error;

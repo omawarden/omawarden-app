@@ -21,6 +21,7 @@ import {
   type SshKeyPreviewView,
   type SshKeySaveInput,
   type ThemeAppearance,
+  type UiPrefsView,
   type UpdateStatusView,
   type VaultFilterInput,
   type VaultSnapshotView,
@@ -555,14 +556,9 @@ export function bootApp(): void {
   if (next.phase === "unlocked") {
     selectFirstIfNeeded();
   }
+  loadUiPrefs();
   if (next.phase !== "dependencyCheck") {
     loadSettings();
-  }
-  if (params.mockState) {
-    const mockTheme = params.mockState.theme;
-    if (mockTheme === "light" || mockTheme === "dark") {
-      theme.set(mockTheme);
-    }
   }
 }
 
@@ -601,11 +597,15 @@ export function applyHostTheme(payload: unknown): void {
 
 export function setTheme(next: ThemeAppearance): void {
   theme.set(next);
-  settingsDraft.update((draft) => ({ ...draft, theme: next }));
-  if (settings()) {
-    const result = OmawardenBridge.updateSettings({ theme: next });
-    settings.set(result);
-  }
+  defer(() => {
+    applyUiPrefs(OmawardenBridge.updateUiPrefs({ theme: next }));
+  });
+}
+
+/** Applies a preferences snapshot to the signals the UI reads. */
+function applyUiPrefs(prefs: UiPrefsView): void {
+  theme.set(prefs.theme);
+  appFontScale.set(prefs.fontScale);
 }
 
 // ---------------------------------------------------------------------------
@@ -1178,12 +1178,15 @@ export function resolveSshPrompt(promptId: number, approve: boolean): void {
 // Settings and diagnostics
 // ---------------------------------------------------------------------------
 
+export function loadUiPrefs(): void {
+  applyUiPrefs(OmawardenBridge.getUiPrefs());
+}
+
 export function loadSettings(): void {
   const next = OmawardenBridge.getSettings();
   settings.set(next);
   health.set(next.health);
   settingsDraft.set({ ...next.config });
-  theme.set(next.config.theme);
   if (next.error) {
     notify(next.error, "error");
   }
@@ -1199,7 +1202,6 @@ export function saveSettings(): void {
     const result = OmawardenBridge.updateSettings(settingsDraft());
     settings.set(result);
     health.set(result.health);
-    theme.set(result.config.theme);
     if (result.error) {
       notify(result.error, "error");
     } else {

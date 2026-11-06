@@ -148,6 +148,12 @@ pub mod native {
         /// Update configuration settings (validating URL scheme security and refreshing daemon state).
         pub fn update_settings(input: SettingsUpdateInput) -> SettingsSnapshotView;
 
+        /// Load the interface preferences (theme and text size).
+        pub fn get_ui_prefs() -> UiPrefsView;
+
+        /// Update the interface preferences and return the stored snapshot.
+        pub fn update_ui_prefs(input: UiPrefsUpdateInput) -> UiPrefsView;
+
         /// Run system health diagnostics.
         pub fn refresh_health() -> HealthSnapshotView;
 
@@ -237,6 +243,37 @@ Create `theme/palette.ts`:
 - **Live Host Theme Updates**:
   - Listen to `host.on("theme-update", (payload) => ...)` so Omarchy Shell can inject live theme colors at runtime, plus provide a toggle/selector in Settings or header for testing Dark vs Light mode.
 
+### 4.1 UI Preferences File (`$XDG_CONFIG_HOME/omawarden/ui.json`)
+
+The theme and the app's text size factor are presentation preferences, so they
+live beside the engine's `config.json` in their own file rather than in the
+engine's `Config`. The daemon and the CLI must never gain a presentation field.
+
+- **Path**: `$XDG_CONFIG_HOME/omawarden/ui.json`, falling back to
+  `~/.config/omawarden/ui.json`. It is derived from the engine's config path
+  (so it also follows `OMAWARDEN_CONFIG_DIR`), which keeps it in the same
+  directory as `config.json` so both can be inspected or backed up together.
+- **Content**: `{"theme": "dark" | "light", "fontScale": 1.0}`. Unknown keys
+  are ignored. A missing, unreadable or malformed file yields the defaults
+  (`dark`, `1.0`) rather than an error.
+- **Writes**: atomic (a temporary file in the same directory, then rename) with
+  mode `0600`, through `omawarden::fs_util::atomic_write_str`, the same helper
+  the engine uses for `config.json`.
+- **Clamping**: `fontScale` is clamped to `1.0..=4.0` on the way in, both when
+  read from disk and when updated.
+- **Bridge**: `get_ui_prefs()` / `update_ui_prefs(patch)` over
+  `UiPrefsView { theme, font_scale }` and
+  `UiPrefsUpdateInput { theme, font_scale }`. `src/ui_prefs.rs` owns the
+  `UiPrefsEngine` seam with an `InProcess` adapter over the file and a `Mock`
+  adapter over the process-wide mock state; `configure_mock_state` seeds it
+  with a top-level `uiPrefs` object.
+- **Theme persistence**: `theme` is not part of `SettingsView` /
+  `SettingsUpdateInput`. `store/appStore.ts` loads it through `loadUiPrefs()`
+  at startup and writes it through `setTheme()` → `updateUiPrefs({ theme })`,
+  which fixes the real-mode bug where the theme never survived a restart.
+- **Text size**: `fontScale` is read and persisted, but no control changes it
+  yet; the slider and the gate threshold land separately.
+
 ---
 
 ## 5. Full UI View & Modal Architecture (`App.tsx`, `store/appStore.ts`, `components/*.tsx`)
@@ -308,7 +345,7 @@ Create `theme/palette.ts`:
    - Lists previous passwords and change timestamps for the active Login item with individual copy buttons.
 6. **`components/SettingsModal.tsx` (`Ctrl+,`)**:
    - 4 Tabs:
-     - **General**: Server URL, Identity URL, Remember Email toggle, Show Website Icons toggle, Remember Last Search toggle, Check for Updates toggle, Download Directory, Max Attachment Size (MB), Theme Appearance (Dark Tokyo Night / Light Catppuccin Latte).
+     - **General**: Server URL, Identity URL, Remember Email toggle, Show Website Icons toggle, Remember Last Search toggle, Check for Updates toggle, Download Directory, Max Attachment Size (MB), Theme Appearance (Dark Tokyo Night / Light Catppuccin Latte, persisted through the UI preferences bridge rather than the engine config).
      - **Security**: Auto-Lock Timeout (minutes), Clipboard Clear Timeout (seconds), Polkit Quick Unlock toggle (`quick_unlock`), SSH Agent toggle (`ssh_agent_enabled`), SSH Agent Confirmation Policy (`first-use`, `always`, `never`), Client mTLS Certificate & Key paths, Lock Now & Log Out actions.
      - **Diagnose**: Engine Health check cards (Engine Installed, Server Reachable, Secret Service Keyring, Wayland Clipboard, Memory Locked `mlock`), Sanitized Server URL, Sanitized Log Viewer with `"Copy Diagnostic Report"` button (`Refresh` button).
      - **About**: App & Engine version, Git commit hash, Build date, Update check button (`checkUpdates(true)`), View Release Notes button, GitHub repository links.
@@ -320,7 +357,7 @@ Create `theme/palette.ts`:
 - **`theme/layout.ts`** is the single source of every layout size the shell derives from the window: `SIDEBAR_MIN_WIDTH` (320), `SIDEBAR_MAX_WIDTH` (560), `SIDEBAR_WIDTH_RATIO` (0.3), `MIN_WINDOW_WIDTH` (900), `MIN_WINDOW_HEIGHT` (620), `DETAIL_CONTENT_MAX_WIDTH` (900) and `EMPTY_STATE_MAX_WIDTH` (420), plus the pure functions `sidebarWidth(windowWidth, fontScale = 1)` and `windowTooSmall(size)`.
 - It also owns the lengths that exist to make room for text: `LABEL_GUTTER_WIDTH` (132), `GENERATOR_LABEL_WIDTH` (130), `WIDE_INPUT_WIDTH` (160), `OTP_CELL_WIDTH` (40), `OTP_CELL_HEIGHT` (44), `INPUT_MIN_HEIGHT` (36), and the pure `scaleLength(points, scale)` helper. `SYNC_INDICATOR_SIZE` (14) and `VAULT_ICON_SIZE` (16) keep the two visual icon sizes in the same module.
 - **`theme/typeScale.ts`** is the single source of every text size: `TypeStep` (thirteen names), `TypeScale`, the base `TYPE_SCALE` ladder from `2xs` (9) to `7xl` (28), and the pure `scaleType(factor)`.
-- `store/appStore.ts` exposes the reactive accessors beside `palette()`: `appFontScale` (1 until the preferences step), `totalScale()` (`fontScale() × appFontScale()`), `type()` (the ladder at the app factor, since `Text` applies the system factor itself) and `lengths()` (the six text-room lengths at `totalScale()`).
+- `store/appStore.ts` exposes the reactive accessors beside `palette()`: `appFontScale` (the factor loaded from `ui.json`, 1.0 until changed; no control yet), `totalScale()` (`fontScale() × appFontScale()`), `type()` (the ladder at the app factor, since `Text` applies the system factor itself) and `lengths()` (the six text-room lengths at `totalScale()`).
 - `components/Icon.tsx` keeps its `size` prop as the 100% value and multiplies it by `totalScale()` internally, so icon call sites stay unchanged. `GhostIconButton`'s 22-point hit area is a touch target and does not scale.
 - `components/VaultItemList.tsx` reads `sidebarWidth(windowSize().width)` at the point of use; no geometry signal is stored.
 - `components/ItemInspector.tsx` wraps its scroll body's children in a column capped at `DETAIL_CONTENT_MAX_WIDTH`, left aligned, while the pane's background, border and header keep spanning the full pane. Field label gutters read `lengths().labelGutter`; row heights and truncation are unchanged.

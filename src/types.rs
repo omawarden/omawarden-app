@@ -62,7 +62,8 @@ pub enum ItemCategory {
 }
 
 /// The appearance preset chosen in settings.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PropEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PropEnum, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ThemeAppearance {
     /// Tokyo Night dark palette.
     Dark,
