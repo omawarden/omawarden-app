@@ -19,10 +19,10 @@ export function EmptyInspector() {
       }}
     >
       <View style={{ width: "100%", maxWidth: EMPTY_STATE_MAX_WIDTH, alignItems: "center", gap: 6 }}>
-        <Text style={{ color: palette().popups.text, fontSize: 16, fontWeight: "bold" }}>
+        <Text style={{ color: palette().popups.text, fontSize: store.type()["2xl"], fontWeight: "bold" }}>
           No item selected
         </Text>
-        <Text style={{ color: palette().muted, fontSize: 13, textAlign: "center" }}>
+        <Text style={{ color: palette().muted, fontSize: store.type().md, textAlign: "center" }}>
           Choose an item from the list to inspect its secrets, copy fields, and manage attachments.
         </Text>
       </View>

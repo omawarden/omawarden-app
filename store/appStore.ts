@@ -1,4 +1,4 @@
-import { computed, host, signal, untracked } from "nsh";
+import { computed, fontScale, host, signal, untracked } from "nsh";
 import {
   OmawardenBridge,
   type AppPhase,
@@ -26,11 +26,21 @@ import {
   type VaultSnapshotView,
 } from "omawarden-app/native";
 import {
+  GENERATOR_LABEL_WIDTH,
+  INPUT_MIN_HEIGHT,
+  LABEL_GUTTER_WIDTH,
+  OTP_CELL_HEIGHT,
+  OTP_CELL_WIDTH,
+  WIDE_INPUT_WIDTH,
+  scaleLength,
+} from "../theme/layout";
+import {
   mergePalette,
   paletteFor,
   type ThemePalette,
   type ThemePaletteOverrides,
 } from "../theme/palette";
+import { scaleType, type TypeScale } from "../theme/typeScale";
 import { clearAuthSecrets } from "./authForm";
 
 export type ModalKind =
@@ -167,6 +177,28 @@ export const sshKeyMode = signal<SshKeyMode>("create");
 export const palette = computed<ThemePalette>(() =>
   mergePalette(paletteFor(theme()), themeOverrides()),
 );
+
+/**
+ * The app's own text-size factor. It is fixed at 1 until the preferences file
+ * and the settings control land; the system factor stays separate in `Text`.
+ */
+export const appFontScale = signal(1);
+
+/** The factor for sizes that do not follow the system text scale themselves. */
+export const totalScale = computed(() => fontScale() * appFontScale());
+
+/** The type ladder at the app factor; `Text` applies the system factor on top. */
+export const type = computed<TypeScale>(() => scaleType(appFontScale()));
+
+/** The fixed lengths that make room for text, at the total factor. */
+export const lengths = computed(() => ({
+  labelGutter: scaleLength(LABEL_GUTTER_WIDTH, totalScale()),
+  generatorLabel: scaleLength(GENERATOR_LABEL_WIDTH, totalScale()),
+  wideInput: scaleLength(WIDE_INPUT_WIDTH, totalScale()),
+  otpCellWidth: scaleLength(OTP_CELL_WIDTH, totalScale()),
+  otpCellHeight: scaleLength(OTP_CELL_HEIGHT, totalScale()),
+  inputMinHeight: scaleLength(INPUT_MIN_HEIGHT, totalScale()),
+}));
 
 function isSubsequence(pattern: string, text: string): boolean {
   if (!pattern) return true;

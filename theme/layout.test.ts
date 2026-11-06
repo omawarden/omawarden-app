@@ -2,11 +2,20 @@ import { expect, test } from "nsh/test";
 import {
   DETAIL_CONTENT_MAX_WIDTH,
   EMPTY_STATE_MAX_WIDTH,
+  GENERATOR_LABEL_WIDTH,
+  INPUT_MIN_HEIGHT,
+  LABEL_GUTTER_WIDTH,
   MIN_WINDOW_HEIGHT,
   MIN_WINDOW_WIDTH,
+  OTP_CELL_HEIGHT,
+  OTP_CELL_WIDTH,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
   SIDEBAR_WIDTH_RATIO,
+  SYNC_INDICATOR_SIZE,
+  VAULT_ICON_SIZE,
+  WIDE_INPUT_WIDTH,
+  scaleLength,
   sidebarWidth,
   windowTooSmall,
 } from "./layout";
@@ -19,6 +28,32 @@ test("layout module owns the shell's size constants", () => {
   expect(MIN_WINDOW_HEIGHT).toBe(620);
   expect(DETAIL_CONTENT_MAX_WIDTH).toBe(900);
   expect(EMPTY_STATE_MAX_WIDTH).toBe(420);
+});
+
+test("layout module owns the lengths that make room for text", () => {
+  expect(LABEL_GUTTER_WIDTH).toBe(132);
+  expect(GENERATOR_LABEL_WIDTH).toBe(130);
+  expect(WIDE_INPUT_WIDTH).toBe(160);
+  expect(OTP_CELL_WIDTH).toBe(40);
+  expect(OTP_CELL_HEIGHT).toBe(44);
+  expect(INPUT_MIN_HEIGHT).toBe(36);
+  expect(SYNC_INDICATOR_SIZE).toBe(14);
+  expect(VAULT_ICON_SIZE).toBe(16);
+});
+
+test("scale length multiplies and rounds to whole points", () => {
+  expect(scaleLength(132, 1)).toBe(132);
+  expect(scaleLength(132, 1.5)).toBe(198);
+  expect(scaleLength(132, 2)).toBe(264);
+  expect(scaleLength(9, 1.5)).toBe(14);
+  expect(scaleLength(11, 1.5)).toBe(17);
+  expect(scaleLength(13, 1.25)).toBe(16);
+});
+
+test("scale length never returns less than one point", () => {
+  expect(scaleLength(1, 0.1)).toBe(1);
+  expect(scaleLength(0, 2)).toBe(1);
+  expect(scaleLength(36, 0)).toBe(1);
 });
 
 test("sidebar width follows the window curve", () => {

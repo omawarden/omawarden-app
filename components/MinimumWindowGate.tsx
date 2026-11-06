@@ -30,25 +30,25 @@ export function MinimumWindowGate() {
         <View style={{ alignItems: "center", gap: 8 }}>
           <Text
             testID="minimum-window-gate-title"
-            style={{ color: palette().menu.text, fontSize: 20, fontWeight: "bold" }}
+            style={{ color: palette().menu.text, fontSize: store.type()["5xl"], fontWeight: "bold" }}
           >
             Window too small
           </Text>
           <Text
             testID="minimum-window-gate-size"
-            style={{ color: palette().menu.text, fontSize: 14 }}
+            style={{ color: palette().menu.text, fontSize: store.type().lg }}
           >
             {`Current size: ${formatSize(windowSize().width, windowSize().height)}`}
           </Text>
           <Text
             testID="minimum-window-gate-minimum"
-            style={{ color: palette().muted, fontSize: 13 }}
+            style={{ color: palette().muted, fontSize: store.type().md }}
           >
             {`Minimum: ${formatSize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)}`}
           </Text>
           <Text
             testID="minimum-window-gate-instruction"
-            style={{ color: palette().muted, fontSize: 13, textAlign: "center" }}
+            style={{ color: palette().muted, fontSize: store.type().md, textAlign: "center" }}
           >
             Resize the window to continue.
           </Text>

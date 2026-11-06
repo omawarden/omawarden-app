@@ -5,6 +5,7 @@ import * as store from "../store/appStore";
 import { formatMaskedCardNumber, formatRevealedCardNumber } from "../store/CardFormatter";
 import { DETAIL_CONTENT_MAX_WIDTH } from "../theme/layout";
 import { tint } from "../theme/palette";
+import { noteLineHeight, totpLetterSpacing } from "../theme/typeScale";
 import { ActionButton, Chip, FieldRow, Panel, SectionTitle } from "./ui";
 import { GhostIconButton } from "./GhostIconButton";
 import { EmptyInspector } from "./EmptyInspector";
@@ -51,7 +52,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
           <Text
             style={{
               color: palette().popups.text,
-              fontSize: 17,
+              fontSize: store.type()["3xl"],
               fontWeight: "bold",
               // Shrink into an ellipsis instead of pushing the chip off the pane.
               flexShrink: 1,
@@ -63,7 +64,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
           {item().favorite ? <Icon name="star" size={11} color={palette().warning} /> : null}
           <Chip label={categoryLabel(item().category)} color={palette().info} />
         </View>
-        <Text style={{ color: palette().muted, fontSize: 11, numberOfLines: 1 }}>
+        <Text style={{ color: palette().muted, fontSize: store.type().sm, numberOfLines: 1 }}>
           {item().metadata.folder || "No folder"}
           {item().metadata.organization ? ` · ${item().metadata.organization}` : ""}
         </Text>
@@ -94,10 +95,10 @@ function InspectorBody(props: { item: () => InspectorView }) {
                 gap: 8,
               }}
             >
-              <Text style={{ color: palette().popups.text, fontSize: 12, fontWeight: "bold" }}>
+              <Text style={{ color: palette().popups.text, fontSize: store.type().base, fontWeight: "bold" }}>
                 Master password required
               </Text>
-              <Text style={{ color: palette().muted, fontSize: 11 }}>
+              <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
                 Confirm your master password to reveal or copy secrets from this item.
               </Text>
               <ActionButton
@@ -120,14 +121,14 @@ function InspectorBody(props: { item: () => InspectorView }) {
               />
               <View style={{ gap: 6 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Text style={{ color: palette().muted, fontSize: 12, width: 132 }}>Password</Text>
+                  <Text style={{ color: palette().muted, fontSize: store.type().base, width: store.lengths().labelGutter }}>Password</Text>
                   <Text
                     testID="inspector-password"
                     style={{
                       userSelect: "text",
                       flex: 1,
                       color: palette().popups.text,
-                      fontSize: 13,
+                      fontSize: store.type().md,
                       fontFamily: "monospace",
                     }}
                   >
@@ -148,7 +149,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                 </View>
                 {item().passwordHistory.length > 0 ? (
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <Text style={{ color: palette().muted, fontSize: 11 }}>
+                    <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
                       Password History ({item().passwordHistory.length})
                     </Text>
                     <GhostIconButton
@@ -164,12 +165,12 @@ function InspectorBody(props: { item: () => InspectorView }) {
               {item().totp ? (
                 <View testID="inspector-totp" style={{ gap: 4 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <Text style={{ color: palette().muted, fontSize: 12 }}>TOTP Code</Text>
+                    <Text style={{ color: palette().muted, fontSize: store.type().base }}>TOTP Code</Text>
                     <Text
                       testID="inspector-totp-remaining"
                       style={{
                         color: totpDanger() ? palette().danger : palette().muted,
-                        fontSize: 12,
+                        fontSize: store.type().base,
                         fontWeight: totpDanger() ? "bold" : "normal",
                       }}
                     >
@@ -190,10 +191,10 @@ function InspectorBody(props: { item: () => InspectorView }) {
                         userSelect: !reprompt() ? "text" : "none",
                         flex: 1,
                         color: reprompt() ? palette().muted : totpColor(),
-                        fontSize: 24,
+                        fontSize: store.type()["6xl"],
                         fontWeight: "bold",
                         fontFamily: "monospace",
-                        letterSpacing: 3,
+                        letterSpacing: totpLetterSpacing(store.type()),
                       }}
                     >
                       {reprompt()
@@ -237,7 +238,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
 
               {item().uris.length > 0 ? (
                 <View style={{ gap: 4 }}>
-                  <Text style={{ color: palette().muted, fontSize: 12 }}>Website URIs</Text>
+                  <Text style={{ color: palette().muted, fontSize: store.type().base }}>Website URIs</Text>
                   <Each of={item().uris} key="index">
                     {(uri) => (
                       <View
@@ -251,7 +252,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                         <Text
                           style={{
                             color: palette().popups.text,
-                            fontSize: 12,
+                            fontSize: store.type().base,
                             flex: 1,
                             userSelect: "text",
                           }}
@@ -288,7 +289,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                 ) : null}
               </View>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Text style={{ color: palette().muted, fontSize: 12, width: 132 }}>
+                <Text style={{ color: palette().muted, fontSize: store.type().base, width: store.lengths().labelGutter }}>
                   Card Number
                 </Text>
                 <Text
@@ -297,7 +298,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                     userSelect: "text",
                     flex: 1,
                     color: palette().popups.text,
-                    fontSize: 14,
+                    fontSize: store.type().lg,
                     fontFamily: "monospace",
                   }}
                 >
@@ -330,7 +331,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                 }
               />
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Text style={{ color: palette().muted, fontSize: 12, width: 132 }}>
+                <Text style={{ color: palette().muted, fontSize: store.type().base, width: store.lengths().labelGutter }}>
                   Security Code
                 </Text>
                 <Text
@@ -339,7 +340,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                     userSelect: "text",
                     flex: 1,
                     color: palette().popups.text,
-                    fontSize: 13,
+                    fontSize: store.type().md,
                     fontFamily: "monospace",
                   }}
                 >
@@ -460,7 +461,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                 onCopy={() => store.copyText(item().ssh?.publicKey ?? "", "public key", false)}
               />
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Text style={{ color: palette().muted, fontSize: 12, width: 132 }}>
+                <Text style={{ color: palette().muted, fontSize: store.type().base, width: store.lengths().labelGutter }}>
                   Private Key
                 </Text>
                 <Text
@@ -470,7 +471,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                     numberOfLines: 4,
                     flex: 1,
                     color: palette().popups.text,
-                    fontSize: 12,
+                    fontSize: store.type().base,
                     fontFamily: "monospace",
                   }}
                 >
@@ -518,8 +519,8 @@ function InspectorBody(props: { item: () => InspectorView }) {
               <Text
                 style={{
                   color: palette().popups.text,
-                  fontSize: 13,
-                  lineHeight: 19,
+                  fontSize: store.type().md,
+                  lineHeight: noteLineHeight(store.type()),
                   userSelect: "text",
                 }}
               >
@@ -535,7 +536,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                 {(field) => (
                   <View style={{ gap: 4 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                      <Text style={{ color: palette().muted, fontSize: 12, width: 132 }}>
+                      <Text style={{ color: palette().muted, fontSize: store.type().base, width: store.lengths().labelGutter }}>
                         {field().name || `Field ${field().index + 1}`}
                       </Text>
                       <Text
@@ -543,7 +544,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                         style={{
                           flex: 1,
                           color: palette().popups.text,
-                          fontSize: 13,
+                          fontSize: store.type().md,
                           userSelect: "text",
                         }}
                       >
@@ -575,7 +576,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                         onPress={() => store.copyField("custom", field().index)}
                       />
                     </View>
-                    <Text style={{ color: palette().muted, fontSize: 10 }}>{field().kind}</Text>
+                    <Text style={{ color: palette().muted, fontSize: store.type().xs }}>{field().kind}</Text>
                   </View>
                 )}
               </Each>
@@ -595,10 +596,10 @@ function InspectorBody(props: { item: () => InspectorView }) {
                       flexWrap: "wrap",
                     }}
                   >
-                    <Text style={{ color: palette().popups.text, fontSize: 12, flex: 1 }}>
+                    <Text style={{ color: palette().popups.text, fontSize: store.type().base, flex: 1 }}>
                       {file().filename}
                     </Text>
-                    <Text style={{ color: palette().muted, fontSize: 11 }}>
+                    <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
                       {file().sizeLabel}
                     </Text>
                     <GhostIconButton
@@ -632,7 +633,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                 >
                   <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
                     <Text
-                      style={{ color: palette().popups.text, fontSize: 12, fontWeight: "bold" }}
+                      style={{ color: palette().popups.text, fontSize: store.type().base, fontWeight: "bold" }}
                     >
                       {attachment()?.filename}
                     </Text>
@@ -648,7 +649,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                       <If
                         when={(attachment()?.dataUrl ?? "") !== ""}
                         else={
-                          <Text style={{ color: palette().muted, fontSize: 11 }}>
+                          <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
                             This image is too large to preview here. Open it with the system viewer.
                           </Text>
                         }
@@ -680,7 +681,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                           style={{
                             userSelect: "text",
                             color: palette().popups.text,
-                            fontSize: 12,
+                            fontSize: store.type().base,
                             fontFamily: "monospace",
                           }}
                         >
@@ -703,26 +704,26 @@ function InspectorBody(props: { item: () => InspectorView }) {
           ) : null}
 
           <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
-            <Text style={{ color: palette().muted, fontSize: 11 }}>
+            <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
               Folder: {item().metadata.folder || "—"}
             </Text>
-            <Text style={{ color: palette().muted, fontSize: 11 }}>
+            <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
               Organization: {item().metadata.organization || "—"}
             </Text>
             {item().metadata.createdAt ? (
-              <Text style={{ color: palette().muted, fontSize: 11 }}>
+              <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
                 Created: {item().metadata.createdAt}
               </Text>
             ) : null}
             {item().metadata.updatedAt ? (
-              <Text style={{ color: palette().muted, fontSize: 11 }}>
+              <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
                 Updated: {item().metadata.updatedAt}
               </Text>
             ) : null}
           </View>
 
           {item().error ? (
-            <Text style={{ color: palette().danger, fontSize: 12 }}>{item().error}</Text>
+            <Text style={{ color: palette().danger, fontSize: store.type().base }}>{item().error}</Text>
           ) : null}
         </View>
       </Scroll>

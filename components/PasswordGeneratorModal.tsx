@@ -115,9 +115,9 @@ export function PasswordGeneratorModal() {
           style={{
             userSelect: "text",
             color: palette().popups.text,
-            fontSize: 20,
+            fontSize: store.type()["5xl"],
             fontFamily: "monospace",
-            lineHeight: 28,
+            lineHeight: store.type()["7xl"],
           }}
         >
           <SecretText value={secret()?.ok ? secret()!.value : "—"} />
@@ -132,13 +132,13 @@ export function PasswordGeneratorModal() {
             color={accent()}
           />
           {secret() && !secret()!.ok && secret()!.error ? (
-            <Text style={{ color: palette().danger, fontSize: 12 }}>{secret()!.error}</Text>
+            <Text style={{ color: palette().danger, fontSize: store.type().base }}>{secret()!.error}</Text>
           ) : null}
         </View>
       </View>
 
       {localError() ? (
-        <Text testID="generator-error" style={{ color: palette().danger, fontSize: 13 }}>
+        <Text testID="generator-error" style={{ color: palette().danger, fontSize: store.type().md }}>
           {localError()}
         </Text>
       ) : null}
@@ -147,7 +147,7 @@ export function PasswordGeneratorModal() {
         <Panel>
           <SectionTitle>Password Options</SectionTitle>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-            <Text style={{ color: palette().muted, fontSize: 12, width: 130 }}>
+            <Text style={{ color: palette().muted, fontSize: store.type().base, width: store.lengths().generatorLabel }}>
               Length (5–128)
             </Text>
             <Input
@@ -209,7 +209,7 @@ export function PasswordGeneratorModal() {
         <Panel>
           <SectionTitle>Passphrase Options</SectionTitle>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-            <Text style={{ color: palette().muted, fontSize: 12, width: 130 }}>
+            <Text style={{ color: palette().muted, fontSize: store.type().base, width: store.lengths().generatorLabel }}>
               Words (3–20)
             </Text>
             <Input
@@ -221,7 +221,7 @@ export function PasswordGeneratorModal() {
             />
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-            <Text style={{ color: palette().muted, fontSize: 12, width: 130 }}>Separator</Text>
+            <Text style={{ color: palette().muted, fontSize: store.type().base, width: store.lengths().generatorLabel }}>Separator</Text>
             <Input
               testID="generator-separator"
               value={separator()}
@@ -285,7 +285,7 @@ function SwitchRow(props: {
         gap: 10,
       }}
     >
-      <Text style={{ color: palette().popups.text, fontSize: 12 }}>{props.label}</Text>
+      <Text style={{ color: palette().popups.text, fontSize: store.type().base }}>{props.label}</Text>
       <Switch
         testID={props.testID}
         checked={props.checked}
@@ -314,7 +314,7 @@ function Stepper(props: {
   const palette = store.palette;
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-      <Text style={{ color: palette().muted, fontSize: 12 }}>{props.label}</Text>
+      <Text style={{ color: palette().muted, fontSize: store.type().base }}>{props.label}</Text>
       <SmallButton
         testID={`${props.testID}-decrease`}
         paddingVertical={2}
@@ -326,7 +326,7 @@ function Stepper(props: {
         testID={props.testID}
         style={{
           color: palette().popups.text,
-          fontSize: 13,
+          fontSize: store.type().md,
           width: 20,
           textAlign: "center",
         }}

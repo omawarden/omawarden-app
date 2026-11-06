@@ -4,7 +4,7 @@ import type { CipherRowView, ItemCategory } from "omawarden-app/native";
 import * as store from "../store/appStore";
 import { formatMaskedCardNumber } from "../store/CardFormatter";
 import { markIconFailed, rowIcon } from "../store/Icons";
-import { sidebarWidth } from "../theme/layout";
+import { VAULT_ICON_SIZE, scaleLength, sidebarWidth } from "../theme/layout";
 import { tint } from "../theme/palette";
 import { Icon, type IconName } from "./Icon";
 import { actionID, EmptyHint, focusOutline, useAction } from "./ui";
@@ -55,7 +55,7 @@ export function VaultItemList() {
         <Text
           style={{
             color: palette().popups.text,
-            fontSize: 12,
+            fontSize: store.type().base,
             fontWeight: "bold",
             flexShrink: 1,
             numberOfLines: 1,
@@ -63,7 +63,7 @@ export function VaultItemList() {
         >
           Vault Items
         </Text>
-        <Text style={{ color: palette().muted, fontSize: 11, flexShrink: 0, numberOfLines: 1 }}>
+        <Text style={{ color: palette().muted, fontSize: store.type().sm, flexShrink: 0, numberOfLines: 1 }}>
           {store.visibleItems().length} of {store.filteredItems().length}
         </Text>
       </View>
@@ -110,7 +110,7 @@ function ShowMoreRow(props: { remaining: () => number }) {
       activeStyle={{ backgroundColor: tint(accent(), palette().popups.background, 0.26) }}
       focusStyle={{ borderColor: accent() }}
     >
-      <Text style={{ color: accent(), fontSize: 11, fontWeight: "bold" }}>
+      <Text style={{ color: accent(), fontSize: store.type().sm, fontWeight: "bold" }}>
         Show more ({props.remaining()} remaining)
       </Text>
     </Button>
@@ -164,7 +164,12 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
         <Image
           testID={`cipher-icon-${props.item().id}`}
           src={iconUrl()}
-          style={{ width: 16, height: 16, borderRadius: 3, objectFit: "contain" }}
+          style={{
+            width: scaleLength(VAULT_ICON_SIZE, store.totalScale()),
+            height: scaleLength(VAULT_ICON_SIZE, store.totalScale()),
+            borderRadius: 3,
+            objectFit: "contain",
+          }}
           onError={() => markIconFailed(props.item)}
         />
       </If>
@@ -172,7 +177,7 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
         <Icon
           testID={`cipher-category-icon-${props.item().id}`}
           name={categoryIcon(props.item().category)}
-          size={16}
+          size={VAULT_ICON_SIZE}
           color={active() ? palette().popups.selectedText : palette().popups.text}
         />
       </If>
@@ -181,7 +186,7 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
           <Text
             style={{
               color: active() ? palette().popups.selectedText : palette().popups.text,
-              fontSize: 12,
+              fontSize: store.type().base,
               fontWeight: "bold",
               // NSH's flexShrink defaults to 0, so without this a long title
               // pushes past the row instead of shrinking into an ellipsis.
@@ -199,7 +204,7 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
           testID={`cipher-subtitle-${props.item().id}`}
           style={{
             color: palette().muted,
-            fontSize: 11,
+            fontSize: store.type().sm,
             flexShrink: 1,
             numberOfLines: 1,
           }}
@@ -215,7 +220,7 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
                 paddingHorizontal: 5,
               }}
             >
-              <Text style={{ color: palette().info, fontSize: 9 }}>
+              <Text style={{ color: palette().info, fontSize: store.type()["2xs"] }}>
                 {props.item().organization ?? ""}
               </Text>
             </View>
@@ -228,7 +233,7 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
                 paddingHorizontal: 5,
               }}
             >
-              <Text style={{ color: palette().purple, fontSize: 9 }}>
+              <Text style={{ color: palette().purple, fontSize: store.type()["2xs"] }}>
                 {props.item().attachmentCount} file
               </Text>
             </View>
@@ -241,7 +246,7 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
                 paddingHorizontal: 5,
               }}
             >
-              <Text style={{ color: palette().success, fontSize: 9 }}>TOTP</Text>
+              <Text style={{ color: palette().success, fontSize: store.type()["2xs"] }}>TOTP</Text>
             </View>
           </If>
         </View>

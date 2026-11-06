@@ -41,7 +41,7 @@ export function GhostIconButton(props: {
     >
       <Icon
         name={props.icon}
-        size={props.size ?? 14}
+        size={props.size}
         color={props.color ?? accent()}
       />
     </Button>

@@ -51,10 +51,10 @@ export function AuthView(props: { mode: AuthMode }) {
     >
       <View style={{ width: "100%", maxWidth: 460, gap: 14 }}>
         <View style={{ alignItems: "center", gap: 4 }}>
-          <Text style={{ color: palette().menu.text, fontSize: 28, fontWeight: "bold" }}>
+          <Text style={{ color: palette().menu.text, fontSize: store.type()["7xl"], fontWeight: "bold" }}>
             Omawarden
           </Text>
-          <Text style={{ color: palette().muted, fontSize: 13 }}>
+          <Text style={{ color: palette().muted, fontSize: store.type().md }}>
             {props.mode === "login"
               ? "Sign in to your Bitwarden vault"
               : props.mode === "twoFactor"
@@ -76,7 +76,7 @@ export function AuthView(props: { mode: AuthMode }) {
             <Text
               style={{
                 color: textOnTint(palette().danger, palette().menu.background, 0.18),
-                fontSize: 12,
+                fontSize: store.type().base,
               }}
             >
               {snap().error}
@@ -123,7 +123,7 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
 
       {loginTab() === "password" ? (
         <View style={{ gap: 8 }}>
-          <Text style={{ color: palette().muted, fontSize: 12 }}>Email</Text>
+          <Text style={{ color: palette().muted, fontSize: store.type().base }}>Email</Text>
           <Input
             testID="login-email"
             value={email()}
@@ -135,7 +135,7 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
             onChange={({ value }) => email.set(value)}
             style={inputStyle()}
           />
-          <Text style={{ color: palette().muted, fontSize: 12 }}>Master Password</Text>
+          <Text style={{ color: palette().muted, fontSize: store.type().base }}>Master Password</Text>
           <Input
             testID="login-password"
             value={password()}
@@ -162,12 +162,12 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
               />
             }
           >
-            <Text style={{ color: palette().popups.text, fontSize: 12 }}>Remember email</Text>
+            <Text style={{ color: palette().popups.text, fontSize: store.type().base }}>Remember email</Text>
           </Checkbox>
         </View>
       ) : (
         <View style={{ gap: 8 }}>
-          <Text style={{ color: palette().muted, fontSize: 12 }}>Client ID</Text>
+          <Text style={{ color: palette().muted, fontSize: store.type().base }}>Client ID</Text>
           <Input
             testID="login-client-id"
             value={clientId()}
@@ -179,7 +179,7 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
             onChange={({ value }) => clientId.set(value)}
             style={inputStyle()}
           />
-          <Text style={{ color: palette().muted, fontSize: 12 }}>Client Secret</Text>
+          <Text style={{ color: palette().muted, fontSize: store.type().base }}>Client Secret</Text>
           <Input
             testID="login-client-secret"
             value={clientSecret()}
@@ -213,12 +213,12 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
           gap: 4,
         }}
       >
-        <Text style={{ color: palette().muted, fontSize: 11 }}>Server</Text>
-        <Text style={{ color: palette().popups.text, fontSize: 12, userSelect: "text" }}>
+        <Text style={{ color: palette().muted, fontSize: store.type().sm }}>Server</Text>
+        <Text style={{ color: palette().popups.text, fontSize: store.type().base, userSelect: "text" }}>
           {props.serverUrl || "https://vault.bitwarden.com"}
         </Text>
         {props.identityUrl ? (
-          <Text style={{ color: palette().muted, fontSize: 11, userSelect: "text" }}>
+          <Text style={{ color: palette().muted, fontSize: store.type().sm, userSelect: "text" }}>
             Identity: {props.identityUrl}
           </Text>
         ) : null}
@@ -228,7 +228,7 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
           paddingVertical={2}
           onPress={store.openSettings}
         >
-          <Text style={{ color: palette().popups.selectedText, fontSize: 12 }}>
+          <Text style={{ color: palette().popups.selectedText, fontSize: store.type().base }}>
             Open Settings (Ctrl+,)
           </Text>
         </SmallButton>
@@ -264,7 +264,7 @@ function MtlsCard() {
               size={12}
               color={palette().popups.selectedText}
             />
-            <Text style={{ color: palette().popups.selectedText, fontSize: 12 }}>
+            <Text style={{ color: palette().popups.selectedText, fontSize: store.type().base }}>
               Mutual TLS (mTLS) Client Certificate
             </Text>
           </View>
@@ -285,12 +285,12 @@ function MtlsCard() {
               />
             }
           >
-            <Text style={{ color: palette().popups.text, fontSize: 12 }}>
+            <Text style={{ color: palette().popups.text, fontSize: store.type().base }}>
               Use a client certificate
             </Text>
           </Checkbox>
 
-          <Text style={{ color: palette().muted, fontSize: 11 }}>Client Certificate (PEM)</Text>
+          <Text style={{ color: palette().muted, fontSize: store.type().sm }}>Client Certificate (PEM)</Text>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Input
               testID="login-mtls-cert"
@@ -317,7 +317,7 @@ function MtlsCard() {
             />
           </View>
 
-          <Text style={{ color: palette().muted, fontSize: 11 }}>Private Key (PEM)</Text>
+          <Text style={{ color: palette().muted, fontSize: store.type().sm }}>Private Key (PEM)</Text>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Input
               testID="login-mtls-key"
@@ -344,7 +344,7 @@ function MtlsCard() {
             />
           </View>
 
-          <Text style={{ color: palette().muted, fontSize: 10 }}>
+          <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
             Keep the private key readable only by you (chmod 600). The certificate must match the
             server's hostname and origin.
           </Text>
@@ -460,10 +460,10 @@ function TwoFactorForm() {
 
       {isFido2() ? (
         <View style={{ gap: 6 }}>
-          <Text style={{ color: palette().muted, fontSize: 12 }}>
+          <Text style={{ color: palette().muted, fontSize: store.type().base }}>
             {fido2StatusText(challenge()?.fido2Status)}
           </Text>
-          <Text style={{ color: palette().muted, fontSize: 11 }}>
+          <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
             No verification code is needed. Your security key signs the challenge.
           </Text>
           <ActionButton
@@ -476,7 +476,7 @@ function TwoFactorForm() {
         </View>
       ) : challenge()?.newDevice ? (
         <View style={{ gap: 6 }}>
-          <Text style={{ color: palette().muted, fontSize: 12 }}>Verification code</Text>
+          <Text style={{ color: palette().muted, fontSize: store.type().base }}>Verification code</Text>
           <OtpInput
             testID="twofactor-code"
             length={6}
@@ -487,8 +487,8 @@ function TwoFactorForm() {
             style={{ flexDirection: "row" }}
             groupStyle={{ flexDirection: "row", gap: 6 }}
             cellStyle={{
-              width: 40,
-              height: 44,
+              width: store.lengths().otpCellWidth,
+              height: store.lengths().otpCellHeight,
               alignItems: "center",
               justifyContent: "center",
               borderWidth: 1,
@@ -496,13 +496,13 @@ function TwoFactorForm() {
               borderRadius: 8,
               backgroundColor: palette().menu.background,
               color: palette().menu.text,
-              fontSize: 18,
+              fontSize: store.type()["4xl"],
             }}
           />
         </View>
       ) : (
         <View style={{ gap: 6 }}>
-          <Text style={{ color: palette().muted, fontSize: 12 }}>Code</Text>
+          <Text style={{ color: palette().muted, fontSize: store.type().base }}>Code</Text>
           <OtpInput
             testID="twofactor-code"
             length={6}
@@ -513,8 +513,8 @@ function TwoFactorForm() {
             style={{ flexDirection: "row" }}
             groupStyle={{ flexDirection: "row", gap: 6 }}
             cellStyle={{
-              width: 40,
-              height: 44,
+              width: store.lengths().otpCellWidth,
+              height: store.lengths().otpCellHeight,
               alignItems: "center",
               justifyContent: "center",
               borderWidth: 1,
@@ -522,7 +522,7 @@ function TwoFactorForm() {
               borderRadius: 8,
               backgroundColor: palette().menu.background,
               color: palette().menu.text,
-              fontSize: 18,
+              fontSize: store.type()["4xl"],
             }}
           />
         </View>
@@ -580,15 +580,15 @@ function UnlockForm() {
   return (
     <Panel>
       <View style={{ gap: 4 }}>
-        <Text style={{ color: palette().popups.text, fontSize: 14, fontWeight: "bold" }}>
+        <Text style={{ color: palette().popups.text, fontSize: store.type().lg, fontWeight: "bold" }}>
           {snap().email || "Signed in"}
         </Text>
-        <Text style={{ color: palette().muted, fontSize: 12, userSelect: "text" }}>
+        <Text style={{ color: palette().muted, fontSize: store.type().base, userSelect: "text" }}>
           {snap().serverUrl}
         </Text>
       </View>
 
-      <Text style={{ color: palette().muted, fontSize: 12 }}>Master Password</Text>
+      <Text style={{ color: palette().muted, fontSize: store.type().base }}>Master Password</Text>
       <Input
         testID="unlock-password"
         value={unlockPassword()}
@@ -629,7 +629,7 @@ function UnlockForm() {
               })
             }
           />
-          <Text style={{ color: palette().muted, fontSize: 11 }}>
+          <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
             Uses your system's authentication prompt.
           </Text>
         </View>
@@ -701,7 +701,7 @@ export function TabButton(props: {
       <Text
         style={{
           color: props.active ? palette().popups.selectedText : palette().popups.text,
-          fontSize: 12,
+          fontSize: store.type().base,
           fontWeight: props.active ? "bold" : "normal",
         }}
       >
@@ -721,8 +721,8 @@ export function inputStyle() {
     color: palette.menu.text,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    fontSize: 13,
-    minHeight: 36,
+    fontSize: store.type().md,
+    minHeight: store.lengths().inputMinHeight,
   };
 }
 

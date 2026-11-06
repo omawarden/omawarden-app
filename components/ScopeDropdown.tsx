@@ -49,13 +49,13 @@ export function ScopeDropdown() {
         <Text
           style={{
             color: props.active ? palette().popups.selectedText : palette().popups.text,
-            fontSize: 12,
+            fontSize: store.type().base,
             fontWeight: props.active ? "bold" : "normal",
           }}
         >
           {props.name}
         </Text>
-        <Text style={{ color: palette().muted, fontSize: 11 }}>{props.count}</Text>
+        <Text style={{ color: palette().muted, fontSize: store.type().sm }}>{props.count}</Text>
       </Button>
     );
   };
@@ -74,7 +74,7 @@ export function ScopeDropdown() {
       }}
     >
       <View style={{ minWidth: 220, flex: 1, gap: 4 }}>
-        <Text style={{ color: palette().muted, fontSize: 11, fontWeight: "bold" }}>
+        <Text style={{ color: palette().muted, fontSize: store.type().sm, fontWeight: "bold" }}>
           Vault Scope
         </Text>
         <Each of={snap().scopes} key="index">
@@ -91,7 +91,7 @@ export function ScopeDropdown() {
       </View>
 
       <View style={{ minWidth: 220, flex: 1, gap: 4 }}>
-        <Text style={{ color: palette().muted, fontSize: 11, fontWeight: "bold" }}>Folders</Text>
+        <Text style={{ color: palette().muted, fontSize: store.type().sm, fontWeight: "bold" }}>Folders</Text>
         <ScopeRow
           id="folder-all"
           name="All Folders"
@@ -120,7 +120,7 @@ export function ScopeDropdown() {
           padding: 8,
         }}
       >
-        <Text style={{ color: palette().muted, fontSize: 11 }}>
+        <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
           Scope filters apply together with the category tabs and the search text.
         </Text>
       </View>

@@ -94,7 +94,7 @@ function CategoryTab(props: {
         <Text
           style={{
             color: active() ? palette().menu.selectedText : palette().menu.text,
-            fontSize: 12,
+            fontSize: store.type().base,
             fontWeight: active() ? "bold" : "normal",
           }}
         >
@@ -104,7 +104,7 @@ function CategoryTab(props: {
           testID={`category-count-${props.tab.category}`}
           style={{
             color: active() ? palette().menu.selectedText : palette().muted,
-            fontSize: 12,
+            fontSize: store.type().base,
             opacity: count() === 0 ? 0.4 : 1,
           }}
         >

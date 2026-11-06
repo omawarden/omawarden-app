@@ -53,14 +53,14 @@ export function SshApprovalModal() {
                 padding: 10,
               }}
             >
-              <Text style={{ color: palette().warning, fontSize: 12 }}>
+              <Text style={{ color: palette().warning, fontSize: store.type().base }}>
                 This request arrived over agent forwarding. Only approve it if you trust the
                 remote host asking.
               </Text>
             </View>
           ) : null}
 
-          <Text style={{ color: palette().muted, fontSize: 12 }}>
+          <Text style={{ color: palette().muted, fontSize: store.type().base }}>
             {current().remaining > 0
               ? `${current().remaining} more request${
                   current().remaining === 1 ? "" : "s"

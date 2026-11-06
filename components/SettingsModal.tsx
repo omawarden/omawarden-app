@@ -34,7 +34,7 @@ export function SettingsModal() {
       when={snapshot()}
       else={
         <ModalShell title="Settings" testID="settings-modal">
-          <Text style={{ color: palette().muted, fontSize: 13 }}>Loading settings…</Text>
+          <Text style={{ color: palette().muted, fontSize: store.type().md }}>Loading settings…</Text>
         </ModalShell>
       }
     >
@@ -131,7 +131,7 @@ export function SettingsModal() {
                 />
 
                 <View style={{ gap: 6 }}>
-                  <Text style={{ color: palette().muted, fontSize: 12 }}>
+                  <Text style={{ color: palette().muted, fontSize: store.type().base }}>
                     Theme Appearance
                   </Text>
                   <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
@@ -189,7 +189,7 @@ export function SettingsModal() {
                 />
 
                 <View style={{ gap: 6 }}>
-                  <Text style={{ color: palette().muted, fontSize: 12 }}>
+                  <Text style={{ color: palette().muted, fontSize: store.type().base }}>
                     SSH Agent Confirmation
                   </Text>
                   <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
@@ -275,7 +275,7 @@ export function SettingsModal() {
                           <Text
                             style={{
                               color: check().ok ? palette().success : palette().danger,
-                              fontSize: 12,
+                              fontSize: store.type().base,
                               fontWeight: "bold",
                             }}
                           >
@@ -284,14 +284,14 @@ export function SettingsModal() {
                           <Text
                             style={{
                               color: palette().popups.text,
-                              fontSize: 12,
+                              fontSize: store.type().base,
                               fontWeight: "bold",
                             }}
                           >
                             {check().name}
                           </Text>
                         </View>
-                        <Text style={{ color: palette().muted, fontSize: 11 }}>
+                        <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
                           {check().detail}
                         </Text>
                       </View>
@@ -305,7 +305,7 @@ export function SettingsModal() {
                   </SectionTitle>
                   <Text
                     testID="diagnostic-server-url"
-                    style={{ color: palette().popups.text, fontSize: 12, userSelect: "text" }}
+                    style={{ color: palette().popups.text, fontSize: store.type().base, userSelect: "text" }}
                   >
                     {diagnostics().serverUrlSanitized}
                   </Text>
@@ -314,7 +314,7 @@ export function SettingsModal() {
                       <Text
                         style={{
                           color: palette().muted,
-                          fontSize: 11,
+                          fontSize: store.type().sm,
                           fontFamily: "monospace",
                           userSelect: "text",
                         }}
@@ -393,13 +393,13 @@ export function SettingsModal() {
                     <View style={{ gap: 2 }}>
                       <Text
                         testID="update-current-version"
-                        style={{ color: palette().muted, fontSize: 11 }}
+                        style={{ color: palette().muted, fontSize: store.type().sm }}
                       >
                         Current: {store.updateStatus()?.currentVersion}
                       </Text>
                       <Text
                         testID="update-latest-version"
-                        style={{ color: palette().popups.text, fontSize: 12 }}
+                        style={{ color: palette().popups.text, fontSize: store.type().base }}
                       >
                         {store.updateStatus()?.available
                           ? `Latest: ${store.updateStatus()?.latestVersion}`
@@ -457,7 +457,7 @@ function SaveRow() {
         tone="primary"
         onPress={store.saveSettings}
       />
-      <Text style={{ color: palette().muted, fontSize: 11 }}>
+      <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
         Changes apply immediately after saving.
       </Text>
     </View>
@@ -477,7 +477,7 @@ function DraftText(props: {
   const palette = store.palette;
   return (
     <View style={{ gap: 4 }}>
-      <Text style={{ color: palette().muted, fontSize: 12 }}>{props.label}</Text>
+      <Text style={{ color: palette().muted, fontSize: store.type().base }}>{props.label}</Text>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Input
           testID={props.testID}
@@ -496,7 +496,7 @@ function DraftText(props: {
         ) : null}
       </View>
       {props.hint ? (
-        <Text style={{ color: palette().muted, fontSize: 10 }}>{props.hint}</Text>
+        <Text style={{ color: palette().muted, fontSize: store.type().xs }}>{props.hint}</Text>
       ) : null}
     </View>
   );
@@ -511,7 +511,7 @@ function DraftNumber(props: {
   const palette = store.palette;
   return (
     <View style={{ gap: 4 }}>
-      <Text style={{ color: palette().muted, fontSize: 12 }}>{props.label}</Text>
+      <Text style={{ color: palette().muted, fontSize: store.type().base }}>{props.label}</Text>
       <Input
         testID={props.testID}
         value={String(props.value)}
@@ -522,7 +522,7 @@ function DraftNumber(props: {
             props.onChange(parsed);
           }
         }}
-        style={{ ...inputStyle(), width: 160 }}
+        style={{ ...inputStyle(), width: store.lengths().wideInput }}
       />
     </View>
   );
@@ -544,7 +544,7 @@ function DraftToggle(props: {
         gap: 10,
       }}
     >
-      <Text style={{ color: palette().popups.text, fontSize: 12 }}>{props.label}</Text>
+      <Text style={{ color: palette().popups.text, fontSize: store.type().base }}>{props.label}</Text>
       <ActionButton
         label={props.checked ? "On" : "Off"}
         testID={props.testID}
@@ -559,12 +559,12 @@ function InfoRow(props: { label: string; value: string; testID?: string }) {
   const palette = store.palette;
   return (
     <View style={{ flexDirection: "row", gap: 8, paddingVertical: 2 }}>
-      <View style={{ width: 132 }}>
-        <Text style={{ color: palette().muted, fontSize: 12 }}>{props.label}</Text>
+      <View style={{ width: store.lengths().labelGutter }}>
+        <Text style={{ color: palette().muted, fontSize: store.type().base }}>{props.label}</Text>
       </View>
       <Text
         testID={props.testID}
-        style={{ flex: 1, color: palette().popups.text, fontSize: 12, userSelect: "text" }}
+        style={{ flex: 1, color: palette().popups.text, fontSize: store.type().base, userSelect: "text" }}
       >
         {props.value || "—"}
       </Text>

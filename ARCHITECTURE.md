@@ -318,8 +318,12 @@ Create `theme/palette.ts`:
 ### 5.4 Shell Layout Sizes (`theme/layout.ts`)
 
 - **`theme/layout.ts`** is the single source of every layout size the shell derives from the window: `SIDEBAR_MIN_WIDTH` (320), `SIDEBAR_MAX_WIDTH` (560), `SIDEBAR_WIDTH_RATIO` (0.3), `MIN_WINDOW_WIDTH` (900), `MIN_WINDOW_HEIGHT` (620), `DETAIL_CONTENT_MAX_WIDTH` (900) and `EMPTY_STATE_MAX_WIDTH` (420), plus the pure functions `sidebarWidth(windowWidth, fontScale = 1)` and `windowTooSmall(size)`.
+- It also owns the lengths that exist to make room for text: `LABEL_GUTTER_WIDTH` (132), `GENERATOR_LABEL_WIDTH` (130), `WIDE_INPUT_WIDTH` (160), `OTP_CELL_WIDTH` (40), `OTP_CELL_HEIGHT` (44), `INPUT_MIN_HEIGHT` (36), and the pure `scaleLength(points, scale)` helper. `SYNC_INDICATOR_SIZE` (14) and `VAULT_ICON_SIZE` (16) keep the two visual icon sizes in the same module.
+- **`theme/typeScale.ts`** is the single source of every text size: `TypeStep` (thirteen names), `TypeScale`, the base `TYPE_SCALE` ladder from `2xs` (9) to `7xl` (28), and the pure `scaleType(factor)`.
+- `store/appStore.ts` exposes the reactive accessors beside `palette()`: `appFontScale` (1 until the preferences step), `totalScale()` (`fontScale() × appFontScale()`), `type()` (the ladder at the app factor, since `Text` applies the system factor itself) and `lengths()` (the six text-room lengths at `totalScale()`).
+- `components/Icon.tsx` keeps its `size` prop as the 100% value and multiplies it by `totalScale()` internally, so icon call sites stay unchanged. `GhostIconButton`'s 22-point hit area is a touch target and does not scale.
 - `components/VaultItemList.tsx` reads `sidebarWidth(windowSize().width)` at the point of use; no geometry signal is stored.
-- `components/ItemInspector.tsx` wraps its scroll body's children in a column capped at `DETAIL_CONTENT_MAX_WIDTH`, left aligned, while the pane's background, border and header keep spanning the full pane. Field label gutters, row heights and truncation are unchanged.
+- `components/ItemInspector.tsx` wraps its scroll body's children in a column capped at `DETAIL_CONTENT_MAX_WIDTH`, left aligned, while the pane's background, border and header keep spanning the full pane. Field label gutters read `lengths().labelGutter`; row heights and truncation are unchanged.
 - `components/EmptyInspector.tsx` caps its two-line empty-state column at `EMPTY_STATE_MAX_WIDTH` and centres it.
 - `store/windowGate.ts` exposes `windowBelowMinimum()`, the one predicate the gate and every keyboard path read.
 

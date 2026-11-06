@@ -46,7 +46,7 @@ export function ToastAlert() {
             <Text
               style={{
                 color: textOnTint(accent(), palette().popups.background, 0.24),
-                fontSize: 13,
+                fontSize: store.type().md,
               }}
             >
               {toast().message}

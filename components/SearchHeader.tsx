@@ -58,7 +58,7 @@ export function SearchHeader() {
             paddingVertical: 3,
           }}
         >
-          <Text style={{ color: palette().menu.selectedText, fontSize: 11, fontWeight: "bold" }}>
+          <Text style={{ color: palette().menu.selectedText, fontSize: store.type().sm, fontWeight: "bold" }}>
             {store.filteredItems().length} / {snap().totalCount}
           </Text>
         </View>
@@ -83,7 +83,7 @@ export function SearchHeader() {
         activeStyle={{ backgroundColor: tint(scopeAccent(), scopeBackground(), 0.26) }}
         focusStyle={{ borderColor: scopeAccent() }}
       >
-        <Text style={{ color: palette().menu.text, fontSize: 12 }}>
+        <Text style={{ color: palette().menu.text, fontSize: store.type().base }}>
           Scope: {store.activeScopeName()}
         </Text>
       </Button>

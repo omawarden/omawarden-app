@@ -91,7 +91,7 @@ export function ActionPaletteModal() {
       </Each>
 
       {empty() ? (
-        <Text testID="action-palette-empty" style={{ color: palette().muted, fontSize: 12 }}>
+        <Text testID="action-palette-empty" style={{ color: palette().muted, fontSize: store.type().base }}>
           No actions match “{paletteActions.query()}”.
         </Text>
       ) : null}
@@ -151,13 +151,13 @@ function PaletteRow(props: {
         <Text
           style={{
             color: props.selected ? accent() : foreground(),
-            fontSize: 13,
+            fontSize: store.type().md,
             fontWeight: "bold",
           }}
         >
           {props.action.label}
         </Text>
-        <Text style={{ color: palette().muted, fontSize: 11 }}>{props.action.hint}</Text>
+        <Text style={{ color: palette().muted, fontSize: store.type().sm }}>{props.action.hint}</Text>
       </View>
       {props.action.shortcut ? (
         <View
@@ -170,7 +170,7 @@ function PaletteRow(props: {
             paddingVertical: 1,
           }}
         >
-          <Text style={{ color: palette().muted, fontSize: 10 }}>
+          <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
             {props.action.shortcut}
           </Text>
         </View>

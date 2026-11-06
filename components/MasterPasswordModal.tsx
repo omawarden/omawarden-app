@@ -33,7 +33,7 @@ export function MasterPasswordModal() {
       width={460}
     >
       <Panel>
-        <Text style={{ color: palette().muted, fontSize: 12 }}>
+        <Text style={{ color: palette().muted, fontSize: store.type().base }}>
           Enter your master password to reveal or copy this item's secrets.
         </Text>
         <Input
@@ -49,7 +49,7 @@ export function MasterPasswordModal() {
           style={inputStyle()}
         />
         {error() ? (
-          <Text testID="reprompt-error" style={{ color: palette().danger, fontSize: 12 }}>
+          <Text testID="reprompt-error" style={{ color: palette().danger, fontSize: store.type().base }}>
             {error()}
           </Text>
         ) : null}

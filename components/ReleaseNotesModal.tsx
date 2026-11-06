@@ -25,7 +25,7 @@ export function ReleaseNotesModal() {
                 : "No update check has run yet."}
             </EmptyHint>
             {status()?.error ? (
-              <Text testID="release-notes-error" style={{ color: palette().danger, fontSize: 12 }}>
+              <Text testID="release-notes-error" style={{ color: palette().danger, fontSize: store.type().base }}>
                 {status()?.error}
               </Text>
             ) : null}
@@ -47,12 +47,12 @@ export function ReleaseNotesModal() {
               style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}
             >
               <Chip label={`v${current().version}`} color={palette().success} />
-              <Text style={{ color: palette().popups.text, fontSize: 15, fontWeight: "bold" }}>
+              <Text style={{ color: palette().popups.text, fontSize: store.type().xl, fontWeight: "bold" }}>
                 {current().title}
               </Text>
             </View>
             {current().publishedAt ? (
-              <Text style={{ color: palette().muted, fontSize: 11 }}>
+              <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
                 Published {current().publishedAt}
               </Text>
             ) : null}
