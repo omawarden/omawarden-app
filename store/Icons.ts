@@ -9,7 +9,7 @@
  */
 
 import { signal, type Signal } from "nsh";
-import type { CipherRowView } from "omawarden-app/native";
+import type { CipherRowView, InspectorView } from "omawarden-app/native";
 import * as store from "./appStore";
 import { iconFor, iconDomainFor, resolve } from "./IconPolicy";
 
@@ -44,4 +44,28 @@ export function markIconFailed(item: () => CipherRowView): void {
   if (domain) {
     failure(domain).set(true);
   }
+}
+
+/** The favicon URL for the inspector's header, or "" when it draws the glyph. */
+export function inspectorIcon(item: () => InspectorView): string {
+  const current = store.settings();
+  return iconFor(
+    store.snapshot().serverUrl,
+    inspectorUris(item),
+    resolve(current !== null, current?.config.showWebsiteIcons),
+    (domain) => failure(domain)(),
+  );
+}
+
+/** Remembers that the inspector's favicon did not load. */
+export function markInspectorIconFailed(item: () => InspectorView): void {
+  const domain = iconDomainFor(inspectorUris(item));
+  if (domain) {
+    failure(domain).set(true);
+  }
+}
+
+/** The inspector's raw URIs, in the shape the icon policy takes. */
+function inspectorUris(item: () => InspectorView): string[] {
+  return item().uris.map((entry) => entry.uri);
 }

@@ -71,19 +71,7 @@ export function scaleType(factor: number): TypeScale {
  */
 const NOTE_LINE_HEIGHT_RATIO = 19 / TYPE_SCALE.md;
 
-/**
- * The TOTP code's tracking as a fraction of the `6xl` step: 3 points at 24.
- * Like the leading above, it follows the text it sets rather than adding a
- * fourteenth size to the ladder.
- */
-const TOTP_LETTER_SPACING_RATIO = 3 / TYPE_SCALE["6xl"];
-
 /** The note body's leading at a scaled ladder, rounded and floored at 1. */
 export function noteLineHeight(scale: TypeScale): number {
   return Math.max(1, Math.round(scale.md * NOTE_LINE_HEIGHT_RATIO));
-}
-
-/** The TOTP code's tracking at a scaled ladder, rounded and floored at 1. */
-export function totpLetterSpacing(scale: TypeScale): number {
-  return Math.max(1, Math.round(scale["6xl"] * TOTP_LETTER_SPACING_RATIO));
 }

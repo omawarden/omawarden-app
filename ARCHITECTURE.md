@@ -309,15 +309,15 @@ engine's `Config`. The daemon and the CLI must never gain a presentation field.
    - **`components/VaultItemList.tsx`**:
      - Keyboard-navigable (`Up`/`Down`/`Enter`) list of matching `CipherRowView` items showing category icon, title, subtitle (username / masked card / identity name / SSH key type), favorite star, attachment count badge, and organization badge.
    - **`components/ItemInspector.tsx` & `components/EmptyInspector.tsx`**:
-     - Displays full details of the selected cipher:
-       - **Login**: Username (ghost copy), Password (ghost reveal toggle + copy, Password History ghost action if history exists, dynamic wrapping with highlighted digits), TOTP block (`TOTP Code` label + TTL, accent monospace code, ghost refresh/copy, 3px progress bar that turns danger at 5s), Website URIs (hostname display, ghost copy, ghost launch in browser).
-       - **Card**: Cardholder name, Brand badge, Card number (masked `•••• •••• •••• 1234` vs spaced 4-digit groups when revealed, ghost reveal/copy), Expiration (`MM / YYYY`, ghost copy), CVV/Security Code (ghost reveal/copy).
+     - Displays full details of the selected cipher, ported from the plugin's `ItemInspector.qml`: one scroll body that fills the pane, opened by the item's favicon or category glyph, its name with favorite/organization/folder badges and its category label, followed by one 6-point card per section (10 points of padding, 8-point gap) whose fields are a muted caption label above a medium-weight value, separated by 1pt rules.
+       - **Login**: Username (ghost copy), Password (ghost reveal toggle + copy, monospace once revealed), TOTP block (`TOTP Code` label + TTL, accent monospace code, ghost refresh/copy, 3px progress bar that turns danger at 5s), Website URIs (hostname display, ghost copy, ghost launch in browser).
+       - **Card**: Cardholder name, Brand, Card number (masked `•••• •••• •••• 1234` vs spaced 4-digit groups when revealed, ghost reveal/copy), Expiration (`MM / YYYY`, ghost copy), CVV/Security Code (ghost reveal/copy).
        - **Identity**: Title/Full Name, Username, Company, Email, Phone, SSN/Passport/License numbers, Address fields (each with a ghost copy action).
        - **Secure Note**: Multi-line selectable/copyable note body with a ghost copy action.
-       - **SSH Key**: Key type badge, Fingerprint (ghost copy), Public Key (ghost copy), Private Key (ghost reveal/copy, ghost export to `~/.ssh/` via `SshKeyModal`).
+       - **SSH Key**: Key type, Private Key (ghost reveal/copy, ghost export to `~/.ssh/` via `SshKeyModal`), Public Key (ghost copy), Fingerprint (ghost copy).
        - **Custom Fields**: Text, Hidden (ghost reveal toggle), Boolean, Linked fields with a ghost copy action.
        - **Attachments**: Filename, human-readable size, ghost preview (inline image/text preview panel) and ghost download actions.
-       - **Metadata**: Folder, Organization, Created/Updated timestamps.
+       - **Metadata**: Created/Updated timestamps and the Password History entry point.
      - Field-level actions use the shared 22x22 `components/GhostIconButton.tsx`; chunky text buttons are reserved for panel-level actions.
    - **`components/FooterBar.tsx`**:
      - Clickable ghost actions with shortcut badges: `Actions` (`Ctrl+K`), `Generate` (`Ctrl+G`), `Sync` (`Ctrl+R`), `Lock` (`Ctrl+L`), `Settings` (`Ctrl+,`).
@@ -368,14 +368,14 @@ The card keeps the width it asks for, and the header wraps to fit it: the title 
 
 ### 5.4 Shell Layout Sizes (`theme/layout.ts`)
 
-- **`theme/layout.ts`** is the single source of every layout size the shell derives from the window: `SIDEBAR_MIN_WIDTH` (320), `SIDEBAR_MAX_WIDTH` (560), `SIDEBAR_WIDTH_RATIO` (0.3), `MIN_WINDOW_WIDTH` (900), `MIN_WINDOW_HEIGHT` (620), `DETAIL_CONTENT_MAX_WIDTH` (900) and `EMPTY_STATE_MAX_WIDTH` (420), plus the pure functions `sidebarWidth(windowWidth)`, `minimumWindowSize()` and `windowTooSmall(size)`.
+- **`theme/layout.ts`** is the single source of every layout size the shell derives from the window: `SIDEBAR_MIN_WIDTH` (320), `SIDEBAR_MAX_WIDTH` (560), `SIDEBAR_WIDTH_RATIO` (0.3), `MIN_WINDOW_WIDTH` (900), `MIN_WINDOW_HEIGHT` (620) and `EMPTY_STATE_MAX_WIDTH` (420), plus the pure functions `sidebarWidth(windowWidth)`, `minimumWindowSize()` and `windowTooSmall(size)`.
 - The minimum is a fixed floor. `minimumWindowSize()` returns the two base minimums and `windowTooSmall()` compares against them, so the predicate and the gate's displayed minimum can never disagree. Neither takes a scale: the text size must not raise the window size the shell needs.
 - It also owns the lengths that exist to make room for text: `LABEL_GUTTER_WIDTH` (132), `GENERATOR_LABEL_WIDTH` (130), `WIDE_INPUT_WIDTH` (160), `OTP_CELL_WIDTH` (40), `OTP_CELL_HEIGHT` (44), `INPUT_MIN_HEIGHT` (36), and the pure `scaleLength(points, scale)` helper. `SYNC_INDICATOR_SIZE` (14) and `VAULT_ICON_SIZE` (16) keep the two visual icon sizes in the same module.
 - **`theme/typeScale.ts`** is the single source of every text size: `TypeStep` (thirteen names), `TypeScale`, the base `TYPE_SCALE` ladder from `2xs` (9) to `7xl` (28), and the pure `scaleType(factor)`.
 - `store/appStore.ts` exposes the reactive accessors beside `palette()`: `appFontScale` (the factor loaded from `ui.json` and set by the Text size slider), `totalScale()` (`fontScale() × appFontScale()`), `type()` (the ladder at the app factor, since `Text` applies the system factor itself) and `lengths()` (the six text-room lengths at `totalScale()`).
 - `components/Icon.tsx` keeps its `size` prop as the 100% value and multiplies it by `totalScale()` internally, so icon call sites stay unchanged. `GhostIconButton`'s 22-point hit area is a touch target and does not scale.
 - `components/VaultItemList.tsx` reads `sidebarWidth(windowSize().width)` at the point of use; the list follows the window alone, so the text size cannot widen it past the 3:7 split and push the detail pane out; no geometry signal is stored.
-- `components/ItemInspector.tsx` wraps its scroll body's children in a column capped at `DETAIL_CONTENT_MAX_WIDTH`, left aligned, while the pane's background, border and header keep spanning the full pane. Field label gutters read `lengths().labelGutter`; row heights and truncation are unchanged.
+- `components/ItemInspector.tsx` lets its scroll body fill the pane: the sections are the cards, so a capped content column would leave a wide pane half empty. Section cards are 6-point rounded frames with 10 points of padding and an 8-point gap, and each field is a muted caption label above a medium-weight value with a 1pt rule between visible rows, matching the plugin's `ItemInspector.qml`. The item's icon, name, badges and category live at the top of the scroll body rather than in a header bar. Every spec list is built inside an `Each` binding, never in the component body, so a reveal toggle or a TOTP tick rebuilds the rows.
 - `components/EmptyInspector.tsx` caps its two-line empty-state column at `EMPTY_STATE_MAX_WIDTH` and centres it.
 - `store/windowGate.ts` exposes `windowBelowMinimum()`, the one predicate the gate and every keyboard path read. It passes the window size alone; the text size is not part of the question.
 
