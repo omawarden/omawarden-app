@@ -338,6 +338,8 @@ engine's `Config`. The daemon and the CLI must never gain a presentation field.
 
 Every dialog is built on `components/ui.tsx`'s `ModalShell`: a centred card capped at 92% of the window height, with the body in a `Scroll` that has `flexShrink: 1`. The shrink is what bounds the body: NSH defaults `flexShrink` to 0, so a body left at `flexGrow: 0` sizes itself to its content, reports no scroll range, and strands every row below the window's bottom edge. Modals taller than the window (Settings at the 900 × 620 floor) must scroll.
 
+The card keeps the width it asks for, and the header wraps to fit it: the title column takes `flex: 1` with `minWidth: 0`, so the subtitle wraps instead of demanding its single-line width, and the Close control is `flexShrink: 0`. Both are load-bearing at large text sizes, where NSH's default of not shrinking would let the text column grow past the card and push Close out beyond the card's clipped edge.
+
 1. **`components/ActionPaletteModal.tsx` (`Ctrl+K`)**:
    - Searchable, keyboard-first command palette (`↑`/`↓` move, `Enter` runs, direct shortcut keystrokes run the matching action) with no per-row "Run" buttons. Each row shows a leading glyph, the label and hint, and a right-aligned shortcut badge.
    - Lists context-aware actions for the selected cipher (Copy Password, Copy Username, Copy TOTP, Open URL, Reveal Password, Export SSH Key, View Password History) plus global actions (Sync Vault, Open Password Generator, Create SSH Key, Lock Vault, Open Settings).
