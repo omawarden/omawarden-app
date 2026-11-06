@@ -70,6 +70,19 @@ the app shows the quick-unlock action only when both hold.
   served from the in-memory `CachedVault` on the Rust side and from
   `FilterProjection` signals on the TSX side.
 
+## Type Scale
+
+The named set of font sizes in `theme/typeScale.ts`: thirteen steps from `2xs`
+(9 points) to `7xl` (28 points), and the single source of every text size in the
+interface. Components read a step from `type()` rather than hardcoding a number,
+so a new component cannot invent a fourteenth size.
+
+The scale is the app factor only. `Text` applies the system text scale on top,
+so `type()` must not multiply by the system factor again. `totalScale()` is the
+separate factor (`fontScale() × appFontScale()`) for sizes that do not follow
+the system setting themselves, such as icons and the fixed gutters that make
+room for text.
+
 ## Minimum Window Gate
 
 The opaque, full-window overlay shown when either dimension of the window is

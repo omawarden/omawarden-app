@@ -21,10 +21,10 @@ export function DependencyCheckView() {
       }}
     >
       <View style={{ width: "100%", maxWidth: 680, gap: 4 }}>
-        <Text style={{ color: palette().menu.text, fontSize: 24, fontWeight: "bold" }}>
+        <Text style={{ color: palette().menu.text, fontSize: store.type()["6xl"], fontWeight: "bold" }}>
           System Dependencies
         </Text>
-        <Text style={{ color: palette().muted, fontSize: 13 }}>
+        <Text style={{ color: palette().muted, fontSize: store.type().md }}>
           Omawarden needs these system packages before it can protect your vault.
         </Text>
       </View>
@@ -43,7 +43,7 @@ export function DependencyCheckView() {
               >
                 <View style={{ gap: 2, flex: 1 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <Text style={{ color: palette().popups.text, fontSize: 14, fontWeight: "bold" }}>
+                    <Text style={{ color: palette().popups.text, fontSize: store.type().lg, fontWeight: "bold" }}>
                       {pkg().name}
                     </Text>
                     <Chip
@@ -51,9 +51,9 @@ export function DependencyCheckView() {
                       color={pkg().required ? palette().info : palette().muted}
                     />
                   </View>
-                  <Text style={{ color: palette().muted, fontSize: 12 }}>{pkg().description}</Text>
+                  <Text style={{ color: palette().muted, fontSize: store.type().base }}>{pkg().description}</Text>
                   {pkg().version ? (
-                    <Text style={{ color: palette().muted, fontSize: 11 }}>
+                    <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
                       Version {pkg().version}
                     </Text>
                   ) : null}
@@ -81,7 +81,7 @@ export function DependencyCheckView() {
                         : pkg().required
                           ? palette().danger
                           : palette().warning,
-                      fontSize: 12,
+                      fontSize: store.type().base,
                       fontWeight: "bold",
                     }}
                   >
@@ -131,7 +131,7 @@ export function DependencyCheckView() {
         )}
       </If>
       <If when={!status()}>
-        <Text style={{ color: palette().muted, fontSize: 13 }}>
+        <Text style={{ color: palette().muted, fontSize: store.type().md }}>
           Checking system dependencies…
         </Text>
       </If>

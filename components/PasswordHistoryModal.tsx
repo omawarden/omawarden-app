@@ -39,7 +39,7 @@ export function PasswordHistoryModal() {
                   flex: 1,
                   minWidth: 180,
                   color: palette().popups.text,
-                  fontSize: 13,
+                  fontSize: store.type().md,
                   fontFamily: "monospace",
                 }}
               >

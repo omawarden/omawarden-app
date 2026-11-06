@@ -37,11 +37,11 @@ export function SectionTitle(props: { children?: JSX.Element; hint?: string }) {
   const palette = store.palette;
   return (
     <View style={{ gap: 2 }}>
-      <Text style={{ color: palette().menu.text, fontSize: 15, fontWeight: "bold" }}>
+      <Text style={{ color: palette().menu.text, fontSize: store.type().xl, fontWeight: "bold" }}>
         {props.children}
       </Text>
       {props.hint ? (
-        <Text style={{ color: palette().muted, fontSize: 12 }}>{props.hint}</Text>
+        <Text style={{ color: palette().muted, fontSize: store.type().base }}>{props.hint}</Text>
       ) : null}
     </View>
   );
@@ -82,7 +82,7 @@ export function Chip(props: { label: string; color: string; testID?: string }) {
       <Text
         style={{
           color: textOnTint(props.color, palette().menu.background, 0.18),
-          fontSize: 11,
+          fontSize: store.type().sm,
           fontWeight: "bold",
         }}
       >
@@ -103,7 +103,7 @@ export function SolidBadge(props: { label: string; color: string }) {
         alignSelf: "flex-start",
       }}
     >
-      <Text style={{ color: textOn(props.color), fontSize: 11, fontWeight: "bold" }}>
+      <Text style={{ color: textOn(props.color), fontSize: store.type().sm, fontWeight: "bold" }}>
         {props.label}
       </Text>
     </View>
@@ -159,7 +159,7 @@ export function ActionButton(props: {
               : tone === "danger"
                 ? textOnTint(palette().danger, palette().menu.background, 0.2)
                 : palette().menu.text,
-          fontSize: 13,
+          fontSize: store.type().md,
           fontWeight: "bold",
         }}
       >
@@ -210,7 +210,7 @@ export function SmallButton(props: {
       disabledStyle={{ opacity: 0.5 }}
     >
       {props.children ?? (
-        <Text style={{ color: palette().popups.selectedText, fontSize: 11, fontWeight: "bold" }}>
+        <Text style={{ color: palette().popups.selectedText, fontSize: store.type().sm, fontWeight: "bold" }}>
           {props.label}
         </Text>
       )}
@@ -232,8 +232,8 @@ export function FieldRow(props: {
     <If when={props.value}>
       {(value) => (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 3 }}>
-          <View style={{ width: 132 }}>
-            <Text style={{ color: palette().muted, fontSize: 12 }}>{props.label}</Text>
+          <View style={{ width: store.lengths().labelGutter }}>
+            <Text style={{ color: palette().muted, fontSize: store.type().base }}>{props.label}</Text>
           </View>
           <Text
             testID={props.testID}
@@ -241,7 +241,7 @@ export function FieldRow(props: {
               userSelect: "text",
               flex: 1,
               color: props.mutedValue ? palette().muted : palette().popups.text,
-              fontSize: 13,
+              fontSize: store.type().md,
               fontFamily: props.mono ? "monospace" : undefined,
             }}
           >
@@ -311,11 +311,11 @@ export function ModalShell(props: {
           }}
         >
           <View style={{ gap: 2 }}>
-            <Text style={{ color: palette().popups.text, fontSize: 18, fontWeight: "bold" }}>
+            <Text style={{ color: palette().popups.text, fontSize: store.type()["4xl"], fontWeight: "bold" }}>
               {props.title}
             </Text>
             {props.subtitle ? (
-              <Text style={{ color: palette().muted, fontSize: 12 }}>{props.subtitle}</Text>
+              <Text style={{ color: palette().muted, fontSize: store.type().base }}>{props.subtitle}</Text>
             ) : null}
           </View>
           <SmallButton
@@ -338,7 +338,7 @@ export function EmptyHint(props: { children?: JSX.Element }) {
   const palette = store.palette;
   return (
     <View style={{ padding: 16, alignItems: "center", justifyContent: "center" }}>
-      <Text style={{ color: palette().muted, fontSize: 13, textAlign: "center" }}>
+      <Text style={{ color: palette().muted, fontSize: store.type().md, textAlign: "center" }}>
         {props.children}
       </Text>
     </View>

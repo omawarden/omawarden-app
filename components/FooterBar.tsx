@@ -2,6 +2,7 @@ import { Animated, createMotion, effect, Text, View } from "nsh";
 import { Button } from "nsh/base";
 import * as store from "../store/appStore";
 import * as paletteActions from "../store/actionPalette";
+import { SYNC_INDICATOR_SIZE, scaleLength } from "../theme/layout";
 import { tint } from "../theme/palette";
 import { Icon, type IconName } from "./Icon";
 import { actionID, focusOutline, useAction } from "./ui";
@@ -68,14 +69,14 @@ export function FooterBar() {
         onPress={store.openSettings}
       />
       <View style={{ flex: 1 }} />
-      <Text style={{ color: palette().muted, fontSize: 10 }}>
+      <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
         Theme: {store.theme() === "light" ? "Light" : "Dark"}
       </Text>
-      <Text style={{ color: palette().muted, fontSize: 10 }}>
+      <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
         Engine {snap().engineVersion ?? "unknown"}
       </Text>
       {snap().lastSync ? (
-        <Text style={{ color: palette().muted, fontSize: 10 }}>Synced {snap().lastSync}</Text>
+        <Text style={{ color: palette().muted, fontSize: store.type().xs }}>Synced {snap().lastSync}</Text>
       ) : null}
       {update()?.available ? (
         <Button
@@ -97,7 +98,7 @@ export function FooterBar() {
           activeStyle={{ backgroundColor: tint(updateAccent(), updateBackground(), 0.34) }}
           focusStyle={{ borderColor: updateAccent() }}
         >
-          <Text style={{ color: palette().info, fontSize: 10, fontWeight: "bold" }}>
+          <Text style={{ color: palette().info, fontSize: store.type().xs, fontWeight: "bold" }}>
             Update {update()?.latestVersion}
           </Text>
         </Button>
@@ -130,8 +131,8 @@ function SyncIndicator() {
       testID="sync-indicator"
       accessibilityLabel="Syncing"
       style={{
-        width: 14,
-        height: 14,
+        width: scaleLength(SYNC_INDICATOR_SIZE, store.totalScale()),
+        height: scaleLength(SYNC_INDICATOR_SIZE, store.totalScale()),
         alignItems: "center",
         justifyContent: "center",
         ...motion.style,
@@ -175,10 +176,10 @@ function FooterAction(props: {
       focusStyle={{ backgroundColor: tint(accent(), background(), 0.08) }}
     >
       <Icon name={props.icon} size={11} color={palette().muted} />
-      <Text style={{ color: palette().muted, fontSize: 11, fontWeight: "bold" }}>
+      <Text style={{ color: palette().muted, fontSize: store.type().sm, fontWeight: "bold" }}>
         {props.label}
       </Text>
-      <Text style={{ color: palette().muted, fontSize: 9 }}>{props.shortcut}</Text>
+      <Text style={{ color: palette().muted, fontSize: store.type()["2xs"] }}>{props.shortcut}</Text>
     </Button>
   );
 }

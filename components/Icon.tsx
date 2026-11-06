@@ -5,6 +5,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "nsh";
+import { totalScale } from "../store/appStore";
 
 export type IconName =
   | "copy"
@@ -244,7 +245,9 @@ export interface IconProps {
 
 /** A razor-sharp Lucide icon drawn natively with the NSH 2D canvas. */
 export function Icon(props: IconProps) {
-  const size = props.size ?? 14;
+  // `size` is the 100% value; icons follow the total factor so they stay in
+  // step with text when the system or the app enlarges it.
+  const size = Math.round((props.size ?? 14) * totalScale());
   const drawFn = glyphs[props.name];
   return (
     <Canvas

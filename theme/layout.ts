@@ -25,6 +25,38 @@ export const DETAIL_CONTENT_MAX_WIDTH = 900;
 /** The widest the empty detail state's reading column grows. */
 export const EMPTY_STATE_MAX_WIDTH = 420;
 
+/** The gutter that keeps a field label clear of its value. */
+export const LABEL_GUTTER_WIDTH = 132;
+
+/** The gutter that keeps a generator control's label clear of its input. */
+export const GENERATOR_LABEL_WIDTH = 130;
+
+/** The wide field used for a long single-line setting. */
+export const WIDE_INPUT_WIDTH = 160;
+
+/** One cell of the one-time-code input. */
+export const OTP_CELL_WIDTH = 40;
+
+/** One cell of the one-time-code input. */
+export const OTP_CELL_HEIGHT = 44;
+
+/** The shortest a single-line input renders. */
+export const INPUT_MIN_HEIGHT = 36;
+
+/** The frame around the footer's sync spinner. */
+export const SYNC_INDICATOR_SIZE = 14;
+
+/** The website icon at the start of a vault row. */
+export const VAULT_ICON_SIZE = 16;
+
+/**
+ * A length at `scale`, rounded to whole points and never below 1. Use it for
+ * the widths that exist to make room for text, not for padding or gaps.
+ */
+export function scaleLength(points: number, scale: number): number {
+  return Math.max(1, Math.round(points * scale));
+}
+
 /**
  * The vault list width for a window width: the preferred share of the window,
  * clamped to the sidebar's range and rounded to whole points.

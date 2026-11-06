@@ -110,7 +110,7 @@ export function SshKeyModal() {
               <FieldRow label="Public Key" value={sshItem()!.publicKey} mono />
             </View>
           ) : (
-            <Text testID="ssh-export-empty" style={{ color: palette().warning, fontSize: 12 }}>
+            <Text testID="ssh-export-empty" style={{ color: palette().warning, fontSize: store.type().base }}>
               Select an SSH key item in the vault before exporting.
             </Text>
           )}
@@ -149,7 +149,7 @@ export function SshKeyModal() {
 
           {mode() === "create" ? (
             <View style={{ gap: 4 }}>
-              <Text style={{ color: palette().muted, fontSize: 12 }}>Algorithm</Text>
+              <Text style={{ color: palette().muted, fontSize: store.type().base }}>Algorithm</Text>
               <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
                 <Each of={ALGORITHMS} key="index">
                   {(entry) => (
@@ -168,7 +168,7 @@ export function SshKeyModal() {
             </View>
           ) : (
             <View style={{ gap: 4 }}>
-              <Text style={{ color: palette().muted, fontSize: 12 }}>
+              <Text style={{ color: palette().muted, fontSize: store.type().base }}>
                 OpenSSH Private Key
               </Text>
               <Input
@@ -278,7 +278,7 @@ export function SshKeyModal() {
                 onCopy={() => store.copyText(preview()!.publicKey, "public key", false)}
               />
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Text style={{ color: palette().muted, fontSize: 12, width: 132 }}>
+                <Text style={{ color: palette().muted, fontSize: store.type().base, width: store.lengths().labelGutter }}>
                   Private Key
                 </Text>
                 <Text
@@ -288,7 +288,7 @@ export function SshKeyModal() {
                     numberOfLines: 3,
                     flex: 1,
                     color: palette().popups.text,
-                    fontSize: 11,
+                    fontSize: store.type().sm,
                     fontFamily: "monospace",
                   }}
                 >
@@ -304,7 +304,7 @@ export function SshKeyModal() {
               </View>
             </View>
           ) : (
-            <Text style={{ color: palette().danger, fontSize: 12 }}>
+            <Text style={{ color: palette().danger, fontSize: store.type().base }}>
               {preview()!.error ?? "Could not prepare the SSH key."}
             </Text>
           )}
@@ -318,7 +318,7 @@ export function SshKeyModal() {
           padding: 10,
         }}
       >
-        <Text style={{ color: palette().muted, fontSize: 11 }}>
+        <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
           Private keys are written with 0600 permissions and are never displayed unless you
           reveal them here.
         </Text>
@@ -339,7 +339,7 @@ function SettingInput(props: {
   const palette = store.palette;
   return (
     <View style={{ gap: 4 }}>
-      <Text style={{ color: palette().muted, fontSize: 12 }}>{props.label}</Text>
+      <Text style={{ color: palette().muted, fontSize: store.type().base }}>{props.label}</Text>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Input
           testID={props.testID}
@@ -358,7 +358,7 @@ function SettingInput(props: {
         ) : null}
       </View>
       {props.hint ? (
-        <Text style={{ color: palette().muted, fontSize: 10 }}>{props.hint}</Text>
+        <Text style={{ color: palette().muted, fontSize: store.type().xs }}>{props.hint}</Text>
       ) : null}
     </View>
   );
@@ -380,7 +380,7 @@ function ToggleRow(props: {
         gap: 10,
       }}
     >
-      <Text style={{ color: palette().popups.text, fontSize: 12 }}>{props.label}</Text>
+      <Text style={{ color: palette().popups.text, fontSize: store.type().base }}>{props.label}</Text>
       <ActionButton
         label={props.checked ? "On" : "Off"}
         testID={props.testID}
