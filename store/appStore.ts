@@ -180,8 +180,9 @@ export const palette = computed<ThemePalette>(() =>
 );
 
 /**
- * The app's own text-size factor. It is fixed at 1 until the preferences file
- * and the settings control land; the system factor stays separate in `Text`.
+ * The app's own text-size factor, from the Text size setting. It multiplies on
+ * top of the system factor; `Text` applies the system factor itself, so the
+ * type ladder reads this one only.
  */
 export const appFontScale = signal(1);
 
@@ -598,8 +599,47 @@ export function applyHostTheme(payload: unknown): void {
 export function setTheme(next: ThemeAppearance): void {
   theme.set(next);
   defer(() => {
-    applyUiPrefs(OmawardenBridge.updateUiPrefs({ theme: next }));
+    // Only the theme comes back here: a text-size write may still be pending,
+    // and its response would carry the older factor.
+    const prefs = OmawardenBridge.updateUiPrefs({ theme: next });
+    theme.set(prefs.theme);
   });
+}
+
+// A drag reports a new value on every step, so the disk write waits for the
+// slider to settle. `flushAppFontScale` writes at once when the change ends.
+const FONT_SCALE_WRITE_MS = 300;
+const MIN_APP_FONT_SCALE = 1;
+const MAX_APP_FONT_SCALE = 4;
+let fontScaleTimer: ReturnType<typeof setTimeout> | null = null;
+
+function cancelFontScaleWrite(): void {
+  if (fontScaleTimer !== null) {
+    clearTimeout(fontScaleTimer);
+    fontScaleTimer = null;
+  }
+}
+
+/** Sets the app's text-size factor, writing it after the slider settles. */
+export function setAppFontScale(next: number): void {
+  const clamped = Number.isFinite(next)
+    ? Math.min(MAX_APP_FONT_SCALE, Math.max(MIN_APP_FONT_SCALE, next))
+    : MIN_APP_FONT_SCALE;
+  appFontScale.set(clamped);
+  cancelFontScaleWrite();
+  fontScaleTimer = setTimeout(() => {
+    fontScaleTimer = null;
+    OmawardenBridge.updateUiPrefs({ fontScale: clamped });
+  }, FONT_SCALE_WRITE_MS);
+}
+
+/** Writes the pending text-size factor now, if the slider has not settled. */
+export function flushAppFontScale(): void {
+  if (fontScaleTimer === null) {
+    return;
+  }
+  cancelFontScaleWrite();
+  OmawardenBridge.updateUiPrefs({ fontScale: appFontScale() });
 }
 
 /** Applies a preferences snapshot to the signals the UI reads. */

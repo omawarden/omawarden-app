@@ -83,18 +83,41 @@ separate factor (`fontScale() × appFontScale()`) for sizes that do not follow
 the system setting themselves, such as icons and the fixed gutters that make
 room for text.
 
+## Font Scale
+
+The user's text-size factor, set by the Text size slider in Settings › General:
+100% to 400% in 10% steps, stored as `fontScale` in the UI preferences file.
+The **app factor** is what the setting holds; the **total factor** is the app
+factor multiplied by the system text scale (`totalScale()`), and it is what the
+icon sizes, the fixed gutters and the minimum-window threshold follow. The two
+are separate so the app's setting multiplies the system accessibility setting
+instead of replacing it.
+
+`Font Scale` is not the **Type Scale**: the type scale is the fixed ladder of
+thirteen named sizes, and the font scale is the factor applied to it. Text is
+scaled by the app factor only (the system factor applies on top through
+`Text`), while everything that cannot read the system setting itself uses the
+total factor.
+
 ## Minimum Window Gate
 
 The opaque, full-window overlay shown when either dimension of the window is
-below its floor (`MIN_WINDOW_WIDTH` 900 or `MIN_WINDOW_HEIGHT` 620). It states
-the live current size, the required minimum, and a one-line instruction to
-resize; it has no controls and no dismiss action, because only resizing clears
-it.
+below its floor. The floor is `MIN_WINDOW_WIDTH` 900 by `MIN_WINDOW_HEIGHT`
+620 at 100%, and both multiply by the total font scale, rounded up, so the
+minimum follows the text size. It states the live current size, the required
+minimum at the current factor, and a one-line instruction to resize.
+
+When the window fits at 100% but not at the current factor, the gate also shows
+a "Reset text size to 100%" button: the factor is then the reason the window
+does not fit, and the setting lives behind the gate. When the window is too
+small even at 100%, the button is hidden, because resetting the text size would
+not help. The reset is pointer-only; it adds no keyboard shortcut, and every
+keyboard path stays inert while the gate is up. There is still no dismiss
+control for the size case itself.
 
 The gate is an overlay, not a replacement. The workspace, every dialog and the
 toast stay mounted underneath, so shrinking and restoring preserves form input,
-open dialogs and scroll position. While it is up, every keyboard shortcut is
-inert.
+open dialogs and scroll position.
 
 It does **not** resize the window or ask the window manager for a minimum size:
 NSH 0.4.0 exposes no native minimum window size, so the app enforces its own

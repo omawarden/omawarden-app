@@ -1,5 +1,5 @@
 import { Text, View } from "nsh";
-import { Input } from "nsh/base";
+import { Input, Slider } from "nsh/base";
 import { signal } from "nsh";
 import type { SshAgentPolicy, ThemeAppearance } from "omawarden-app/native";
 import * as store from "../store/appStore";
@@ -41,6 +41,7 @@ export function SettingsModal() {
       {(current) => {
         const config = () => current().config;
         const diagnostics = () => current().diagnostics;
+        const percent = () => Math.round(store.appFontScale() * 100);
         return (
           <ModalShell
             title="Settings"
@@ -147,6 +148,64 @@ export function SettingsModal() {
                       active={store.theme() === "light"}
                       onPress={() => store.setTheme("light" as ThemeAppearance)}
                     />
+                  </View>
+                </View>
+
+                <View style={{ gap: 6 }}>
+                  <Text style={{ color: palette().muted, fontSize: store.type().base }}>
+                    Text size
+                  </Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                    <Slider
+                      testID="settings-text-size"
+                      style={{ flex: 1 }}
+                      min={100}
+                      max={400}
+                      step={10}
+                      value={percent()}
+                      accessibilityLabel="Text size"
+                      onChange={({ value }) => {
+                        const next = Array.isArray(value) ? value[1] : value;
+                        store.setAppFontScale(next / 100);
+                      }}
+                      onChangeEnd={() => store.flushAppFontScale()}
+                      focusWithinStyle={{
+                        borderRadius: 6,
+                        backgroundColor: tint(
+                          palette().popups.selectedText,
+                          palette().popups.background,
+                          0.1,
+                        ),
+                      }}
+                      trackStyle={{ height: 20, justifyContent: "center" }}
+                      indicatorStyle={{
+                        height: 4,
+                        borderRadius: 999,
+                        backgroundColor: palette().popups.border,
+                      }}
+                      rangeStyle={{
+                        height: 4,
+                        borderRadius: 999,
+                        backgroundColor: palette().popups.selectedText,
+                      }}
+                      thumbStyle={{
+                        width: 14,
+                        height: 14,
+                        borderRadius: 999,
+                        backgroundColor: palette().popups.selectedText,
+                      }}
+                    />
+                    <Text
+                      testID="settings-text-size-value"
+                      style={{
+                        minWidth: 48,
+                        textAlign: "right",
+                        color: palette().popups.text,
+                        fontSize: store.type().base,
+                      }}
+                    >
+                      {`${percent()}%`}
+                    </Text>
                   </View>
                 </View>
 

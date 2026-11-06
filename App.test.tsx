@@ -1,4 +1,5 @@
 import { expect, open, test } from "nsh/test";
+import { OmawardenBridge } from "omawarden-app/native";
 
 type MockState = Record<string, unknown>;
 
@@ -18,6 +19,15 @@ function openMockWithClock(mockState: MockState, params: Record<string, unknown>
     platform: "linux",
     clock: {},
     host: { params: { mock: true, mockState, ...params } },
+  });
+}
+
+function openMockAt(width: number, height: number, mockState: MockState) {
+  return open("./App.tsx", {
+    width,
+    height,
+    platform: "linux",
+    host: { params: { mock: true, mockState } },
   });
 }
 
@@ -1018,6 +1028,51 @@ test("settings browse buttons fill the download and certificate paths", async ()
   expect(app.value("id:settings-client-key")).toBe("/tmp/omawarden-mock/client.pem");
 });
 
+// ---------------------------------------------------------------------------
+// Text size
+// ---------------------------------------------------------------------------
+
+test("text size scales the type and saves the factor", async () => {
+  // 200% asks for 1800 × 1240, so the window has to be larger than the default
+  // or the gate would cover the settings modal before the drag ends.
+  const app = await openMockAt(1920, 1300, {
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+  });
+
+  await app.press("id:open-settings");
+  expect(app.shows("id:settings-text-size")).toBe(true);
+  expect(app.texts()).toContain("100%");
+
+  // The thumb sits at 100%; 200 points of drag is 200% on this track.
+  await app.drag("label:Text size", { x: 200, y: 0 });
+
+  expect(app.texts()).toContain("200%");
+  // `type().base` is 12 points at 100%, so it doubles at 200%.
+  expect(app.spanStyle("id:settings-text-size-value >> text:200%").fontSize).toBe(24);
+  expect(OmawardenBridge.getUiPrefs().fontScale).toBe(2);
+});
+
+test("text size writes once after the slider settles", async () => {
+  const app = await openMockWithClock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:open-settings");
+  await app.dragAndHold("label:Text size", { x: 200, y: 0 });
+
+  // The drag re-renders as it goes, but nothing reaches the preferences file
+  // until the change ends.
+  expect(app.texts()).toContain("200%");
+  expect(OmawardenBridge.getUiPrefs().fontScale).toBe(1);
+
+  await app.drop();
+  expect(OmawardenBridge.getUiPrefs().fontScale).toBe(2);
+
+  // The pending write was cancelled by the flush, so the clock moves on
+  // without a second one.
+  await app.clock!.runFor(1000);
+  expect(OmawardenBridge.getUiPrefs().fontScale).toBe(2);
+});
+
 test("release notes load when an update is available", async () => {
   const app = await openMock({
     phase: "unlocked",
@@ -1165,6 +1220,52 @@ test("SSH approval denies a request and handles a summon payload", async () => {
 // ---------------------------------------------------------------------------
 // Minimum window gate
 // ---------------------------------------------------------------------------
+
+test("minimum window gate resets a text size the window cannot fit", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+    uiPrefs: { fontScale: 2 },
+  });
+
+  expect(app.shows("id:minimum-window-gate")).toBe(true);
+  expect(app.texts()).toContain("Minimum: 1800 × 1240");
+  expect(app.shows("id:minimum-window-gate-reset")).toBe(true);
+
+  // The reset is a pointer escape hatch only; every keyboard path stays inert.
+  await app.keyboard.press("tab");
+  await app.keyboard.press("enter");
+  expect(app.shows("id:minimum-window-gate")).toBe(true);
+  expect(OmawardenBridge.getUiPrefs().fontScale).toBe(2);
+
+  await app.press("id:minimum-window-gate-reset");
+  expect(app.shows("id:minimum-window-gate")).toBe(false);
+  expect(OmawardenBridge.getUiPrefs().fontScale).toBe(1);
+
+  await app.press("id:open-settings");
+  expect(app.texts()).toContain("100%");
+  expect(app.spanStyle("id:settings-text-size-value >> text:100%").fontSize).toBe(12);
+});
+
+test("minimum window gate hides the text size reset when 100% does not fit", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.setViewport(800, 600);
+  expect(app.shows("id:minimum-window-gate")).toBe(true);
+  expect(app.texts()).toContain("Minimum: 900 × 620");
+  expect(app.shows("id:minimum-window-gate-reset")).toBe(false);
+
+  // A large factor does not earn the reset when the window is too small at
+  // 100%: resetting the text size would not make it fit.
+  const scaled = await openMock({
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+    uiPrefs: { fontScale: 2 },
+  });
+  await scaled.setViewport(800, 600);
+  expect(scaled.shows("id:minimum-window-gate")).toBe(true);
+  expect(scaled.shows("id:minimum-window-gate-reset")).toBe(false);
+});
 
 test("minimum window gate covers a too-small window and clears when it grows", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });

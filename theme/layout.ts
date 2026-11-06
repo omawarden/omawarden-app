@@ -61,9 +61,9 @@ export function scaleLength(points: number, scale: number): number {
  * The vault list width for a window width: the preferred share of the window,
  * clamped to the sidebar's range and rounded to whole points.
  *
- * `fontScale` is the future type-scale feature's one place to multiply. It is
- * 1 today, and it multiplies the clamped base, so a larger scale grows the
- * whole sidebar proportionally instead of moving where the clamps sit.
+ * `fontScale` is the total text factor: the app's own setting multiplied by
+ * the system scale. It multiplies the clamped base, so a larger factor grows
+ * the whole sidebar proportionally instead of moving where the clamps sit.
  */
 export function sidebarWidth(windowWidth: number, fontScale = 1): number {
   const preferred = windowWidth * SIDEBAR_WIDTH_RATIO;
@@ -71,7 +71,19 @@ export function sidebarWidth(windowWidth: number, fontScale = 1): number {
   return Math.round(clamped * fontScale);
 }
 
+/**
+ * The smallest window the shell can lay out at `scale`, rounded up on each
+ * axis so the stated minimum is always sufficient.
+ */
+export function minimumWindowSize(scale = 1): Size {
+  return {
+    width: Math.ceil(MIN_WINDOW_WIDTH * scale),
+    height: Math.ceil(MIN_WINDOW_HEIGHT * scale),
+  };
+}
+
 /** Whether a window is too small for the shell to show without clipping. */
-export function windowTooSmall(size: Size): boolean {
-  return size.width < MIN_WINDOW_WIDTH || size.height < MIN_WINDOW_HEIGHT;
+export function windowTooSmall(size: Size, scale = 1): boolean {
+  const minimum = minimumWindowSize(scale);
+  return size.width < minimum.width || size.height < minimum.height;
 }
