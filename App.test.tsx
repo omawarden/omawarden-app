@@ -1112,6 +1112,25 @@ test("text size writes once after the slider settles", async () => {
   expect(OmawardenBridge.getUiPrefs().fontScale).toBe(2);
 });
 
+test("settings stays usable at 400% in a minimum window", async () => {
+  const app = await openMockAt(900, 620, {
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+    uiPrefs: { fontScale: 4 },
+  });
+
+  await app.press("id:open-settings");
+  expect(app.shows("id:settings-modal")).toBe(true);
+  // The header keeps its subtitle and its close control at four times the base
+  // size, and the body still scrolls, so nothing strands the user.
+  expect(app.texts()).toContain(
+    "Configuration, appearance, security, diagnostics, and release information.",
+  );
+  await app.scroll("id:settings-modal", 5000);
+  await app.press("id:modal-close");
+  expect(app.shows("id:settings-modal")).toBe(false);
+});
+
 test("release notes load when an update is available", async () => {
   const app = await openMock({
     phase: "unlocked",

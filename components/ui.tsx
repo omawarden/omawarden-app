@@ -310,7 +310,10 @@ export function ModalShell(props: {
             borderBottomColor: palette().popups.border,
           }}
         >
-          <View style={{ gap: 2 }}>
+          {/* `flex: 1` bounds the column to the card, so the subtitle wraps
+              instead of demanding its full single-line width; without it the
+              row overflows and pushes Close past the card's clipped edge. */}
+          <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
             <Text style={{ color: palette().popups.text, fontSize: store.type()["4xl"], fontWeight: "bold" }}>
               {props.title}
             </Text>
@@ -318,13 +321,15 @@ export function ModalShell(props: {
               <Text style={{ color: palette().muted, fontSize: store.type().base }}>{props.subtitle}</Text>
             ) : null}
           </View>
-          <SmallButton
-            testID="modal-close"
-            accessibilityLabel="Close dialog"
-            label="Close"
-            paddingVertical={5}
-            onPress={close}
-          />
+          <View style={{ flexShrink: 0 }}>
+            <SmallButton
+              testID="modal-close"
+              accessibilityLabel="Close dialog"
+              label="Close"
+              paddingVertical={5}
+              onPress={close}
+            />
+          </View>
         </View>
         <Scroll
           style={{ flexShrink: 1 }}
