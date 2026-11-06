@@ -767,13 +767,34 @@ pub struct ActionOutcomeView {
 /// is the GUI host binary, so the fallback would open a second app window.
 /// Starting the daemon on a dedicated thread here keeps the socket alive and
 /// lets every later engine call take its `ping` fast path instead.
+///
+/// A daemon that answers may come from another build: the `omawarden` CLI, an
+/// older app, or a package installed alongside this one. The engine stops such
+/// a daemon while the vault is locked and then takes its `current_exe()`
+/// fallback, which is exactly the second-window failure above. Replace a
+/// locked foreign daemon here instead. An unlocked one is kept, matching the
+/// engine, so its session and SSH agent survive.
 fn ensure_app_daemon_running() -> bool {
-    if daemon(json!({ "action": "ping", "touch": false })).is_some() {
-        return true;
-    }
-
     // At most one in-process daemon server per process.
     static DAEMON_SPAWNED: AtomicBool = AtomicBool::new(false);
+
+    if let Some(ping) = daemon(json!({ "action": "ping", "touch": false })) {
+        let unlocked = ping.get("unlocked").and_then(Value::as_bool) == Some(true);
+        if unlocked || DAEMON_SPAWNED.load(Ordering::SeqCst) {
+            return true;
+        }
+        let _ = daemon(json!({ "action": "stop" }));
+        // `stop` exits the old daemon before answering, but the socket file
+        // outlives it. Wait for the socket to stop accepting so the bind below
+        // cannot race a still-listening process.
+        for _ in 0..20 {
+            std::thread::sleep(Duration::from_millis(10));
+            if daemon(json!({ "action": "ping", "touch": false })).is_none() {
+                break;
+            }
+        }
+    }
+
     if !DAEMON_SPAWNED.swap(true, Ordering::SeqCst) {
         let config = load_config();
         let auto_lock_minutes = if config.auto_lock_minutes >= 0 {
@@ -1560,6 +1581,105 @@ mod tests {
         let unknown = two_factor_provider_view(9);
         assert_eq!(unknown.name, "provider-9");
         assert_eq!(unknown.label, "Provider 9");
+    }
+
+    use std::path::Path;
+
+    /// The commit a daemon built from another checkout reports on `ping`.
+    const STALE_COMMIT: &str = "stale-build";
+
+    /// A daemon socket that answers like a build from another commit.
+    ///
+    /// The accept thread is detached: it ends with the test process, and
+    /// joining it would block forever once the socket is replaced.
+    struct StaleDaemon;
+
+    impl StaleDaemon {
+        fn start(socket: &Path) -> Self {
+            use std::io::{BufRead, BufReader, Write};
+
+            let listener = std::os::unix::net::UnixListener::bind(socket)
+                .expect("bind the stale daemon socket");
+            let _handle = std::thread::spawn(move || {
+                for stream in listener.incoming() {
+                    let Ok(mut stream) = stream else {
+                        continue;
+                    };
+                    let Ok(clone) = stream.try_clone() else {
+                        continue;
+                    };
+                    let mut line = String::new();
+                    if BufReader::new(clone).read_line(&mut line).is_err() {
+                        continue;
+                    }
+                    let request: Value = serde_json::from_str(line.trim()).unwrap_or(Value::Null);
+                    let action = request
+                        .get("action")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    let reply = if action == "stop" {
+                        json!({ "ok": true })
+                    } else {
+                        json!({
+                            "ok": true,
+                            "pong": true,
+                            "version": "0.0.0-stale",
+                            "commit": STALE_COMMIT,
+                            "unlocked": false,
+                        })
+                    };
+                    let _ = writeln!(stream, "{reply}");
+                    if action == "stop" {
+                        break;
+                    }
+                }
+            });
+            Self
+        }
+    }
+
+    /// A locked daemon from another build must be replaced in-process.
+    ///
+    /// The engine's `ensure_daemon_running` stops a daemon whose commit differs
+    /// from its own and then spawns `current_exe() daemon`. Inside the nsh host
+    /// that executable is the GUI, so the replacement opens a second app window
+    /// and leaves no daemon behind: unlocking then fails with "the vault was
+    /// unlocked, but the Omawarden daemon did not start".
+    #[test]
+    fn stale_locked_daemon_is_replaced_in_process() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+
+        // Keep the socket away from the login session's daemon.
+        let runtime =
+            std::env::temp_dir().join(format!("omawarden-app-daemon-test-{}", std::process::id()));
+        std::fs::create_dir_all(&runtime).expect("create the test runtime dir");
+        let previous_runtime = std::env::var_os("XDG_RUNTIME_DIR");
+        // SAFETY: TEST_LOCK serializes the tests that reach the daemon, and the
+        // previous value is restored before the guard drops.
+        unsafe { std::env::set_var("XDG_RUNTIME_DIR", &runtime) };
+
+        let socket = omawarden::daemon::get_socket_path();
+        assert_eq!(socket, runtime.join("omawarden.sock"));
+        let _stale = StaleDaemon::start(&socket);
+
+        let running = ensure_app_daemon_running();
+        let ping = daemon(json!({ "action": "ping", "touch": false }));
+
+        unsafe {
+            match previous_runtime {
+                Some(value) => std::env::set_var("XDG_RUNTIME_DIR", value),
+                None => std::env::remove_var("XDG_RUNTIME_DIR"),
+            }
+        }
+
+        assert!(running, "the app must leave a daemon answering ping");
+        let ping = ping.expect("the in-process daemon answers ping");
+        assert_eq!(ping.get("ok").and_then(Value::as_bool), Some(true));
+        assert_ne!(
+            ping.get("commit").and_then(Value::as_str),
+            Some(STALE_COMMIT),
+            "a locked daemon from another build must be replaced in-process"
+        );
     }
 
     #[test]
