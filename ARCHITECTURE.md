@@ -271,8 +271,14 @@ engine's `Config`. The daemon and the CLI must never gain a presentation field.
   `SettingsUpdateInput`. `store/appStore.ts` loads it through `loadUiPrefs()`
   at startup and writes it through `setTheme()` → `updateUiPrefs({ theme })`,
   which fixes the real-mode bug where the theme never survived a restart.
-- **Text size**: `fontScale` is read and persisted, but no control changes it
-  yet; the slider and the gate threshold land separately.
+- **Text size**: the Settings › General slider (100–400 in 10% steps) sets
+  `fontScale` immediately through `store.setAppFontScale()`, so the interface
+  re-renders while it is dragged. The `updateUiPrefs({ fontScale })` write is
+  debounced by 300 ms with `setTimeout`/`clearTimeout`;
+  `store.flushAppFontScale()` writes at once on `onChangeEnd` and on the
+  gate's reset. The response of a debounced write is not applied back to the
+  signal, because it can describe an older value. The factor multiplies the
+  minimum-window threshold and the vault list width through `totalScale()`.
 
 ---
 
@@ -323,7 +329,8 @@ engine's `Config`. The daemon and the CLI must never gain a presentation field.
 ### 5.2 Shell Overlay
 
 - **`components/MinimumWindowGate.tsx`**:
-  - A full-bleed, opaque, undismissable overlay mounted last in the root view, above the workspace, every modal and the toast. It reads the reactive window size through `store/windowGate.ts` and `theme/layout.ts`, shows the current size and the `900 × 620` minimum, and clears only when the window is resized back above it.
+  - A full-bleed, opaque overlay mounted last in the root view, above the workspace, every modal and the toast. It reads the reactive window size through `store/windowGate.ts` and `theme/layout.ts`, shows the current size and the minimum at the current total font scale (`minimumWindowSize(totalScale())`, both axes multiplied and rounded up), and clears when the window is resized back above it or the factor drops back into range.
+  - It gains exactly one control, shown only when the window fits at 100% but not at the current factor (`store/windowGate.ts`'s `textSizeBlocksWindow()`): "Reset text size to 100%" sets the factor to 1 and flushes the preferences write. When the window is too small even at 100%, the button is hidden. The reset is pointer-only; no keyboard shortcut is bound to it.
   - It is an overlay rather than a replacement: the views beneath stay mounted, so a shrink-and-restore cycle preserves form input, modal state and scroll position. The vault shortcuts, the settings shortcut and the tab/space bindings stand down while it is up.
 
 ### 5.3 All 7 Modals
@@ -345,7 +352,7 @@ engine's `Config`. The daemon and the CLI must never gain a presentation field.
    - Lists previous passwords and change timestamps for the active Login item with individual copy buttons.
 6. **`components/SettingsModal.tsx` (`Ctrl+,`)**:
    - 4 Tabs:
-     - **General**: Server URL, Identity URL, Remember Email toggle, Show Website Icons toggle, Remember Last Search toggle, Check for Updates toggle, Download Directory, Max Attachment Size (MB), Theme Appearance (Dark Tokyo Night / Light Catppuccin Latte, persisted through the UI preferences bridge rather than the engine config).
+     - **General**: Server URL, Identity URL, Remember Email toggle, Show Website Icons toggle, Remember Last Search toggle, Check for Updates toggle, Download Directory, Max Attachment Size (MB), Theme Appearance (Dark Tokyo Night / Light Catppuccin Latte, persisted through the UI preferences bridge rather than the engine config), and Text size (a slider from 100% to 400% in 10% steps directly under Theme Appearance, with a live percentage readout; persisted through the same preferences bridge).
      - **Security**: Auto-Lock Timeout (minutes), Clipboard Clear Timeout (seconds), Polkit Quick Unlock toggle (`quick_unlock`), SSH Agent toggle (`ssh_agent_enabled`), SSH Agent Confirmation Policy (`first-use`, `always`, `never`), Client mTLS Certificate & Key paths, Lock Now & Log Out actions.
      - **Diagnose**: Engine Health check cards (Engine Installed, Server Reachable, Secret Service Keyring, Wayland Clipboard, Memory Locked `mlock`), Sanitized Server URL, Sanitized Log Viewer with `"Copy Diagnostic Report"` button (`Refresh` button).
      - **About**: App & Engine version, Git commit hash, Build date, Update check button (`checkUpdates(true)`), View Release Notes button, GitHub repository links.
@@ -354,15 +361,16 @@ engine's `Config`. The daemon and the CLI must never gain a presentation field.
 
 ### 5.4 Shell Layout Sizes (`theme/layout.ts`)
 
-- **`theme/layout.ts`** is the single source of every layout size the shell derives from the window: `SIDEBAR_MIN_WIDTH` (320), `SIDEBAR_MAX_WIDTH` (560), `SIDEBAR_WIDTH_RATIO` (0.3), `MIN_WINDOW_WIDTH` (900), `MIN_WINDOW_HEIGHT` (620), `DETAIL_CONTENT_MAX_WIDTH` (900) and `EMPTY_STATE_MAX_WIDTH` (420), plus the pure functions `sidebarWidth(windowWidth, fontScale = 1)` and `windowTooSmall(size)`.
+- **`theme/layout.ts`** is the single source of every layout size the shell derives from the window: `SIDEBAR_MIN_WIDTH` (320), `SIDEBAR_MAX_WIDTH` (560), `SIDEBAR_WIDTH_RATIO` (0.3), `MIN_WINDOW_WIDTH` (900), `MIN_WINDOW_HEIGHT` (620), `DETAIL_CONTENT_MAX_WIDTH` (900) and `EMPTY_STATE_MAX_WIDTH` (420), plus the pure functions `sidebarWidth(windowWidth, fontScale = 1)`, `minimumWindowSize(scale = 1)` and `windowTooSmall(size, scale = 1)`.
+- The threshold scales with the total font scale: `minimumWindowSize()` multiplies both base minimums and rounds **up**, and `windowTooSmall()` compares against that same value, so the predicate and the gate's displayed minimum can never disagree.
 - It also owns the lengths that exist to make room for text: `LABEL_GUTTER_WIDTH` (132), `GENERATOR_LABEL_WIDTH` (130), `WIDE_INPUT_WIDTH` (160), `OTP_CELL_WIDTH` (40), `OTP_CELL_HEIGHT` (44), `INPUT_MIN_HEIGHT` (36), and the pure `scaleLength(points, scale)` helper. `SYNC_INDICATOR_SIZE` (14) and `VAULT_ICON_SIZE` (16) keep the two visual icon sizes in the same module.
 - **`theme/typeScale.ts`** is the single source of every text size: `TypeStep` (thirteen names), `TypeScale`, the base `TYPE_SCALE` ladder from `2xs` (9) to `7xl` (28), and the pure `scaleType(factor)`.
-- `store/appStore.ts` exposes the reactive accessors beside `palette()`: `appFontScale` (the factor loaded from `ui.json`, 1.0 until changed; no control yet), `totalScale()` (`fontScale() × appFontScale()`), `type()` (the ladder at the app factor, since `Text` applies the system factor itself) and `lengths()` (the six text-room lengths at `totalScale()`).
+- `store/appStore.ts` exposes the reactive accessors beside `palette()`: `appFontScale` (the factor loaded from `ui.json` and set by the Text size slider), `totalScale()` (`fontScale() × appFontScale()`), `type()` (the ladder at the app factor, since `Text` applies the system factor itself) and `lengths()` (the six text-room lengths at `totalScale()`).
 - `components/Icon.tsx` keeps its `size` prop as the 100% value and multiplies it by `totalScale()` internally, so icon call sites stay unchanged. `GhostIconButton`'s 22-point hit area is a touch target and does not scale.
-- `components/VaultItemList.tsx` reads `sidebarWidth(windowSize().width)` at the point of use; no geometry signal is stored.
+- `components/VaultItemList.tsx` reads `sidebarWidth(windowSize().width, totalScale())` at the point of use, so the list widens with the text instead of clipping it; no geometry signal is stored.
 - `components/ItemInspector.tsx` wraps its scroll body's children in a column capped at `DETAIL_CONTENT_MAX_WIDTH`, left aligned, while the pane's background, border and header keep spanning the full pane. Field label gutters read `lengths().labelGutter`; row heights and truncation are unchanged.
 - `components/EmptyInspector.tsx` caps its two-line empty-state column at `EMPTY_STATE_MAX_WIDTH` and centres it.
-- `store/windowGate.ts` exposes `windowBelowMinimum()`, the one predicate the gate and every keyboard path read.
+- `store/windowGate.ts` exposes `windowBelowMinimum()`, the one predicate the gate and every keyboard path read; it passes `totalScale()` so the threshold follows the text size. Its `textSizeBlocksWindow()` is the second, narrower predicate behind the gate's reset button: the window fits at 100% but not at the current factor.
 
 ---
 
