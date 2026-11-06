@@ -1,9 +1,10 @@
-import { Image, Scroll, Text, View } from "nsh";
+import { Image, Scroll, Text, View, windowSize } from "nsh";
 import { Button } from "nsh/base";
 import type { CipherRowView, ItemCategory } from "omawarden-app/native";
 import * as store from "../store/appStore";
 import { formatMaskedCardNumber } from "../store/CardFormatter";
 import { markIconFailed, rowIcon } from "../store/Icons";
+import { sidebarWidth } from "../theme/layout";
 import { tint } from "../theme/palette";
 import { Icon, type IconName } from "./Icon";
 import { actionID, EmptyHint, focusOutline, useAction } from "./ui";
@@ -32,7 +33,7 @@ export function VaultItemList() {
     <View
       testID="vault-item-list"
       style={{
-        width: 260,
+        width: sidebarWidth(windowSize().width),
         backgroundColor: palette().popups.background,
         borderColor: palette().popups.border,
         borderWidth: 1,
