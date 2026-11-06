@@ -1,6 +1,5 @@
 import { expect, test } from "nsh/test";
 import {
-  DETAIL_CONTENT_MAX_WIDTH,
   EMPTY_STATE_MAX_WIDTH,
   GENERATOR_LABEL_WIDTH,
   INPUT_MIN_HEIGHT,
@@ -27,7 +26,6 @@ test("layout module owns the shell's size constants", () => {
   expect(SIDEBAR_WIDTH_RATIO).toBe(0.3);
   expect(MIN_WINDOW_WIDTH).toBe(900);
   expect(MIN_WINDOW_HEIGHT).toBe(620);
-  expect(DETAIL_CONTENT_MAX_WIDTH).toBe(900);
   expect(EMPTY_STATE_MAX_WIDTH).toBe(420);
 });
 

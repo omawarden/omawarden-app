@@ -19,9 +19,6 @@ export const MIN_WINDOW_WIDTH = 900;
 /** The shortest window the shell can lay out without clipping. */
 export const MIN_WINDOW_HEIGHT = 620;
 
-/** The widest the detail pane's content column grows. */
-export const DETAIL_CONTENT_MAX_WIDTH = 900;
-
 /** The widest the empty detail state's reading column grows. */
 export const EMPTY_STATE_MAX_WIDTH = 420;
 

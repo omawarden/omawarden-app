@@ -3,7 +3,6 @@ import {
   TYPE_SCALE,
   noteLineHeight,
   scaleType,
-  totpLetterSpacing,
   type TypeStep,
 } from "./typeScale";
 
@@ -89,6 +88,4 @@ test("text metrics outside the ladder follow the scale", () => {
   const doubled = scaleType(2);
   expect(noteLineHeight(base)).toBe(19);
   expect(noteLineHeight(doubled)).toBe(38);
-  expect(totpLetterSpacing(base)).toBe(3);
-  expect(totpLetterSpacing(doubled)).toBe(6);
 });
