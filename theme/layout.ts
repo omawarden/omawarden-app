@@ -61,29 +61,28 @@ export function scaleLength(points: number, scale: number): number {
  * The vault list width for a window width: the preferred share of the window,
  * clamped to the sidebar's range and rounded to whole points.
  *
- * `fontScale` is the total text factor: the app's own setting multiplied by
- * the system scale. It multiplies the clamped base, so a larger factor grows
- * the whole sidebar proportionally instead of moving where the clamps sit.
+ * It follows the window alone. Enlarging the text grows the rows' contents,
+ * but a wider sidebar would eat the detail pane and would also raise the
+ * window size the shell needs, so the text size does not move it.
  */
-export function sidebarWidth(windowWidth: number, fontScale = 1): number {
+export function sidebarWidth(windowWidth: number): number {
   const preferred = windowWidth * SIDEBAR_WIDTH_RATIO;
   const clamped = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, preferred));
-  return Math.round(clamped * fontScale);
+  return Math.round(clamped);
 }
 
 /**
- * The smallest window the shell can lay out at `scale`, rounded up on each
- * axis so the stated minimum is always sufficient.
+ * The smallest window the shell can lay out.
+ *
+ * It is a fixed floor: the text size changes how the shell fills a window,
+ * never how large a window it needs, so 400% fits wherever 100% does.
  */
-export function minimumWindowSize(scale = 1): Size {
-  return {
-    width: Math.ceil(MIN_WINDOW_WIDTH * scale),
-    height: Math.ceil(MIN_WINDOW_HEIGHT * scale),
-  };
+export function minimumWindowSize(): Size {
+  return { width: MIN_WINDOW_WIDTH, height: MIN_WINDOW_HEIGHT };
 }
 
 /** Whether a window is too small for the shell to show without clipping. */
-export function windowTooSmall(size: Size, scale = 1): boolean {
-  const minimum = minimumWindowSize(scale);
+export function windowTooSmall(size: Size): boolean {
+  const minimum = minimumWindowSize();
   return size.width < minimum.width || size.height < minimum.height;
 }
