@@ -680,6 +680,23 @@ test("SSH inspector reveals, copies, and exports the private key", async () => {
   expect(app.texts()).toContain("Exported to ~/.ssh/id_ed25519");
 });
 
+test("timestamps read on the reader's clock", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+    lastSync: "2026-03-04T05:06:07Z",
+  });
+
+  const stamps = app.texts().filter((text) => text.includes(" GMT"));
+  expect(stamps.length).toBe(1);
+  expect(stamps[0]).toMatch(/^Synced \d{4}-\d{2}-\d{2} \d{2}:\d{2} GMT[+-]\d+(:\d{2})?$/);
+
+  await app.press("id:cipher-row-login1");
+  await app.press("id:open-password-history");
+  const hints = app.texts().filter((text) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2} GMT[+-]\d/.test(text));
+  expect(hints.length).toBe(2);
+});
+
 // ---------------------------------------------------------------------------
 // Password generator
 // ---------------------------------------------------------------------------

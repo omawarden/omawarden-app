@@ -1,6 +1,7 @@
 import { Text, View } from "nsh";
 import { TextView } from "nsh/base";
 import * as store from "../store/appStore";
+import { formatLocalDateTime } from "../store/DateTime";
 import { ActionButton, Chip, EmptyHint, ModalShell, Panel, SectionTitle } from "./ui";
 
 export function ReleaseNotesModal() {
@@ -53,7 +54,7 @@ export function ReleaseNotesModal() {
             </View>
             {current().publishedAt ? (
               <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
-                Published {current().publishedAt}
+                Published {formatLocalDateTime(current().publishedAt)}
               </Text>
             ) : null}
             <TextView

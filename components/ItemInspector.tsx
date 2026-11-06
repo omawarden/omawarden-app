@@ -4,6 +4,7 @@ import { Progress } from "nsh/base";
 import type { InspectorView, ItemCategory } from "omawarden-app/native";
 import * as store from "../store/appStore";
 import { formatMaskedCardNumber, formatRevealedCardNumber } from "../store/CardFormatter";
+import { formatLocalDateTime } from "../store/DateTime";
 import { isAppScheme } from "../store/IconPolicy";
 import { inspectorIcon, markInspectorIconFailed } from "../store/Icons";
 import { scaleLength } from "../theme/layout";
@@ -653,7 +654,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                         numberOfLines: 1,
                       }}
                     >
-                      {item().metadata.createdAt}
+                      {formatLocalDateTime(item().metadata.createdAt)}
                     </Text>
                   </View>
                 </View>
@@ -673,7 +674,7 @@ function InspectorBody(props: { item: () => InspectorView }) {
                         numberOfLines: 1,
                       }}
                     >
-                      {item().metadata.updatedAt}
+                      {formatLocalDateTime(item().metadata.updatedAt)}
                     </Text>
                   </View>
                 </View>

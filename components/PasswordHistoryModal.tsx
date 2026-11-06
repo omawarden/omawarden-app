@@ -1,5 +1,6 @@
 import { Text, View } from "nsh";
 import * as store from "../store/appStore";
+import { formatLocalDateTime } from "../store/DateTime";
 import { ActionButton, EmptyHint, ModalShell, Panel, SectionTitle } from "./ui";
 
 export function PasswordHistoryModal() {
@@ -26,7 +27,7 @@ export function PasswordHistoryModal() {
       <Each of={history()} key="index">
         {(entry, index) => (
           <Panel testID={`password-history-${index()}`}>
-            <SectionTitle hint={entry().changedAt || "Unknown change date"}>
+            <SectionTitle hint={formatLocalDateTime(entry().changedAt) || "Unknown change date"}>
               Version {history().length - index()}
             </SectionTitle>
             <View

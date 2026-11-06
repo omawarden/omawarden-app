@@ -317,12 +317,12 @@ engine's `Config`. The daemon and the CLI must never gain a presentation field.
        - **SSH Key**: Key type, Private Key (ghost reveal/copy, ghost export to `~/.ssh/` via `SshKeyModal`), Public Key (ghost copy), Fingerprint (ghost copy).
        - **Custom Fields**: Text, Hidden (ghost reveal toggle), Boolean, Linked fields with a ghost copy action.
        - **Attachments**: Filename, human-readable size, ghost preview (inline image/text preview panel) and ghost download actions.
-       - **Metadata**: Created/Updated timestamps and the Password History entry point.
+       - **Metadata**: Created/Updated timestamps on the reader's clock and the Password History entry point.
      - Field-level actions use the shared 22x22 `components/GhostIconButton.tsx`; chunky text buttons are reserved for panel-level actions.
    - **`components/FooterBar.tsx`**:
      - Clickable ghost actions with shortcut badges: `Actions` (`Ctrl+K`), `Generate` (`Ctrl+G`), `Sync` (`Ctrl+R`), `Lock` (`Ctrl+L`), `Settings` (`Ctrl+,`).
      - A subtle rotating sync indicator appears beside `Sync` while a sync is in flight.
-     - Theme indicator, engine version, last sync time, and update notification badge (opens `ReleaseNotesModal`) on the right.
+     - Theme indicator, engine version, last sync time (on the reader's clock), and update notification badge (opens `ReleaseNotesModal`) on the right.
    - **`components/ToastAlert.tsx`**:
      - Status and error toast notifications with semantic contrast styling.
 
@@ -364,7 +364,7 @@ The card keeps the width it asks for, and the header wraps to fit it: the title 
      - **Diagnose**: Engine Health check cards (Engine Installed, Server Reachable, Secret Service Keyring, Wayland Clipboard, Memory Locked `mlock`), Sanitized Server URL, Sanitized Log Viewer with `"Copy Diagnostic Report"` button (`Refresh` button).
      - **About**: App & Engine version, Git commit hash, Build date, Update check button (`checkUpdates(true)`), View Release Notes button, GitHub repository links.
 7. **`components/ReleaseNotesModal.tsx`**:
-   - Displays latest release version, title, markdown release notes (`<TextView markdown={...} />`), and link to release page.
+   - Displays latest release version, title, publication time on the reader's clock, markdown release notes (`<TextView markdown={...} />`), and link to release page.
 
 ### 5.4 Shell Layout Sizes (`theme/layout.ts`)
 
@@ -378,6 +378,7 @@ The card keeps the width it asks for, and the header wraps to fit it: the title 
 - `components/ItemInspector.tsx` lets its scroll body fill the pane: the sections are the cards, so a capped content column would leave a wide pane half empty. Section cards are 6-point rounded frames with 10 points of padding and an 8-point gap, and each field is a muted caption label above a medium-weight value with a 1pt rule between visible rows, matching the plugin's `ItemInspector.qml`. The item's icon, name, badges and category live at the top of the scroll body rather than in a header bar. Every spec list is built inside an `Each` binding, never in the component body, so a reveal toggle or a TOTP tick rebuilds the rows.
 - `components/EmptyInspector.tsx` caps its two-line empty-state column at `EMPTY_STATE_MAX_WIDTH` and centres it.
 - `store/windowGate.ts` exposes `windowBelowMinimum()`, the one predicate the gate and every keyboard path read. It passes the window size alone; the text size is not part of the question.
+- `store/DateTime.ts` is the single source of every timestamp the interface shows. The engine hands out ISO-8601 instants in UTC, and `formatLocalDateTime(value)` renders them as `YYYY-MM-DD HH:mm GMT+X` on the reader's clock, with `gmtOffset(date)` spelling the zone (`GMT+8`, `GMT-5`, `GMT+5:30`). No value formats as `""`, and a string that is not a timestamp comes back unchanged. The item's Created/Updated rows, the footer's sync time, a password history entry's change date and a release's publication time all go through it; the About tab's build date is a build identifier rather than a moment, so it stays as the engine writes it.
 
 ---
 
