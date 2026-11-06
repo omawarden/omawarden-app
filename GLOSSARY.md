@@ -70,6 +70,24 @@ the app shows the quick-unlock action only when both hold.
   served from the in-memory `CachedVault` on the Rust side and from
   `FilterProjection` signals on the TSX side.
 
+## Minimum Window Gate
+
+The opaque, full-window overlay shown when either dimension of the window is
+below its floor (`MIN_WINDOW_WIDTH` 900 or `MIN_WINDOW_HEIGHT` 620). It states
+the live current size, the required minimum, and a one-line instruction to
+resize; it has no controls and no dismiss action, because only resizing clears
+it.
+
+The gate is an overlay, not a replacement. The workspace, every dialog and the
+toast stay mounted underneath, so shrinking and restoring preserves form input,
+open dialogs and scroll position. While it is up, every keyboard shortcut is
+inert.
+
+It does **not** resize the window or ask the window manager for a minimum size:
+NSH 0.4.0 exposes no native minimum window size, so the app enforces its own
+floor. It does not collapse the sidebar, reflow the workspace, or report an
+error; the layout below the threshold is simply not shown.
+
 ## Dev Release
 
 A rolling pre-release published on every push to `main` under the tag `dev`.
