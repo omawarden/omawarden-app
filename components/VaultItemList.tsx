@@ -43,12 +43,13 @@ export function VaultItemList() {
     >
       <View
         style={{
-          paddingHorizontal: 10,
-          paddingVertical: 8,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
           borderBottomWidth: 1,
           borderBottomColor: palette().popups.border,
           flexDirection: "row",
           justifyContent: "space-between",
+          gap: 8,
         }}
       >
         <Text
@@ -67,7 +68,7 @@ export function VaultItemList() {
         </Text>
       </View>
 
-      <Scroll style={{ flex: 1 }} contentStyle={{ padding: 4, gap: 3 }}>
+      <Scroll style={{ flex: 1 }} contentStyle={{ padding: 8, gap: 8 }}>
         <If when={store.filteredItems().length === 0}>
           <EmptyHint>No items match this search.</EmptyHint>
         </If>
@@ -97,9 +98,9 @@ function ShowMoreRow(props: { remaining: () => number }) {
         backgroundColor: palette().popups.background,
         borderColor: focused() ? accent() : palette().popups.border,
         borderWidth: 1,
-        borderRadius: 7,
-        paddingHorizontal: 8,
-        paddingVertical: 7,
+        borderRadius: 8,
+        paddingHorizontal: 10,
+        paddingVertical: 10,
         ...focusOutline(focused(), accent()),
       }}
       hoverStyle={{
@@ -143,13 +144,13 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
       style={{
         flexDirection: "row",
         alignItems: "center",
-        gap: 8,
+        gap: 10,
         backgroundColor: background(),
         borderColor: focused() ? accent() : palette().popups.border,
         borderWidth: 1,
-        borderRadius: 7,
-        paddingHorizontal: 8,
-        paddingVertical: 7,
+        borderRadius: 8,
+        paddingHorizontal: 10,
+        paddingVertical: 10,
         ...focusOutline(focused(), accent()),
       }}
       hoverStyle={{
@@ -175,7 +176,7 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
           color={active() ? palette().popups.selectedText : palette().popups.text}
         />
       </If>
-      <View style={{ flex: 1, gap: 1 }}>
+      <View style={{ flex: 1, gap: 3 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
           <Text
             style={{
