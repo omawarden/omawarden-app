@@ -317,7 +317,7 @@ Create `theme/palette.ts`:
 
 ### 5.4 Shell Layout Sizes (`theme/layout.ts`)
 
-- **`theme/layout.ts`** is the single source of every layout size the shell derives from the window: `SIDEBAR_MIN_WIDTH` (260), `SIDEBAR_MAX_WIDTH` (440), `SIDEBAR_WIDTH_RATIO` (0.2), `MIN_WINDOW_WIDTH` (900), `MIN_WINDOW_HEIGHT` (620), `DETAIL_CONTENT_MAX_WIDTH` (900) and `EMPTY_STATE_MAX_WIDTH` (420), plus the pure functions `sidebarWidth(windowWidth, fontScale = 1)` and `windowTooSmall(size)`.
+- **`theme/layout.ts`** is the single source of every layout size the shell derives from the window: `SIDEBAR_MIN_WIDTH` (320), `SIDEBAR_MAX_WIDTH` (560), `SIDEBAR_WIDTH_RATIO` (0.3), `MIN_WINDOW_WIDTH` (900), `MIN_WINDOW_HEIGHT` (620), `DETAIL_CONTENT_MAX_WIDTH` (900) and `EMPTY_STATE_MAX_WIDTH` (420), plus the pure functions `sidebarWidth(windowWidth, fontScale = 1)` and `windowTooSmall(size)`.
 - `components/VaultItemList.tsx` reads `sidebarWidth(windowSize().width)` at the point of use; no geometry signal is stored.
 - `components/ItemInspector.tsx` wraps its scroll body's children in a column capped at `DETAIL_CONTENT_MAX_WIDTH`, left aligned, while the pane's background, border and header keep spanning the full pane. Field label gutters, row heights and truncation are unchanged.
 - `components/EmptyInspector.tsx` caps its two-line empty-state column at `EMPTY_STATE_MAX_WIDTH` and centres it.

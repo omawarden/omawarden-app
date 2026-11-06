@@ -48,13 +48,22 @@ function InspectorBody(props: { item: () => InspectorView }) {
         }}
       >
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Text style={{ color: palette().popups.text, fontSize: 17, fontWeight: "bold" }}>
+          <Text
+            style={{
+              color: palette().popups.text,
+              fontSize: 17,
+              fontWeight: "bold",
+              // Shrink into an ellipsis instead of pushing the chip off the pane.
+              flexShrink: 1,
+              numberOfLines: 1,
+            }}
+          >
             {item().title}
           </Text>
           {item().favorite ? <Icon name="star" size={11} color={palette().warning} /> : null}
           <Chip label={categoryLabel(item().category)} color={palette().info} />
         </View>
-        <Text style={{ color: palette().muted, fontSize: 11 }}>
+        <Text style={{ color: palette().muted, fontSize: 11, numberOfLines: 1 }}>
           {item().metadata.folder || "No folder"}
           {item().metadata.organization ? ` · ${item().metadata.organization}` : ""}
         </Text>

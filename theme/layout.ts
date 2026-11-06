@@ -5,13 +5,13 @@
 import type { Size } from "nsh";
 
 /** The narrowest the vault list ever renders. */
-export const SIDEBAR_MIN_WIDTH = 260;
+export const SIDEBAR_MIN_WIDTH = 320;
 
 /** The widest the vault list ever renders. */
-export const SIDEBAR_MAX_WIDTH = 440;
+export const SIDEBAR_MAX_WIDTH = 560;
 
 /** The share of the window the vault list asks for before clamping. */
-export const SIDEBAR_WIDTH_RATIO = 0.2;
+export const SIDEBAR_WIDTH_RATIO = 0.3;
 
 /** The narrowest window the shell can lay out without clipping. */
 export const MIN_WINDOW_WIDTH = 900;

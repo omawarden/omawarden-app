@@ -51,10 +51,18 @@ export function VaultItemList() {
           justifyContent: "space-between",
         }}
       >
-        <Text style={{ color: palette().popups.text, fontSize: 12, fontWeight: "bold" }}>
+        <Text
+          style={{
+            color: palette().popups.text,
+            fontSize: 12,
+            fontWeight: "bold",
+            flexShrink: 1,
+            numberOfLines: 1,
+          }}
+        >
           Vault Items
         </Text>
-        <Text style={{ color: palette().muted, fontSize: 11 }}>
+        <Text style={{ color: palette().muted, fontSize: 11, flexShrink: 0, numberOfLines: 1 }}>
           {store.visibleItems().length} of {store.filteredItems().length}
         </Text>
       </View>
@@ -174,6 +182,10 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
               color: active() ? palette().popups.selectedText : palette().popups.text,
               fontSize: 12,
               fontWeight: "bold",
+              // NSH's flexShrink defaults to 0, so without this a long title
+              // pushes past the row instead of shrinking into an ellipsis.
+              flexShrink: 1,
+              numberOfLines: 1,
             }}
           >
             {props.item().title}
@@ -184,7 +196,12 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
         </View>
         <Text
           testID={`cipher-subtitle-${props.item().id}`}
-          style={{ color: palette().muted, fontSize: 11 }}
+          style={{
+            color: palette().muted,
+            fontSize: 11,
+            flexShrink: 1,
+            numberOfLines: 1,
+          }}
         >
           {subtitle()}
         </Text>
