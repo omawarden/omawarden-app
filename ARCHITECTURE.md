@@ -58,7 +58,7 @@ Following deep-module design principles ("Design It Twice" Hybrid Design 3 + Des
    - `omawarden::totp::generate_totp`
    - `omawarden::health::check_system_health`
    - `omawarden::ssh::{generate_keypair, parse_private_key, write_keypair_files_named, SshAlgorithm}`
-   - `omawarden::attachment::{get_attachment, clear_preview_attachments}` (calling `ensure_app_daemon_running()` beforehand)
+   - `omawarden::attachment::{get_attachment, clean_previews}` (calling `ensure_app_daemon_running()` beforehand)
 6. **Deterministic Headless Test / Mock Mode**:
    - `OmawardenBridge` **MUST** include an in-memory mock/test mode (`set_mock_mode(enabled: bool)`) so `nsh test` (`App.test.tsx`) can deterministically test every view state (`dependency_check`, `login`, `two_factor`, `unlock`, `search`, `ssh_approval`) and every modal without touching the host user's real keyring, filesystem config, or live daemon socket.
 

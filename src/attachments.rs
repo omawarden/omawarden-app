@@ -275,8 +275,7 @@ fn mock_open_attachment(
 }
 
 fn real_clean_attachment_previews(cipher_id: Option<String>) -> bool {
-    omawarden::attachment::clear_preview_attachments(cipher_id.as_deref());
-    true
+    omawarden::attachment::clean_previews(cipher_id.as_deref()).is_ok()
 }
 
 fn mock_clean_attachment_previews(_state: &mut MockState, _cipher_id: Option<String>) -> bool {
