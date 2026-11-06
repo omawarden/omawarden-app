@@ -22,6 +22,9 @@ export const MIN_WINDOW_HEIGHT = 620;
 /** The widest the detail pane's content column grows. */
 export const DETAIL_CONTENT_MAX_WIDTH = 900;
 
+/** The widest the empty detail state's reading column grows. */
+export const EMPTY_STATE_MAX_WIDTH = 420;
+
 /**
  * The vault list width for a window width: the preferred share of the window,
  * clamped to the sidebar's range and rounded to whole points.

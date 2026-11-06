@@ -283,7 +283,13 @@ Create `theme/palette.ts`:
    - **`components/ToastAlert.tsx`**:
      - Status and error toast notifications with semantic contrast styling.
 
-### 5.2 All 7 Modals
+### 5.2 Shell Overlay
+
+- **`components/MinimumWindowGate.tsx`**:
+  - A full-bleed, opaque, undismissable overlay mounted last in the root view, above the workspace, every modal and the toast. It reads the reactive window size through `store/windowGate.ts` and `theme/layout.ts`, shows the current size and the `900 × 620` minimum, and clears only when the window is resized back above it.
+  - It is an overlay rather than a replacement: the views beneath stay mounted, so a shrink-and-restore cycle preserves form input, modal state and scroll position. The vault shortcuts, the settings shortcut and the tab/space bindings stand down while it is up.
+
+### 5.3 All 7 Modals
 1. **`components/ActionPaletteModal.tsx` (`Ctrl+K`)**:
    - Searchable, keyboard-first command palette (`↑`/`↓` move, `Enter` runs, direct shortcut keystrokes run the matching action) with no per-row "Run" buttons. Each row shows a leading glyph, the label and hint, and a right-aligned shortcut badge.
    - Lists context-aware actions for the selected cipher (Copy Password, Copy Username, Copy TOTP, Open URL, Reveal Password, Export SSH Key, View Password History) plus global actions (Sync Vault, Open Password Generator, Create SSH Key, Lock Vault, Open Settings).
@@ -308,6 +314,14 @@ Create `theme/palette.ts`:
      - **About**: App & Engine version, Git commit hash, Build date, Update check button (`checkUpdates(true)`), View Release Notes button, GitHub repository links.
 7. **`components/ReleaseNotesModal.tsx`**:
    - Displays latest release version, title, markdown release notes (`<TextView markdown={...} />`), and link to release page.
+
+### 5.4 Shell Layout Sizes (`theme/layout.ts`)
+
+- **`theme/layout.ts`** is the single source of every layout size the shell derives from the window: `SIDEBAR_MIN_WIDTH` (260), `SIDEBAR_MAX_WIDTH` (440), `SIDEBAR_WIDTH_RATIO` (0.2), `MIN_WINDOW_WIDTH` (900), `MIN_WINDOW_HEIGHT` (620), `DETAIL_CONTENT_MAX_WIDTH` (900) and `EMPTY_STATE_MAX_WIDTH` (420), plus the pure functions `sidebarWidth(windowWidth, fontScale = 1)` and `windowTooSmall(size)`.
+- `components/VaultItemList.tsx` reads `sidebarWidth(windowSize().width)` at the point of use; no geometry signal is stored.
+- `components/ItemInspector.tsx` wraps its scroll body's children in a column capped at `DETAIL_CONTENT_MAX_WIDTH`, left aligned, while the pane's background, border and header keep spanning the full pane. Field label gutters, row heights and truncation are unchanged.
+- `components/EmptyInspector.tsx` caps its two-line empty-state column at `EMPTY_STATE_MAX_WIDTH` and centres it.
+- `store/windowGate.ts` exposes `windowBelowMinimum()`, the one predicate the gate and every keyboard path read.
 
 ---
 
