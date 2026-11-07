@@ -917,6 +917,24 @@ impl OmawardenBridge {
         engine::auth().send_two_factor_email(&email, &password)
     }
 
+    /// Re-check whether the libfido2 tools and a security key are available.
+    ///
+    /// The two-factor screen polls this while the security-key provider is
+    /// selected, so a key plugged in after the challenge appeared is detected
+    /// without restarting the sign-in, as the plugin does.
+    pub fn check_fido2_status() -> String {
+        if with_mock(|state| state.enabled) {
+            return with_mock(|state| {
+                state
+                    .two_factor
+                    .as_ref()
+                    .and_then(|challenge| challenge.fido2_status.clone())
+                    .unwrap_or_else(|| "available".to_string())
+            });
+        }
+        omawarden::webauthn::check_fido2_status().as_str().to_string()
+    }
+
     /// Lock or log out of the current vault session, purging sensitive state and preview files.
     pub fn lock_or_logout(logout: bool) -> VaultSnapshotView {
         engine::auth().lock_or_logout(logout)

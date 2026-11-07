@@ -146,6 +146,10 @@ export const activeModal = signal<ModalKind>("none");
 export const reveal = signal<RevealStateInput>(defaultReveal());
 export const selectedIndex = signal(0);
 export const selectedProvider = signal(0);
+/** The live security-key state, refreshed while the FIDO2 provider is active. */
+export const fido2Status = signal<string | null>(null);
+/** Whether this challenge has already sent its verification email. */
+export const twoFactorEmailSent = signal(false);
 export const focusedAction = signal<string | null>(null);
 export const isSubmitting = signal(false);
 /** Whether a vault sync is in flight (kept separate from auth submission). */
@@ -499,7 +503,14 @@ function applySnapshot(next: VaultSnapshotView): void {
   }
   if (next.twoFactor) {
     selectedProvider.set(next.twoFactor.selectedProvider);
+    fido2Status.set(next.twoFactor.fido2Status ?? null);
+  } else {
+    fido2Status.set(null);
   }
+  if (next.phase !== "twoFactor") {
+    twoFactorEmailSent.set(false);
+  }
+  syncFido2Ticker();
   if (next.error) {
     notify(next.error, "error");
   }
@@ -676,6 +687,70 @@ export function installMissingDependencies(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Two-factor: security-key detection
+// ---------------------------------------------------------------------------
+
+let fido2Timer: ReturnType<typeof setInterval> | null = null;
+
+function stopFido2Ticker(): void {
+  if (fido2Timer !== null) {
+    clearInterval(fido2Timer);
+    fido2Timer = null;
+  }
+}
+
+/** Polls the security key while the FIDO2 provider is the active one. */
+function syncFido2Ticker(): void {
+  const wanted =
+    snapshot().phase === "twoFactor" &&
+    snapshot().twoFactor !== null &&
+    selectedProvider() === 7 &&
+    fido2Status() !== "tool_not_found";
+  if (!wanted) {
+    stopFido2Ticker();
+    return;
+  }
+  if (fido2Timer === null) {
+    fido2Timer = setInterval(checkFido2Status, 2000);
+    checkFido2Status();
+  }
+}
+
+/** Re-reads the libfido2 tools and the attached security key. */
+export function checkFido2Status(): void {
+  defer(() => {
+    if (snapshot().phase !== "twoFactor") {
+      return;
+    }
+    const next = OmawardenBridge.checkFido2Status();
+    fido2Status.set(next);
+    if (next === "tool_not_found") {
+      stopFido2Ticker();
+    }
+  });
+}
+
+/** Switches the two-factor method and restarts the security-key poll. */
+export function selectTwoFactorProvider(id: number): void {
+  selectedProvider.set(id);
+  syncFido2Ticker();
+}
+
+/** Opens a terminal to install libfido2, the tool security keys need. */
+export function installFido2(): void {
+  notify("Launching the package installer…", "info");
+  defer(() => {
+    const ok = OmawardenBridge.installMissingDependencies(["libfido2"]);
+    notify(
+      ok
+        ? "Installing libfido2 in a floating terminal."
+        : "Could not launch the package installer.",
+      ok ? "success" : "error",
+    );
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Authentication
 // ---------------------------------------------------------------------------
 
@@ -722,6 +797,9 @@ export function sendTwoFactorEmail(email: string, password: string): void {
   notify("Sending verification email…", "info");
   defer(() => {
     const outcome = OmawardenBridge.sendTwoFactorEmail(email, password);
+    if (outcome.ok) {
+      twoFactorEmailSent.set(true);
+    }
     notify(outcome.message, outcome.ok ? "success" : "error");
   });
 }

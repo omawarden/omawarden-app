@@ -355,8 +355,8 @@ test("two-factor selects the server's default FIDO2 provider", async () => {
   expect(app.shows("id:auth-view-twoFactor")).toBe(true);
   expect(app.shows("id:twofactor-retry-fido2")).toBe(true);
   expect(app.shows("id:twofactor-code")).toBe(false);
-  expect(app.texts()).toContain("Security key ready. Touch it to continue.");
-  expect(app.texts()).toContain("No verification code is needed. Your security key signs the challenge.");
+  expect(app.texts()).toContain("Security Key Detected");
+  expect(app.texts()).toContain("Click 'Verify with Security Key' and touch your key.");
 });
 
 test("FIDO2 retry performs the security key assertion and unlocks", async () => {
