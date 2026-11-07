@@ -1,6 +1,7 @@
 import { effect, host, keymap, mount, setColorScheme, View } from "nsh";
 import * as store from "./store/appStore";
 import * as palette from "./store/actionPalette";
+import { blurSearch, focusSearch } from "./store/searchFocus";
 import { windowBelowMinimum } from "./store/windowGate";
 import { ActionPaletteModal } from "./components/ActionPaletteModal";
 import { AuthView } from "./components/AuthView";
@@ -134,6 +135,11 @@ keymap.bind({
       palette.openPalette();
     }
   },
+  "mod+f": () => {
+    if (canUseVaultShortcuts()) {
+      focusSearch(true);
+    }
+  },
   "mod+enter": () => {
     if (canUseVaultShortcuts()) {
       store.copyField("totp");
@@ -233,8 +239,9 @@ keymap.bind({
 });
 
 // Linux/GTK's native Tab traversal only visits text fields, so the app moves
-// its own focus between the action controls. The bindings stay out of the way
-// while an input is being edited (the default already, made explicit here).
+// its own focus between the action controls. The default binding is enough
+// while no input is being edited; the vault search's focused case is covered
+// by the `always` bindings below.
 keymap.bind("tab", whenWindowFits(() => store.cycleAction(1)), {
   when: "notEditing",
   repeat: true,
@@ -243,6 +250,59 @@ keymap.bind("shift+tab", whenWindowFits(() => store.cycleAction(-1)), {
   when: "notEditing",
   repeat: true,
 });
+
+// The vault search field holds the keyboard while the vault is shown, and NSH
+// hands every non-character key to a focused input by default. These bindings
+// ask for the key anyway, and exist only while the vault is usable, so a
+// dialog — which takes the keyboard out of the search — keeps it for its own
+// fields.
+effect(() => {
+  if (!canUseVaultShortcuts()) {
+    return;
+  }
+  const unbindKeys = keymap.bind(
+    {
+      "mod+enter": () => store.copyField("totp"),
+      "ctrl+enter": () => store.copyField("totp"),
+      up: () => {
+        // The palette owns its own key bindings while it is open.
+        if (paletteOpen()) {
+          return;
+        }
+        store.moveSelection(-1);
+      },
+      down: () => {
+        if (paletteOpen()) {
+          return;
+        }
+        store.moveSelection(1);
+      },
+    },
+    { when: "always" },
+  );
+  // Linux/GTK's native Tab traversal only visits text fields, so the app moves
+  // its own focus between the action controls. Tab leaves the search field
+  // first: the field must not be a focus trap, and Space (still `notEditing`)
+  // can only activate the focused action once the input has let go.
+  const unbindTabs = keymap.bind(
+    {
+      tab: () => {
+        blurSearch();
+        store.cycleAction(1);
+      },
+      "shift+tab": () => {
+        blurSearch();
+        store.cycleAction(-1);
+      },
+    },
+    { when: "always", repeat: true },
+  );
+  return () => {
+    unbindKeys();
+    unbindTabs();
+  };
+});
+
 keymap.bind("space", whenWindowFits(() => store.activateFocusedAction()), {
   when: "notEditing",
 });

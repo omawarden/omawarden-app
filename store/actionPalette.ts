@@ -1,6 +1,7 @@
-import { signal } from "nsh";
+import { keymap, signal } from "nsh";
 import type { IconName } from "../components/Icon";
 import * as store from "./appStore";
+import { focusSearch } from "./searchFocus";
 
 export interface PaletteAction {
   id: string;
@@ -112,6 +113,16 @@ export function contextActions(): PaletteAction[] {
 /** Actions that operate on the whole vault. */
 export function globalActions(): PaletteAction[] {
   return [
+    {
+      id: "search-vault",
+      label: "Search Vault",
+      hint: "Put the keyboard in the vault search box",
+      icon: "search",
+      shortcut: keymap.label("mod+f"),
+      // Focus once the palette that asked for it has closed, so the closing
+      // dialog cannot take the field's focus on its way out.
+      run: () => setTimeout(() => focusSearch(true), 0),
+    },
     {
       id: "sync",
       label: "Sync Vault",

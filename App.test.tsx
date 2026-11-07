@@ -948,6 +948,87 @@ test("keyboard shortcuts navigate, copy, open modals, and lock", async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Vault search focus
+// ---------------------------------------------------------------------------
+
+test("ctrl+f puts the keyboard in the vault search", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  // Leave the field first, so the shortcut — not a leftover focus — is what
+  // puts the keyboard there.
+  await app.keyboard.press("mod+,");
+  expect(app.shows("id:settings-modal")).toBe(true);
+  await app.keyboard.press("escape");
+  expect(app.shows("id:settings-modal")).toBe(false);
+
+  await app.keyboard.press("mod+f");
+  await app.keyboard.press("g");
+  expect(app.value("id:vault-search")).toBe("g");
+
+  // A second Ctrl+F keeps the query; selecting it is the ref's job.
+  await app.keyboard.press("mod+f");
+  expect(app.value("id:vault-search")).toBe("g");
+});
+
+test("ctrl+f stands down while the palette is open", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.keyboard.press("mod+k");
+  expect(app.shows("id:action-palette-modal")).toBe(true);
+
+  // Give the palette's filter the keyboard, as a click on it would.
+  await app.type("id:action-palette-search", "");
+  await app.keyboard.press("mod+f");
+  await app.keyboard.press("g");
+  expect(app.value("id:vault-search")).toBe("");
+  expect(app.value("id:action-palette-search")).toBe("g");
+});
+
+test("the palette lists Search Vault and runs it", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.keyboard.press("mod+k");
+  expect(app.texts()).toContain("Search Vault");
+  expect(app.texts()).toContain("Ctrl+F");
+
+  await app.type("id:action-palette-search", "search vault");
+  await app.keyboard.press("enter");
+  expect(app.shows("id:action-palette-modal")).toBe(false);
+
+  await app.keyboard.press("g");
+  expect(app.value("id:vault-search")).toBe("g");
+});
+
+test("unlocking puts the keyboard in the vault search", async () => {
+  const app = await openMock({
+    phase: "locked",
+    email: "vault@example.com",
+    serverUrl: "https://vault.example.com",
+    quickUnlockReady: true,
+  });
+
+  await app.press("id:quick-unlock");
+  expect(app.shows("id:vault-workspace")).toBe(true);
+
+  await app.keyboard.press("g");
+  expect(app.value("id:vault-search")).toBe("g");
+});
+
+test("the minimum window gate takes the keyboard out of the vault search", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.setViewport(800, 600);
+  expect(app.shows("id:minimum-window-gate")).toBe(true);
+  await app.keyboard.press("g");
+  expect(app.value("id:vault-search")).toBe("");
+
+  await app.setViewport(1440, 960);
+  expect(app.shows("id:minimum-window-gate")).toBe(false);
+  await app.keyboard.press("g");
+  expect(app.value("id:vault-search")).toBe("g");
+});
+
+// ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
 

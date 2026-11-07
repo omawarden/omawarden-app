@@ -302,6 +302,9 @@ engine's `Config`. The daemon and the CLI must never gain a presentation field.
 3. **`VaultWorkspace` (when `unlocked`)**:
    - **`components/SearchHeader.tsx`**:
      - Search input with instant fuzzy filtering, a match counter pill (`visible / total`), a clear button, and the `"Scope"` selector trigger. Global actions live in the footer.
+     - `Ctrl+F` puts the keyboard in the search box and selects the query already there, so the first keystroke replaces it while the filtered list stays put. It answers only while the vault is usable — unlocked, no dialog, window at or above its minimum — and the command palette carries the same row as `Search Vault`.
+     - The field is the vault's home position for the keyboard: unlocking or showing the vault focuses it, and the minimum-window gate or an open dialog blurs it, so a dialog's own fields and Escape get the keyboard. Closing a dialog does not give the focus back; only the palette's `Search Vault` asks for it.
+     - While the field holds the keyboard, NSH would hand every non-character key to it, so the vault's arrows and `Ctrl+Enter` are re-bound with `when: "always"` while the vault is usable. `Enter` submits through the field's own `onSubmit` (the primary copy, caret kept), and Tab blurs the field before moving the action ring so `Space` can activate the focused action. Escape stays the input's.
    - **`components/ScopeDropdown.tsx`**:
      - Filter by Vault Scope (`All Vaults`, `My Vault (Personal)`, or specific `Organizations` & `Collections`) and `Folders`, with live item counts per scope/folder.
    - **`components/CategoryTabBar.tsx`**:
@@ -332,7 +335,7 @@ engine's `Config`. The daemon and the CLI must never gain a presentation field.
   - A full-bleed, opaque overlay mounted last in the root view, above the workspace, every modal and the toast. It reads the reactive window size through `store/windowGate.ts` and `theme/layout.ts`, shows the current size and the fixed minimum (`minimumWindowSize()`, `MIN_WINDOW_WIDTH` × `MIN_WINDOW_HEIGHT`), and clears when the window is resized back above it.
   - The floor does not follow the text size: enlarging the text changes how much room the content wants, never how large a window the shell requires, so a window that fits at 100% also fits at 400%.
   - It has no controls. Only a resize clears it, and every keyboard path stands down while it is up.
-  - It is an overlay rather than a replacement: the views beneath stay mounted, so a shrink-and-restore cycle preserves form input, modal state and scroll position. The vault shortcuts, the settings shortcut and the tab/space bindings stand down while it is up.
+  - It is an overlay rather than a replacement: the views beneath stay mounted, so a shrink-and-restore cycle preserves form input, modal state and scroll position. The vault shortcuts, the settings shortcut and the tab/space bindings stand down while it is up, and the vault search gives up the keyboard so typing goes nowhere until the window grows back.
 
 ### 5.3 All 7 Modals
 
@@ -342,7 +345,7 @@ The card keeps the width it asks for, and the header wraps to fit it: the title 
 
 1. **`components/ActionPaletteModal.tsx` (`Ctrl+K`)**:
    - Searchable, keyboard-first command palette (`↑`/`↓` move, `Enter` runs, direct shortcut keystrokes run the matching action) with no per-row "Run" buttons. Each row shows a leading glyph, the label and hint, and a right-aligned shortcut badge.
-   - Lists context-aware actions for the selected cipher (Copy Password, Copy Username, Copy TOTP, Open URL, Reveal Password, Export SSH Key, View Password History) plus global actions (Sync Vault, Open Password Generator, Create SSH Key, Lock Vault, Open Settings).
+   - Lists context-aware actions for the selected cipher (Copy Password, Copy Username, Copy TOTP, Open URL, Reveal Password, Export SSH Key, View Password History) plus global actions (Search Vault, Sync Vault, Open Password Generator, Create SSH Key, Lock Vault, Open Settings). `Search Vault` carries the `Ctrl+F` badge but no keystroke of its own: the palette's own key handling owns `Ctrl+F` while it is open, and the row focuses the vault search (selecting its query) once the palette has closed.
    - Action metadata, filtering, selection, and shortcut dispatch live in `store/actionPalette.ts`; the color palette stays in `theme/palette.ts`.
 2. **`components/PasswordGeneratorModal.tsx` (`Ctrl+G`)**:
    - Mode tabs: **Password** vs **Passphrase**.
@@ -378,6 +381,7 @@ The card keeps the width it asks for, and the header wraps to fit it: the title 
 - `components/ItemInspector.tsx` lets its scroll body fill the pane: the sections are the cards, so a capped content column would leave a wide pane half empty. Section cards are 6-point rounded frames with 10 points of padding and an 8-point gap, and each field is a muted caption label above a medium-weight value with a 1pt rule between visible rows, matching the plugin's `ItemInspector.qml`. The item's icon, name, badges and category live at the top of the scroll body rather than in a header bar. Every spec list is built inside an `Each` binding, never in the component body, so a reveal toggle or a TOTP tick rebuilds the rows.
 - `components/EmptyInspector.tsx` caps its two-line empty-state column at `EMPTY_STATE_MAX_WIDTH` and centres it.
 - `store/windowGate.ts` exposes `windowBelowMinimum()`, the one predicate the gate and every keyboard path read. It passes the window size alone; the text size is not part of the question.
+- `store/searchFocus.ts` owns the vault search field's native ref and the only three ways anything moves the keyboard into or out of it: `setSearchField` (the `<Input ref>` callback), `focusSearch(selectAll)` (drops any action focus, focuses the field, and selects the whole query when asked) and `blurSearch()`. The `Ctrl+F` binding, the palette's `Search Vault` row and `SearchHeader`'s auto-focus all call it, so they cannot drift apart. The ref is a module value rather than a signal: it is a native handle, and the next mount overwrites it.
 - `store/DateTime.ts` is the single source of every timestamp the interface shows. The engine hands out ISO-8601 instants in UTC, and `formatLocalDateTime(value)` renders them as `YYYY-MM-DD HH:mm GMT+X` on the reader's clock, with `gmtOffset(date)` spelling the zone (`GMT+8`, `GMT-5`, `GMT+5:30`). No value formats as `""`, and a string that is not a timestamp comes back unchanged. The item's Created/Updated rows, the footer's sync time, a password history entry's change date and a release's publication time all go through it; the About tab's build date is a build identifier rather than a moment, so it stays as the engine writes it.
 
 ---
