@@ -354,12 +354,6 @@ function InspectorBody(props: { item: () => InspectorView }) {
                       </Text>
                     </View>
                     <GhostIconButton
-                      testID="refresh-totp"
-                      label="Refresh TOTP"
-                      icon="refresh-cw"
-                      onPress={store.refreshTotp}
-                    />
-                    <GhostIconButton
                       testID="copy-totp"
                       label="Copy TOTP code"
                       icon="copy"

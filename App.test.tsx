@@ -505,7 +505,7 @@ test("vault rows fall back to category icons when website icons are off", async 
 // Inspector
 // ---------------------------------------------------------------------------
 
-test("login inspector reveals, copies, refreshes TOTP, and shows history", async () => {
+test("login inspector reveals, copies TOTP, and shows history", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
   await app.press("id:cipher-row-login1");
@@ -522,8 +522,6 @@ test("login inspector reveals, copies, refreshes TOTP, and shows history", async
   expect(app.shows("id:inspector-totp")).toBe(true);
   await app.press("id:copy-totp");
   expect(app.texts()).toContain("Copied TOTP code to clipboard (clears in 30s).");
-  await app.press("id:refresh-totp");
-  expect(app.shows("id:inspector-totp")).toBe(true);
 
   expect(app.texts()).toContain("github.com");
   await app.press("id:copy-uri-github.com");

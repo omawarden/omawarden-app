@@ -914,19 +914,6 @@ function applyRevealField(index: number): void {
   refreshInspector();
 }
 
-export function refreshTotp(): void {
-  const cipher = selectedCipher();
-  if (!cipher) {
-    return;
-  }
-  const totp = OmawardenBridge.refreshTotp(cipher.id);
-  const current = inspector();
-  if (current) {
-    inspector.set({ ...current, totp });
-    syncTotpTicker();
-  }
-}
-
 export function copyField(field: string, customIndex?: number): void {
   const cipher = selectedCipher();
   if (!cipher) {
