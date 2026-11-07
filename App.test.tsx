@@ -200,6 +200,7 @@ test("master password login unlocks the vault", async () => {
 test("login validates a missing email and password", async () => {
   const app = await openMock({ phase: "login" });
 
+  expect(app.shows("id:auth-logo")).toBe(true);
   await app.press("id:login-submit");
   expect(app.shows("id:auth-view-login")).toBe(true);
   expect(app.texts()).toContain("Email and master password are required.");

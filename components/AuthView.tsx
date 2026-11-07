@@ -1,6 +1,7 @@
-import { Text, View } from "nsh";
+import { Image, Text, View } from "nsh";
 import { Button, Checkbox, Input, OtpInput } from "nsh/base";
 import * as store from "../store/appStore";
+import logo from "../assets/icon.png";
 import {
   clientId,
   clientSecret,
@@ -37,8 +38,7 @@ export function AuthView(props: { mode: AuthMode }) {
   const palette = store.palette;
   const snap = store.snapshot;
 
-  const glyph = (): IconName =>
-    props.mode === "login" ? "key" : props.mode === "twoFactor" ? "shield" : "lock";
+  const glyph = (): IconName => (props.mode === "twoFactor" ? "shield" : "lock");
   const title = () =>
     props.mode === "login"
       ? "Log In to Bitwarden"
@@ -59,7 +59,15 @@ export function AuthView(props: { mode: AuthMode }) {
     >
       <View style={{ width: "100%", maxWidth: 360, gap: 14 }}>
         <View style={{ alignItems: "center", gap: 4 }}>
-          <Icon name={glyph()} size={28} color={palette().menu.selectedText} />
+          {props.mode === "login" ? (
+            <Image
+              testID="auth-logo"
+              src={logo}
+              style={{ width: 64, height: 64, borderRadius: 14 }}
+            />
+          ) : (
+            <Icon name={glyph()} size={28} color={palette().menu.selectedText} />
+          )}
           <Text
             style={{
               color: palette().menu.text,
@@ -229,22 +237,13 @@ function ServerPanel() {
           Official Bitwarden cloud uses standard HTTPS and does not require client certificates.
         </Text>
       ) : (
-        <Checkbox
+        <AuthCheckbox
           testID="login-mtls-toggle"
           checked={mtlsEnabled()}
-          onChange={({ checked }) => mtlsEnabled.set(checked)}
-          indicator={
-            <Icon
-              name="check"
-              size={11}
-              color={mtlsEnabled() ? palette().menu.selectedText : "transparent"}
-            />
-          }
-        >
-          <Text style={{ color: palette().popups.text, fontSize: store.type().sm }}>
-            Use mTLS Client Certificate (for edge gateways)
-          </Text>
-        </Checkbox>
+          label="Use mTLS Client Certificate (for edge gateways)"
+          fontSize={store.type().sm}
+          onChange={(checked) => mtlsEnabled.set(checked)}
+        />
       )}
 
       {!official() && mtlsEnabled() ? (
@@ -331,6 +330,52 @@ function ServerPanel() {
   );
 }
 
+/**
+ * A checkbox drawn the app's way: the box and its label on one line, the box
+ * filled with the accent colour while checked.
+ */
+function AuthCheckbox(props: {
+  testID: string;
+  checked: boolean;
+  disabled?: boolean;
+  label: string;
+  fontSize: number;
+  onChange: (checked: boolean) => void;
+}) {
+  const palette = store.palette;
+  const accent = () => palette().menu.selectedText;
+  return (
+    <Checkbox
+      testID={props.testID}
+      checked={props.checked}
+      disabled={props.disabled}
+      onChange={({ checked }) => props.onChange(checked)}
+      style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+      indicatorStyle={{
+        width: 16,
+        height: 16,
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: 4,
+        borderWidth: 1,
+        borderColor: props.checked ? accent() : palette().popups.border,
+        backgroundColor: props.checked ? accent() : "transparent",
+      }}
+      indicator={
+        <Icon
+          name="check"
+          size={11}
+          color={props.checked ? palette().menu.background : "transparent"}
+        />
+      }
+    >
+      <Text style={{ flex: 1, color: palette().popups.text, fontSize: props.fontSize }}>
+        {props.label}
+      </Text>
+    </Checkbox>
+  );
+}
+
 function LoginForm() {
   const palette = store.palette;
   const submitting = store.isSubmitting;
@@ -386,23 +431,14 @@ function LoginForm() {
             onSubmit={() => submitLogin()}
             style={inputStyle()}
           />
-          <Checkbox
+          <AuthCheckbox
             testID="login-remember-email"
             checked={rememberEmail()}
             disabled={submitting()}
-            onChange={({ checked }) => rememberEmail.set(checked)}
-            indicator={
-              <Icon
-                name="check"
-                size={11}
-                color={rememberEmail() ? palette().menu.selectedText : "transparent"}
-              />
-            }
-          >
-            <Text style={{ color: palette().popups.text, fontSize: store.type().base }}>
-              Remember email
-            </Text>
-          </Checkbox>
+            label="Remember email"
+            fontSize={store.type().base}
+            onChange={(checked) => rememberEmail.set(checked)}
+          />
         </View>
       ) : (
         <View style={{ gap: 8 }}>
