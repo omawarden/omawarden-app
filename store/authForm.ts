@@ -17,7 +17,8 @@ export const newDeviceOtp = signal("");
 export const unlockPassword = signal("");
 export const confirmLogout = signal(false);
 
-export const mtlsOpen = signal(false);
+export const serverPanelOpen = signal(false);
+export const serverUrlDraft = signal("");
 export const mtlsEnabled = signal(false);
 export const mtlsCertPath = signal("");
 export const mtlsKeyPath = signal("");

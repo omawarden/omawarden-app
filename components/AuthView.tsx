@@ -10,33 +10,41 @@ import {
   mtlsCertPath,
   mtlsEnabled,
   mtlsKeyPath,
-  mtlsOpen,
   newDeviceOtp,
   password,
   pendingPassword,
   rememberEmail,
+  serverPanelOpen,
+  serverUrlDraft,
   twoFactorCode,
   unlockPassword,
 } from "../store/authForm";
 import { isOfficialServer } from "../store/IconPolicy";
 import { tint, textOnTint } from "../theme/palette";
-import {
-  actionID,
-  ActionButton,
-  Chip,
-  focusOutline,
-  Panel,
-  SectionTitle,
-  SmallButton,
-  useAction,
-} from "./ui";
-import { Icon } from "./Icon";
+import { actionID, ActionButton, focusOutline, SmallButton, useAction } from "./ui";
+import { Icon, type IconName } from "./Icon";
 
 export type AuthMode = "login" | "twoFactor" | "locked";
 
+const OFFICIAL_SERVER = "https://vault.bitwarden.com";
+
+/**
+ * The three ways into the vault share one column and one header shape, as the
+ * plugin's do: an accent glyph, the action's name, and the account or server
+ * the action applies to.
+ */
 export function AuthView(props: { mode: AuthMode }) {
   const palette = store.palette;
   const snap = store.snapshot;
+
+  const glyph = (): IconName =>
+    props.mode === "login" ? "key" : props.mode === "twoFactor" ? "shield" : "lock";
+  const title = () =>
+    props.mode === "login"
+      ? "Log In to Bitwarden"
+      : props.mode === "twoFactor"
+        ? "Two-Factor Verification"
+        : "Vault is Locked";
 
   return (
     <View
@@ -49,18 +57,27 @@ export function AuthView(props: { mode: AuthMode }) {
         padding: 24,
       }}
     >
-      <View style={{ width: "100%", maxWidth: 460, gap: 14 }}>
+      <View style={{ width: "100%", maxWidth: 360, gap: 14 }}>
         <View style={{ alignItems: "center", gap: 4 }}>
-          <Text style={{ color: palette().menu.text, fontSize: store.type()["7xl"], fontWeight: "bold" }}>
-            Omawarden
+          <Icon name={glyph()} size={28} color={palette().menu.selectedText} />
+          <Text
+            style={{
+              color: palette().menu.text,
+              fontSize: store.type()["5xl"],
+              fontWeight: "bold",
+              textAlign: "center",
+            }}
+          >
+            {title()}
           </Text>
-          <Text style={{ color: palette().muted, fontSize: store.type().md }}>
-            {props.mode === "login"
-              ? "Sign in to your Bitwarden vault"
-              : props.mode === "twoFactor"
-                ? "Two-Factor Verification"
-                : "Vault Locked"}
-          </Text>
+          {props.mode === "login" ? (
+            <LoginServerRow />
+          ) : (
+            <Text style={{ color: palette().muted, fontSize: store.type().sm, textAlign: "center" }}>
+              {props.mode === "locked" ? "Logged in as " : ""}
+              {snap().email || "your account"}
+            </Text>
+          )}
         </View>
 
         {snap().error ? (
@@ -84,12 +101,7 @@ export function AuthView(props: { mode: AuthMode }) {
           </View>
         ) : null}
 
-        {props.mode === "login" ? (
-          <LoginForm
-            serverUrl={snap().serverUrl}
-            identityUrl={snap().identityUrl ?? ""}
-          />
-        ) : null}
+        {props.mode === "login" ? <LoginForm /> : null}
         {props.mode === "twoFactor" ? <TwoFactorForm /> : null}
         {props.mode === "locked" ? <UnlockForm /> : null}
       </View>
@@ -97,14 +109,237 @@ export function AuthView(props: { mode: AuthMode }) {
   );
 }
 
-function LoginForm(props: { serverUrl: string; identityUrl: string }) {
+/** The server the login will talk to, with the chip that opens its panel. */
+function LoginServerRow() {
   const palette = store.palette;
-  const submitting = store.isSubmitting;
-  const selfHosted = () => !isOfficialServer(props.serverUrl);
+  const snap = store.snapshot;
+  const shown = () =>
+    store.settings()?.config.serverUrl || snap().serverUrl || OFFICIAL_SERVER;
 
   return (
-    <Panel>
-      <View style={{ flexDirection: "row", gap: 6 }}>
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        flexWrap: "wrap",
+      }}
+    >
+      <Text
+        style={{
+          color: palette().muted,
+          fontSize: store.type().sm,
+          userSelect: "text",
+        }}
+      >
+        {shown()}
+      </Text>
+      <SmallButton testID="login-server-chip" paddingVertical={1} onPress={toggleServerPanel}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+          <Icon
+            name={serverPanelOpen() ? "x" : "settings"}
+            size={10}
+            color={palette().menu.selectedText}
+          />
+          <Text style={{ color: palette().menu.selectedText, fontSize: store.type().sm }}>
+            {serverPanelOpen() ? "Close" : "Server"}
+          </Text>
+        </View>
+      </SmallButton>
+    </View>
+  );
+}
+
+/** Opens the panel on the stored configuration, so it edits what is in use. */
+function toggleServerPanel(): void {
+  if (serverPanelOpen()) {
+    serverPanelOpen.set(false);
+    return;
+  }
+  const config = store.loadServerConfig();
+  serverUrlDraft.set(config.serverUrl || OFFICIAL_SERVER);
+  mtlsCertPath.set(config.clientCertPath);
+  mtlsKeyPath.set(config.clientKeyPath);
+  mtlsEnabled.set(Boolean(config.clientCertPath));
+  serverPanelOpen.set(true);
+}
+
+/** The plugin's inline server and mTLS configuration, above the login methods. */
+function ServerPanel() {
+  const palette = store.palette;
+  const official = () => isOfficialServer(serverUrlDraft());
+
+  const save = () => {
+    const url = serverUrlDraft().trim() || OFFICIAL_SERVER;
+    const useMtls = !isOfficialServer(url) && mtlsEnabled();
+    store.saveServerConfig(
+      url,
+      useMtls ? mtlsCertPath().trim() : "",
+      useMtls ? mtlsKeyPath().trim() : "",
+    );
+    serverUrlDraft.set(url);
+    serverPanelOpen.set(false);
+  };
+
+  const reset = () => {
+    serverUrlDraft.set(OFFICIAL_SERVER);
+    mtlsEnabled.set(false);
+    mtlsCertPath.set("");
+    mtlsKeyPath.set("");
+    store.saveServerConfig(OFFICIAL_SERVER, "", "");
+    serverPanelOpen.set(false);
+  };
+
+  return (
+    <View
+      testID="login-server-panel"
+      style={{
+        backgroundColor: tint(palette().menu.text, palette().menu.background, 0.06),
+        borderColor: palette().popups.border,
+        borderWidth: 1,
+        borderRadius: 8,
+        padding: 10,
+        gap: 8,
+      }}
+    >
+      <Text
+        style={{
+          color: palette().menu.selectedText,
+          fontSize: store.type().sm,
+          fontWeight: "bold",
+        }}
+      >
+        SERVER & mTLS CLIENT CERTIFICATE
+      </Text>
+
+      <Text style={{ color: palette().popups.text, fontSize: store.type().sm }}>Server URL:</Text>
+      <Input
+        testID="login-server-url"
+        value={serverUrlDraft()}
+        placeholder={OFFICIAL_SERVER}
+        autoCapitalize="none"
+        autoCorrect={false}
+        onChange={({ value }) => serverUrlDraft.set(value)}
+        style={inputStyle()}
+      />
+
+      {official() ? (
+        <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
+          Official Bitwarden cloud uses standard HTTPS and does not require client certificates.
+        </Text>
+      ) : (
+        <Checkbox
+          testID="login-mtls-toggle"
+          checked={mtlsEnabled()}
+          onChange={({ checked }) => mtlsEnabled.set(checked)}
+          indicator={
+            <Icon
+              name="check"
+              size={11}
+              color={mtlsEnabled() ? palette().menu.selectedText : "transparent"}
+            />
+          }
+        >
+          <Text style={{ color: palette().popups.text, fontSize: store.type().sm }}>
+            Use mTLS Client Certificate (for edge gateways)
+          </Text>
+        </Checkbox>
+      )}
+
+      {!official() && mtlsEnabled() ? (
+        <View style={{ gap: 8 }}>
+          <Text style={{ color: palette().popups.text, fontSize: store.type().sm }}>
+            Client Certificate Path (.pem / .crt):
+          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Input
+              testID="login-mtls-cert"
+              value={mtlsCertPath()}
+              placeholder="~/.config/omawarden/client.crt"
+              autoCapitalize="none"
+              autoCorrect={false}
+              onChange={({ value }) => mtlsCertPath.set(value)}
+              style={{ ...inputStyle(), flex: 1 }}
+            />
+            <ActionButton
+              label="Browse…"
+              testID="login-mtls-cert-browse"
+              onPress={() => {
+                const path = store.pickFile("Select Client Certificate", "Certificate files", [
+                  "crt",
+                  "pem",
+                ]);
+                if (path) {
+                  mtlsCertPath.set(path);
+                  mtlsEnabled.set(true);
+                }
+              }}
+            />
+          </View>
+
+          <Text style={{ color: palette().popups.text, fontSize: store.type().sm }}>
+            Client Private Key Path (optional if merged):
+          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Input
+              testID="login-mtls-key"
+              value={mtlsKeyPath()}
+              placeholder="~/.config/omawarden/client.key"
+              autoCapitalize="none"
+              autoCorrect={false}
+              onChange={({ value }) => mtlsKeyPath.set(value)}
+              style={{ ...inputStyle(), flex: 1 }}
+            />
+            <ActionButton
+              label="Browse…"
+              testID="login-mtls-key-browse"
+              onPress={() => {
+                const path = store.pickFile("Select Client Private Key", "Key files", [
+                  "key",
+                  "pem",
+                ]);
+                if (path) {
+                  mtlsKeyPath.set(path);
+                  mtlsEnabled.set(true);
+                }
+              }}
+            />
+          </View>
+
+          <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
+            Private key files must be restricted to 0600 or 0400 file permissions.
+          </Text>
+        </View>
+      ) : null}
+
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <SmallButton
+          testID="login-server-save"
+          label="Save & Apply"
+          paddingVertical={4}
+          onPress={save}
+        />
+        <SmallButton
+          testID="login-server-reset"
+          label="Reset to Official"
+          paddingVertical={4}
+          onPress={reset}
+        />
+      </View>
+    </View>
+  );
+}
+
+function LoginForm() {
+  const palette = store.palette;
+  const submitting = store.isSubmitting;
+
+  return (
+    <View style={{ gap: 10 }}>
+      {serverPanelOpen() ? <ServerPanel /> : null}
+
+      <View style={{ flexDirection: "row", justifyContent: "center", gap: 6 }}>
         <TabButton
           label="Master Password"
           active={loginTab() === "password"}
@@ -123,7 +358,7 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
 
       {loginTab() === "password" ? (
         <View style={{ gap: 8 }}>
-          <Text style={{ color: palette().muted, fontSize: store.type().base }}>Email</Text>
+          <Text style={{ color: palette().popups.text, fontSize: store.type().sm }}>Email:</Text>
           <Input
             testID="login-email"
             value={email()}
@@ -135,7 +370,9 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
             onChange={({ value }) => email.set(value)}
             style={inputStyle()}
           />
-          <Text style={{ color: palette().muted, fontSize: store.type().base }}>Master Password</Text>
+          <Text style={{ color: palette().popups.text, fontSize: store.type().sm }}>
+            Master Password:
+          </Text>
           <Input
             testID="login-password"
             value={password()}
@@ -162,12 +399,14 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
               />
             }
           >
-            <Text style={{ color: palette().popups.text, fontSize: store.type().base }}>Remember email</Text>
+            <Text style={{ color: palette().popups.text, fontSize: store.type().base }}>
+              Remember email
+            </Text>
           </Checkbox>
         </View>
       ) : (
         <View style={{ gap: 8 }}>
-          <Text style={{ color: palette().muted, fontSize: store.type().base }}>Client ID</Text>
+          <Text style={{ color: palette().popups.text, fontSize: store.type().sm }}>Client ID:</Text>
           <Input
             testID="login-client-id"
             value={clientId()}
@@ -179,7 +418,9 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
             onChange={({ value }) => clientId.set(value)}
             style={inputStyle()}
           />
-          <Text style={{ color: palette().muted, fontSize: store.type().base }}>Client Secret</Text>
+          <Text style={{ color: palette().popups.text, fontSize: store.type().sm }}>
+            Client Secret:
+          </Text>
           <Input
             testID="login-client-secret"
             value={clientSecret()}
@@ -195,161 +436,13 @@ function LoginForm(props: { serverUrl: string; identityUrl: string }) {
         </View>
       )}
 
-      {selfHosted() ? <MtlsCard /> : null}
-
       <ActionButton
-        label={submitting() ? "Signing in…" : "Log In"}
+        label={submitting() ? "Logging in…" : "Log In"}
         testID="login-submit"
         tone="primary"
         disabled={submitting()}
         onPress={submitLogin}
       />
-
-      <View
-        style={{
-          borderTopWidth: 1,
-          borderTopColor: palette().popups.border,
-          paddingTop: 8,
-          gap: 4,
-        }}
-      >
-        <Text style={{ color: palette().muted, fontSize: store.type().sm }}>Server</Text>
-        <Text style={{ color: palette().popups.text, fontSize: store.type().base, userSelect: "text" }}>
-          {props.serverUrl || "https://vault.bitwarden.com"}
-        </Text>
-        {props.identityUrl ? (
-          <Text style={{ color: palette().muted, fontSize: store.type().sm, userSelect: "text" }}>
-            Identity: {props.identityUrl}
-          </Text>
-        ) : null}
-        <SmallButton
-          testID="login-open-settings"
-          alignSelf="flex-start"
-          paddingVertical={2}
-          onPress={store.openSettings}
-        >
-          <Text style={{ color: palette().popups.selectedText, fontSize: store.type().base }}>
-            Open Settings (Ctrl+,)
-          </Text>
-        </SmallButton>
-      </View>
-    </Panel>
-  );
-}
-
-function MtlsCard() {
-  const palette = store.palette;
-  const open = mtlsOpen;
-  const enabled = mtlsEnabled;
-
-  return (
-    <View
-      style={{
-        borderColor: palette().popups.border,
-        borderWidth: 1,
-        borderRadius: 8,
-        padding: 10,
-        gap: 8,
-      }}
-    >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <SmallButton
-          testID="login-mtls-toggle"
-          paddingVertical={2}
-          onPress={() => open.set(!open())}
-        >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-            <Icon
-              name={open() ? "chevron-down" : "chevron-right"}
-              size={12}
-              color={palette().popups.selectedText}
-            />
-            <Text style={{ color: palette().popups.selectedText, fontSize: store.type().base }}>
-              Mutual TLS (mTLS) Client Certificate
-            </Text>
-          </View>
-        </SmallButton>
-      </View>
-
-      {open() ? (
-        <View style={{ gap: 8 }}>
-          <Checkbox
-            testID="login-mtls-enabled"
-            checked={enabled()}
-            onChange={({ checked }) => enabled.set(checked)}
-            indicator={
-              <Icon
-                name="check"
-                size={11}
-                color={enabled() ? palette().menu.selectedText : "transparent"}
-              />
-            }
-          >
-            <Text style={{ color: palette().popups.text, fontSize: store.type().base }}>
-              Use a client certificate
-            </Text>
-          </Checkbox>
-
-          <Text style={{ color: palette().muted, fontSize: store.type().sm }}>Client Certificate (PEM)</Text>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Input
-              testID="login-mtls-cert"
-              value={mtlsCertPath()}
-              placeholder="~/.config/omawarden/client.crt"
-              autoCapitalize="none"
-              autoCorrect={false}
-              onChange={({ value }) => mtlsCertPath.set(value)}
-              style={{ ...inputStyle(), flex: 1 }}
-            />
-            <ActionButton
-              label="Browse…"
-              testID="login-mtls-cert-browse"
-              onPress={() => {
-                const path = store.pickFile("Select Client Certificate", "Certificate files", [
-                  "crt",
-                  "pem",
-                ]);
-                if (path) {
-                  mtlsCertPath.set(path);
-                  enabled.set(true);
-                }
-              }}
-            />
-          </View>
-
-          <Text style={{ color: palette().muted, fontSize: store.type().sm }}>Private Key (PEM)</Text>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Input
-              testID="login-mtls-key"
-              value={mtlsKeyPath()}
-              placeholder="~/.config/omawarden/client.key"
-              autoCapitalize="none"
-              autoCorrect={false}
-              onChange={({ value }) => mtlsKeyPath.set(value)}
-              style={{ ...inputStyle(), flex: 1 }}
-            />
-            <ActionButton
-              label="Browse…"
-              testID="login-mtls-key-browse"
-              onPress={() => {
-                const path = store.pickFile("Select Client Private Key", "Key files", [
-                  "key",
-                  "pem",
-                ]);
-                if (path) {
-                  mtlsKeyPath.set(path);
-                  enabled.set(true);
-                }
-              }}
-            />
-          </View>
-
-          <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
-            Keep the private key readable only by you (chmod 600). The certificate must match the
-            server's hostname and origin.
-          </Text>
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -372,11 +465,6 @@ function fido2StatusText(status: string | null | undefined): string {
 function submitLogin(): void {
   if (store.isSubmitting()) {
     return;
-  }
-  // Persist the mutual-TLS material before the engine opens a connection, so
-  // the very first request already presents the client certificate.
-  if (mtlsEnabled()) {
-    store.saveMtlsConfig(mtlsCertPath().trim(), mtlsKeyPath().trim());
   }
   if (loginTab() === "apiKey") {
     store.authenticate({
@@ -439,10 +527,10 @@ function TwoFactorForm() {
   };
 
   return (
-    <Panel>
-      <SectionTitle hint={challenge()?.email ?? snap().email}>
+    <View style={{ gap: 10 }}>
+      <Text style={{ color: palette().muted, fontSize: store.type().base }}>
         {challenge()?.newDevice ? "New Device Verification" : "Enter a verification code"}
-      </SectionTitle>
+      </Text>
 
       <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
         <Each of={providers()} key="index">
@@ -476,7 +564,9 @@ function TwoFactorForm() {
         </View>
       ) : challenge()?.newDevice ? (
         <View style={{ gap: 6 }}>
-          <Text style={{ color: palette().muted, fontSize: store.type().base }}>Verification code</Text>
+          <Text style={{ color: palette().popups.text, fontSize: store.type().sm }}>
+            Verification code:
+          </Text>
           <OtpInput
             testID="twofactor-code"
             length={6}
@@ -502,7 +592,9 @@ function TwoFactorForm() {
         </View>
       ) : (
         <View style={{ gap: 6 }}>
-          <Text style={{ color: palette().muted, fontSize: store.type().base }}>Code</Text>
+          <Text style={{ color: palette().popups.text, fontSize: store.type().sm }}>
+            {isEmail() ? "Email 2FA Verification Code:" : "Code:"}
+          </Text>
           <OtpInput
             testID="twofactor-code"
             length={6}
@@ -551,7 +643,7 @@ function TwoFactorForm() {
         testID="twofactor-back"
         onPress={() => store.lockOrLogout(true)}
       />
-    </Panel>
+    </View>
   );
 }
 
@@ -578,17 +670,10 @@ function UnlockForm() {
   };
 
   return (
-    <Panel>
-      <View style={{ gap: 4 }}>
-        <Text style={{ color: palette().popups.text, fontSize: store.type().lg, fontWeight: "bold" }}>
-          {snap().email || "Signed in"}
-        </Text>
-        <Text style={{ color: palette().muted, fontSize: store.type().base, userSelect: "text" }}>
-          {snap().serverUrl}
-        </Text>
-      </View>
-
-      <Text style={{ color: palette().muted, fontSize: store.type().base }}>Master Password</Text>
+    <View style={{ gap: 10 }}>
+      <Text style={{ color: palette().popups.text, fontSize: store.type().sm }}>
+        Master Password:
+      </Text>
       <Input
         testID="unlock-password"
         value={unlockPassword()}
@@ -602,6 +687,26 @@ function UnlockForm() {
         style={inputStyle()}
       />
 
+      {snap().quickUnlockReady ? (
+        <ActionButton
+          label="Unlock with System Authentication"
+          testID="quick-unlock"
+          onPress={() =>
+            store.authenticate({
+              kind: "quickUnlock",
+              email: snap().email,
+              password: "",
+              clientId: "",
+              clientSecret: "",
+              code: "",
+              provider: null,
+              rememberEmail: rememberEmail(),
+              newDeviceOtp: null,
+            })
+          }
+        />
+      ) : null}
+
       <ActionButton
         label={submitting() ? "Unlocking…" : "Unlock Vault"}
         testID="unlock-submit"
@@ -610,34 +715,14 @@ function UnlockForm() {
         onPress={unlock}
       />
 
-      {snap().quickUnlockReady ? (
-        <View style={{ gap: 4 }}>
-          <ActionButton
-            label="Quick Unlock (System Auth)"
-            testID="quick-unlock"
-            onPress={() =>
-              store.authenticate({
-                kind: "quickUnlock",
-                email: snap().email,
-                password: "",
-                clientId: "",
-                clientSecret: "",
-                code: "",
-                provider: null,
-                rememberEmail: rememberEmail(),
-                newDeviceOtp: null,
-              })
-            }
-          />
-          <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
-            Uses your system's authentication prompt.
-          </Text>
-        </View>
-      ) : null}
-
-      <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+      <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
         {confirmLogout() ? (
-          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+          <>
+            <ActionButton
+              label="Cancel"
+              testID="logout-cancel"
+              onPress={() => confirmLogout.set(false)}
+            />
             <ActionButton
               label="Confirm Log Out"
               testID="logout-confirm"
@@ -647,17 +732,17 @@ function UnlockForm() {
                 store.lockOrLogout(true);
               }}
             />
-            <ActionButton
-              label="Cancel"
-              testID="logout-cancel"
-              onPress={() => confirmLogout.set(false)}
-            />
-          </View>
+          </>
         ) : (
-          <ActionButton label="Log Out" testID="logout" onPress={() => confirmLogout.set(true)} />
+          <SmallButton
+            testID="logout"
+            label="Log out from account"
+            paddingVertical={2}
+            onPress={() => confirmLogout.set(true)}
+          />
         )}
       </View>
-    </Panel>
+    </View>
   );
 }
 
@@ -724,8 +809,4 @@ export function inputStyle() {
     fontSize: store.type().md,
     minHeight: store.lengths().inputMinHeight,
   };
-}
-
-export function AuthChip(props: { label: string; color: string }) {
-  return <Chip label={props.label} color={props.color} />;
 }

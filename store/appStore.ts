@@ -17,6 +17,7 @@ import {
   type RevealStateInput,
   type SettingsSnapshotView,
   type SettingsUpdateInput,
+  type SettingsView,
   type SshKeyMode,
   type SshKeyPreviewView,
   type SshKeySaveInput,
@@ -674,11 +675,6 @@ export function installMissingDependencies(): void {
   });
 }
 
-export function continueFromDependencies(): void {
-  const next = OmawardenBridge.boot(null);
-  applySnapshot(next);
-}
-
 // ---------------------------------------------------------------------------
 // Authentication
 // ---------------------------------------------------------------------------
@@ -1141,9 +1137,24 @@ export function chooseFolder(title: string): string | null {
   return pickFolder(title);
 }
 
-/** Persists the mTLS certificate and key before a login attempt. */
-export function saveMtlsConfig(certPath: string, keyPath: string): void {
+/** Reads the stored configuration for the login screen's inline server panel. */
+export function loadServerConfig(): SettingsView {
+  const result = OmawardenBridge.getSettings();
+  settings.set(result);
+  health.set(result.health);
+  if (result.error) {
+    notify(result.error, "error");
+  }
+  return result.config;
+}
+
+/**
+ * Saves the server URL and its mTLS material on their own, so the login
+ * screen's panel cannot carry unsaved changes from the settings dialog.
+ */
+export function saveServerConfig(serverUrl: string, certPath: string, keyPath: string): void {
   const result = OmawardenBridge.updateSettings({
+    serverUrl,
     clientCertPath: certPath,
     clientKeyPath: keyPath,
   });
@@ -1151,7 +1162,9 @@ export function saveMtlsConfig(certPath: string, keyPath: string): void {
   health.set(result.health);
   if (result.error) {
     notify(result.error, "error");
+    return;
   }
+  notify("Server settings saved.", "success");
 }
 
 // ---------------------------------------------------------------------------

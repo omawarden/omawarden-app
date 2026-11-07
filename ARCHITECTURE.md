@@ -285,20 +285,23 @@ engine's `Config`. The daemon and the CLI must never gain a presentation field.
 ## 5. Full UI View & Modal Architecture (`App.tsx`, `store/appStore.ts`, `components/*.tsx`)
 
 ### 5.1 Core View States (`effectiveView`)
-1. **`components/DependencyCheckView.tsx`**:
-   - Displays required packages (`omawarden`, `libsecret`, `wl-clipboard`) and optional packages (`libfido2`).
-   - Shows per-package installation status (`installed` / `missing` / `checking`), version info, one-click `"Install Missing Packages"` button (`OmawardenBridge.installMissingDependencies`), and `"Re-check"` button.
-2. **`components/AuthView.tsx`**:
+1. **`components/DependencyCheckView.tsx`** — the plugin's prerequisite gate, on the app's primitives:
+   - Header: accent `terminal` glyph (the icon set has no wrench), `System Dependencies Required`, a `Prerequisite Setup` badge, and the Arch/AUR explanation.
+   - One card per package (`omawarden`, `libsecret`, `wl-clipboard`, `libfido2`): background and border tinted by state (green installed, red missing required, warning missing optional), a state dot, the name, a `Required`/`Optional` tag, the version when known, the description, and a `✓ Ready` / `✗ Missing` pill.
+   - `↻ Recheck` beside one full-width install button whose label carries the state and the missing names (`⚡ Install Missing Packages (libsecret)`, or `✓ All Dependencies Installed` and disabled). It calls `OmawardenBridge.installMissingDependencies`; the floating-terminal note sits underneath.
+   - There is no `Continue`: a missing required package is not something the screen lets you click past. The engine minimum-version check is not ported — the app ships its own engine.
+2. **`components/AuthView.tsx`** — login, two-factor and lock share one flat, centred column (`maxWidth: 360`) and one header shape: an accent glyph (`key`, `shield`, `lock`), the action's title (`Log In to Bitwarden`, `Two-Factor Verification`, `Vault is Locked`), and a subtitle. The engine error banner sits between the header and the form.
    - **Login Mode**:
-     - Switchable tabs between **Master Password** (`email` + `password` + `rememberEmail` checkbox) and **API Key** (`client_id` + `client_secret`).
-     - Server URL indicator with quick link to Settings (`Ctrl+,`).
+     - Subtitle: the server the login will talk to, with a `Server`/`Close` chip that opens the inline `SERVER & mTLS CLIENT CERTIFICATE` panel (the plugin's, replacing the old settings link and standalone mTLS card).
+     - Panel: server URL, the official-server note or (self-hosted) the mTLS toggle plus certificate and key paths with browse buttons and the `0600`/`0400` note, then `Save & Apply` and `Reset to Official`. `Save & Apply` writes URL + paths in one `updateSettings` call (blank URL falls back to official, unused certificates are cleared); `Reset to Official` writes `https://vault.bitwarden.com`, clears both paths and closes.
+     - Centred method tabs between **Master Password** (`Email:` + `Master Password:` + `Remember email`) and **API Key** (`Client ID:` + `Client Secret:`), then a full-width `Log In`.
    - **Two-Factor / New Device OTP Mode**:
+     - Keeps its own engine-driven phase and screen; inherits the shared header and column.
      - Supports Authenticator App (`0`), Email (`1`, with `"Resend Email"` button), YubiKey OTP (`3`), and FIDO2 WebAuthn Security Key (`7`, showing `fido2Status` and retry button), plus New Device Verification OTP.
    - **Locked / Unlock Mode**:
-     - Shows logged-in account email and server URL.
-     - Master Password input + `"Unlock Vault"` button.
-     - **Polkit Quick Unlock (`ADR-0025`)**: When `quickUnlockReady` is true, renders prominent `"Quick Unlock (System Auth)"` button (`OmawardenBridge.authenticate({ kind: "quick_unlock", ... })`).
-     - `"Log Out"` button with confirmation.
+     - Subtitle `Logged in as <email>`; the server URL is not repeated here.
+     - Master Password input, then **Polkit Quick Unlock (`ADR-0025`)** above `Unlock Vault` when `quickUnlockReady` is true (`OmawardenBridge.authenticate({ kind: "quickUnlock", ... })`), so the cheaper path is reached first.
+     - A right-aligned `Log out from account` text button that expands in place into `Confirm Log Out` / `Cancel`.
 3. **`VaultWorkspace` (when `unlocked`)**:
    - **`components/SearchHeader.tsx`**:
      - Search input with instant fuzzy filtering, a match counter pill (`visible / total`), a clear button, and the `"Scope"` selector trigger. Global actions live in the footer.

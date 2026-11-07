@@ -157,7 +157,10 @@ test("dependency check lists packages and launches the installer", async () => {
   expect(app.shows("id:dependency-libsecret")).toBe(true);
   expect(app.shows("id:dependency-wl-clipboard")).toBe(true);
   expect(app.shows("id:dependency-libfido2")).toBe(true);
-  expect(app.texts()).toContain("1 package missing");
+  expect(app.texts()).toContain("System Dependencies Required");
+  expect(app.texts()).toContain("Prerequisite Setup");
+  expect(app.texts()).toContain("✗ Missing");
+  expect(app.texts()).toContain("⚡ Install Missing Packages (libsecret)");
 
   await app.press("id:install-dependencies");
   expect(app.shows("id:toast")).toBe(true);
@@ -170,8 +173,8 @@ test("dependency check lists packages and launches the installer", async () => {
 test("dependency check reports when every required package is installed", async () => {
   const app = await openMock({ phase: "dependencyCheck" });
 
-  expect(app.texts()).toContain("Ready to go");
-  expect(app.texts()).toContain("Every required package is available.");
+  expect(app.texts()).toContain("✓ Ready");
+  expect(app.texts()).toContain("✓ All Dependencies Installed");
   expect(app.enabled("id:install-dependencies")).toBe(false);
 });
 
@@ -225,7 +228,12 @@ test("failed login preserves typed credentials and a success clears them", async
 test("self-hosted login offers mutual TLS configuration", async () => {
   const app = await openMock({ phase: "login", serverUrl: "https://vault.example.com" });
 
+  await app.press("id:login-server-chip");
+  expect(app.shows("id:login-server-panel")).toBe(true);
+  expect(app.value("id:login-server-url")).toBe("https://vault.example.com");
   expect(app.shows("id:login-mtls-toggle")).toBe(true);
+  expect(app.shows("id:login-mtls-cert")).toBe(false);
+
   await app.press("id:login-mtls-toggle");
   expect(app.shows("id:login-mtls-cert")).toBe(true);
   expect(app.shows("id:login-mtls-key")).toBe(true);
@@ -239,7 +247,30 @@ test("self-hosted login offers mutual TLS configuration", async () => {
 test("official Bitwarden login hides mutual TLS configuration", async () => {
   const app = await openMock({ phase: "login", serverUrl: "https://vault.bitwarden.com" });
 
+  await app.press("id:login-server-chip");
+  expect(app.shows("id:login-server-panel")).toBe(true);
   expect(app.shows("id:login-mtls-toggle")).toBe(false);
+  expect(app.texts()).toContain(
+    "Official Bitwarden cloud uses standard HTTPS and does not require client certificates.",
+  );
+});
+
+test("the server panel saves a self-hosted URL and resets to the official one", async () => {
+  const app = await openMock({ phase: "login", serverUrl: "https://vault.bitwarden.com" });
+
+  await app.press("id:login-server-chip");
+  await app.clear("id:login-server-url");
+  await app.type("id:login-server-url", "https://vault.example.com");
+  await app.press("id:login-server-save");
+  expect(app.shows("id:login-server-panel")).toBe(false);
+  expect(app.texts()).toContain("Server settings saved.");
+  expect(app.texts()).toContain("https://vault.example.com");
+
+  await app.press("id:login-server-chip");
+  expect(app.value("id:login-server-url")).toBe("https://vault.example.com");
+  await app.press("id:login-server-reset");
+  expect(app.shows("id:login-server-panel")).toBe(false);
+  expect(app.texts()).toContain("https://vault.bitwarden.com");
 });
 
 test("API key login unlocks the vault", async () => {
@@ -361,7 +392,7 @@ test("locked vault offers quick unlock and master password unlock", async () => 
   });
 
   expect(app.shows("id:auth-view-locked")).toBe(true);
-  expect(app.texts()).toContain("vault@example.com");
+  expect(app.texts()).toContain("Logged in as vault@example.com");
   expect(app.shows("id:quick-unlock")).toBe(true);
 
   await app.press("id:quick-unlock");
