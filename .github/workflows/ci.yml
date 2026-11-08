@@ -80,6 +80,9 @@ jobs:
             exit 1
           fi
 
+      - name: Reject private details
+        run: python3 scripts/check_privacy.py
+
       - name: Check Rust formatting
         run: cargo fmt --all --check
 
