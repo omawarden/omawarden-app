@@ -204,6 +204,8 @@ test("login validates a missing email and password", async () => {
   await app.press("id:login-submit");
   expect(app.shows("id:auth-view-login")).toBe(true);
   expect(app.texts()).toContain("Email and master password are required.");
+  // The form already shows the failure inline; a toast would repeat it.
+  expect(app.shows("id:toast")).toBe(false);
 });
 
 test("failed login preserves typed credentials and a success clears them", async () => {

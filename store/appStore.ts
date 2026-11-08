@@ -511,7 +511,12 @@ function applySnapshot(next: VaultSnapshotView): void {
     twoFactorEmailSent.set(false);
   }
   syncFido2Ticker();
-  if (next.error) {
+  // The auth screens render `snapshot.error` inside the form, so raising a
+  // toast as well would show the same failure twice. Everything else has no
+  // inline surface and still needs the notification.
+  const showsErrorInline =
+    next.phase === "login" || next.phase === "twoFactor" || next.phase === "locked";
+  if (next.error && !showsErrorInline) {
     notify(next.error, "error");
   }
   if (currentLayer() !== previousLayer) {
@@ -777,10 +782,12 @@ export function authenticate(input: AuthActionInput): void {
     try {
       const next = OmawardenBridge.authenticate(input);
       applySnapshot(next);
+      // The progress toast must not outlive the attempt: on failure the form
+      // shows the error inline, and a stale "Signing in…" would sit under it.
+      dismissToast();
       if (next.error) {
         return;
       }
-      dismissToast();
       if (next.phase === "unlocked") {
         clearAuthSecrets();
         inspector.set(null);

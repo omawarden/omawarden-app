@@ -25,6 +25,7 @@ export function ToastAlert() {
             left: 0,
             right: 0,
             alignItems: "center",
+            paddingHorizontal: 16,
             pointerEvents: "box-none",
           }}
         >
@@ -47,6 +48,10 @@ export function ToastAlert() {
               style={{
                 color: textOnTint(accent(), palette().popups.background, 0.24),
                 fontSize: store.type().md,
+                // NSH defaults flexShrink to 0, so a long message would push
+                // past the toast's border instead of wrapping inside it.
+                flexShrink: 1,
+                minWidth: 0,
               }}
             >
               {toast().message}
@@ -76,6 +81,7 @@ function ToastDismiss(props: { accent: () => string }) {
         borderRadius: 6,
         paddingVertical: 1,
         paddingHorizontal: 4,
+        flexShrink: 0,
         ...focusOutline(focused(), props.accent()),
       }}
       hoverStyle={{ backgroundColor: tint(props.accent(), palette().popups.background, 0.18) }}
