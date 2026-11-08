@@ -17,7 +17,7 @@ The primary desktop target is Linux with GTK 4. The same TSX app is structured f
 | **`omawarden-app`** | This repository: the cross-platform `nsh` frontend. `OmawardenBridge` in `src/lib.rs` exposes the engine to the TSX UI through the `omawarden-app/native` native module. |
 | **`omarchy-bitwarden-plugin`** | The thin Quickshell/Omarchy Shell wrapper that launches and integrates the app with the Omarchy desktop. |
 
-`omawarden-app` does **not** shell out to the `omawarden` CLI for authentication or vault operations. The Rust crate is linked and executed in-process, so the app and the engine share one process and one daemon lifecycle.
+`omawarden-app` does **not** shell out to the `omawarden` CLI for authentication or vault operations. The Rust crate is linked and executed in-process, while the daemon runs as a separate `omawarden` process that the app and the Omarchy Overlay share.
 
 ## Features
 
@@ -39,11 +39,11 @@ TSX UI (App.tsx, components/, store/)
 OmawardenBridge  #[native_module("omawarden-app/native")]  (src/lib.rs)
         │  100% in-process
         ▼
-omawarden Rust crate ── Unix socket ── in-process daemon
+omawarden Rust crate ── Unix socket ── omawarden daemon (separate process)
 ```
 
 - The TSX layer never spawns child processes, parses CLI output, or builds daemon JSON envelopes.
-- `OmawardenBridge` starts the daemon on a dedicated Rust thread when needed, then runs authentication, status checks, clipboard handling, generators, configuration, and health checks directly through the `omawarden` crate.
+- `OmawardenBridge` runs authentication, status checks, clipboard handling, generators, configuration, and health checks directly through the `omawarden` crate. Daemon startup is delegated to the engine (`omawarden::daemon::ensure_daemon_running()`), which launches the standalone `omawarden` binary so the vault session is not tied to the window.
 - A deterministic in-memory mock mode (`set_mock_mode` / `configure_mock_state`) lets the headless `nsh test` suite exercise every view and modal without touching the real keyring, config, clipboard, or daemon socket.
 - See [ARCHITECTURE.md](ARCHITECTURE.md) for the full architectural specification, security invariants, and acceptance criteria.
 

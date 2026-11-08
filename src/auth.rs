@@ -192,7 +192,9 @@ fn snapshot_from_auth_result(
 
 /// Signs in through the real auth manager, starting the daemon first.
 fn real_authenticate(input: AuthActionInput) -> VaultSnapshotView {
-    ensure_app_daemon_running();
+    // The engine maps a launch failure into the authentication error, so the
+    // screenshot here is only a head start, never the failure path.
+    let _ = ensure_app_daemon_running();
 
     let auth = auth_manager();
     let result = match input.kind {

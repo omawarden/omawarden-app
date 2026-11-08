@@ -22,19 +22,14 @@ Following deep-module design principles ("Design It Twice" Hybrid Design 3 + Des
 - **Rust Native Module (`src/lib.rs`)** exposes `#[native_module("omawarden-app/native")]` with `#[module] pub struct OmawardenBridge` and strongly-typed `#[derive(Clone, Debug, JsObject)]` DTOs and `#[derive(Clone, Copy, Debug, PartialEq, Eq, PropEnum)]` enums.
 - **IMPORTANT `nsh` Rule**: Every `pub` struct, enum, variant, field, module, and method in `#[native_module]` **MUST have a `///` doc comment**, otherwise `nsh check` emits missing-documentation warnings when generating `.nsh/types/omawarden-app/native.d.ts`.
 
-### 2.1 Execution Routing Inside `OmawardenBridge` (100% In-Process Rust Crate — Zero CLI Subcommands)
-1. **In-Process Daemon Readiness (`ensure_app_daemon_running`)**:
-   - **Why `omawarden::daemon::ensure_daemon_running()` must not be triggered blindly when no daemon is listening**: Inside `omawarden/src/daemon.rs`, `ensure_daemon_running()` checks `send_request(&json!({"action": "ping", "touch": false})).is_ok()`, and only if that fails does it fall back to `std::env::current_exe().arg("daemon")`. Inside an `nsh` host binary, `current_exe()` is the GUI host binary (`nsh-app-...-linux-host`), which would open a second window if `ping` failed.
-   - **Architectural Fix (In-Process Daemon Thread)**:
-     - `src/lib.rs` **MUST** provide `ensure_app_daemon_running()`:
-       1. Send `omawarden::daemon::send_request(&json!({"action": "ping", "touch": false}))`.
-       2. If a daemon answers, inspect `ping.unlocked` and the process-wide `AtomicBool`:
-          - `unlocked == true`: return `true`. The engine's `check_running_daemon()` returns `Defer` for a daemon built from another commit while it is unlocked, so replacing it would lock the vault and drop its SSH agent.
-          - The `AtomicBool` is already set: return `true`; the answering daemon is this process's in-process daemon.
-          - Otherwise the daemon is **locked and foreign** (an `omawarden` CLI build, an older app, or a package installed alongside this one). Send `{"action": "stop"}` and poll `ping` up to 20 times (10ms sleep) until the socket stops accepting. This is the exact case where the engine's `ensure_daemon_running()` returns `Replace` and would otherwise spawn `current_exe() daemon` — the GUI host — opening a second window and leaving the vault with no daemon (`"the vault was unlocked, but the Omawarden daemon did not start"`).
-       3. Spawn an **in-process background Rust thread** (`std::thread::Builder::new().name("omawarden-daemon".into()).spawn(...)`) that calls `omawarden::daemon::run_daemon_server(config.auto_lock_minutes.max(0) as u64)` (guarded by an `AtomicBool` so only one in-process daemon thread is ever spawned per process), and poll `send_request(&json!({"action": "ping", "touch": false}))` up to 40 times (25ms sleep) until the Unix socket is ready.
-     - Because the Unix socket is guaranteed to be listening, answering `ping`, and reporting **this build's commit** before `AuthManager` or `attachment::get_attachment` is called, `omawarden::daemon::ensure_daemon_running()` inside the `omawarden` crate takes its `DaemonCheck::UpToDate` fast path and **NEVER** invokes `std::env::current_exe()`.
-     - Regression test: `stale_locked_daemon_is_replaced_in_process` binds a socket that answers `ping` with a foreign `commit` and `unlocked: false`, then asserts the app replaces it with an in-process daemon.
+### 2.1 Execution Routing Inside `OmawardenBridge` (In-Process Engine, Shared Daemon)
+1. **Daemon Readiness (`ensure_app_daemon_running`)**:
+   - The app never hosts the daemon. It delegates to `omawarden::daemon::ensure_daemon_running()`, which owns the launch strategy: the engine resolves the standalone `omawarden` executable (`OMA_DAEMON_BIN`, the running CLI binary, or `PATH`) and starts `omawarden daemon` as its own process.
+   - **Why the app must not host the daemon**: a daemon hosted on a Rust thread inside the app runs in the GUI process, so a `stop` — from the Overlay, the CLI, or a config change that restarts it — takes the window down with it. A separate daemon lets the app, the Overlay, and the CLI share one vault session, and keeps that session alive when the window closes.
+   - A daemon that already answers is kept, whichever build it comes from. The engine's protocol handshake (`protocol_version`, upstream ADR 0028) replaced the old `GIT_HASH` equality check, so a commit difference is no longer a reason to replace a daemon.
+   - The app **MUST NOT** send `stop` to take the socket. The answering daemon may be serving the Overlay, and the engine denies `stop` to non-owners: an in-process daemon rejects all external stops, a standalone one requires explicit `admin: true`.
+   - `ensure_app_daemon_running()` returns `Result<(), String>`, and callers surface a launch failure (`real_sync` reports it, `real_authenticate` lets the engine map it into the authentication error) instead of continuing against a missing daemon.
+   - Regression test: `locked_daemon_from_another_build_is_kept` binds a socket that answers `ping` with a foreign `commit` and `unlocked: false`, then asserts the app leaves that daemon answering.
 2. **100% In-Process Authentication (`omawarden::auth::AuthManager`)**:
    - **Prohibition on CLI Subcommands**: `src/lib.rs` **MUST NOT** spawn `Command::new("omawarden")` for authentication, status checks, or capability probing. Remove `run_omawarden_cli`, `cli_auth_args`, `cli_auth_payload`, `cli_supports_quick_unlock`, and `cli_failure_message`.
    - Before invoking `AuthManager::login_password`, `AuthManager::login_apikey`, `AuthManager::unlock`, or `AuthManager::quick_unlock`, call `ensure_app_daemon_running()`.
@@ -435,7 +430,7 @@ Profiling `nsh run --window-size 1440x960` on Linux with GTK4 + dual AMD Vulkan 
 ## 7. Verification & Acceptance Criteria
 
 1. Initialize git repository in `~/Development/linux/omawarden-app` (`git init`, `git remote add origin https://github.com/omawarden/omawarden-app.git`). Do **NOT** push to remote.
-2. Zero `Command::new("omawarden")` calls in `src/lib.rs` — all authentication (`login_password`, `login_apikey`, `unlock`, `quick_unlock`, `get_status`) and daemon startup (`run_daemon_server`) must execute in-process via the `omawarden` Rust crate.
+2. Zero `Command::new("omawarden")` calls in `src/lib.rs` — daemon startup is delegated to `omawarden::daemon::ensure_daemon_running()` (the engine resolves and launches the executable), and all authentication (`login_password`, `login_apikey`, `unlock`, `quick_unlock`, `get_status`) executes in-process via the `omawarden` Rust crate.
 3. Run `~/.local/share/mise/installs/github-longbridge-nsh/latest/bin/nsh check` — must complete with **0 errors and 0 warnings**.
 4. Run `cargo test` — unit tests in `src/lib.rs` must pass 100%.
 5. Run `~/.local/share/mise/installs/github-longbridge-nsh/latest/bin/nsh test` — headless UI tests in `App.test.tsx` must pass 100%.

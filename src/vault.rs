@@ -66,7 +66,7 @@ fn real_query(filter: VaultFilterInput) -> VaultSnapshotView {
 /// Syncs through the daemon and keeps the cached view when it fails.
 fn real_sync(filter: VaultFilterInput) -> VaultSnapshotView {
     push_log("vault sync requested");
-    ensure_app_daemon_running();
+    let start_error = ensure_app_daemon_running().err();
     let response = daemon(json!({ "action": "sync", "touch": true }));
     let failure = match response {
         Some(response) if response.get("ok").and_then(|value| value.as_bool()) == Some(true) => {
@@ -79,7 +79,9 @@ fn real_sync(filter: VaultFilterInput) -> VaultSnapshotView {
                 .map(str::to_string)
                 .unwrap_or_else(|| "Sync failed.".to_string()),
         ),
-        None => Some("The Omawarden daemon is not running.".to_string()),
+        None => Some(
+            start_error.unwrap_or_else(|| "The Omawarden daemon is not running.".to_string()),
+        ),
     };
     let Some(error) = failure else {
         // Only replace the cache once the daemon reports a successful sync.

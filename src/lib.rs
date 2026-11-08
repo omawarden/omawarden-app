@@ -9,12 +9,10 @@
 //! socket.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
 
 use nsh_core::prelude::*;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 mod attachments;
 mod auth;
@@ -758,68 +756,20 @@ pub struct ActionOutcomeView {
 // Real (non-mock) helpers
 // ---------------------------------------------------------------------------
 
-/// Ensures an Omawarden daemon answers `ping`, starting one in this process.
+/// Ensures an Omawarden daemon answers `ping`, letting the engine start one.
 ///
-/// The engine's `ensure_daemon_running` falls back to
-/// `std::env::current_exe().arg("daemon")`. Inside an nsh host that executable
-/// is the GUI host binary, so the fallback would open a second app window.
-/// Starting the daemon on a dedicated thread here keeps the socket alive and
-/// lets every later engine call take its `ping` fast path instead.
+/// The engine resolves the standalone `omawarden` executable (`OMA_DAEMON_BIN`,
+/// this binary when it is the CLI, or `PATH`) and runs the daemon as its own
+/// process. Hosting the daemon here would tie the vault session to the window
+/// and let one `stop` take the GUI down with it, so the app only ever acts as
+/// a client.
 ///
-/// A daemon that answers may come from another build: the `omawarden` CLI, an
-/// older app, or a package installed alongside this one. The engine stops such
-/// a daemon while the vault is locked and then takes its `current_exe()`
-/// fallback, which is exactly the second-window failure above. Replace a
-/// locked foreign daemon here instead. An unlocked one is kept, matching the
-/// engine, so its session and SSH agent survive.
-fn ensure_app_daemon_running() -> bool {
-    // At most one in-process daemon server per process.
-    static DAEMON_SPAWNED: AtomicBool = AtomicBool::new(false);
-
-    if let Some(ping) = daemon(json!({ "action": "ping", "touch": false })) {
-        let unlocked = ping.get("unlocked").and_then(Value::as_bool) == Some(true);
-        if unlocked || DAEMON_SPAWNED.load(Ordering::SeqCst) {
-            return true;
-        }
-        let _ = daemon(json!({ "action": "stop" }));
-        // `stop` exits the old daemon before answering, but the socket file
-        // outlives it. Wait for the socket to stop accepting so the bind below
-        // cannot race a still-listening process.
-        for _ in 0..20 {
-            std::thread::sleep(Duration::from_millis(10));
-            if daemon(json!({ "action": "ping", "touch": false })).is_none() {
-                break;
-            }
-        }
-    }
-
-    if !DAEMON_SPAWNED.swap(true, Ordering::SeqCst) {
-        let config = load_config();
-        let auto_lock_minutes = if config.auto_lock_minutes >= 0 {
-            config.auto_lock_minutes as u64
-        } else {
-            15
-        };
-        let state = std::sync::Arc::new(omawarden::daemon::DaemonState::new(
-            omawarden::storage::StorageManager::default(),
-            auto_lock_minutes,
-        ));
-        let _ = std::thread::Builder::new()
-            .name("omawarden-daemon".into())
-            .spawn(move || {
-                if let Err(error) = omawarden::daemon::run_daemon_server(state) {
-                    eprintln!("omawarden in-process daemon stopped: {error}");
-                }
-            });
-    }
-
-    for _ in 0..40 {
-        std::thread::sleep(Duration::from_millis(25));
-        if daemon(json!({ "action": "ping", "touch": false })).is_some() {
-            return true;
-        }
-    }
-    false
+/// A daemon that already answers is kept, whichever build it comes from: the
+/// engine's protocol handshake judges compatibility, and a commit difference
+/// no longer counts against it. A daemon that this process did not start may
+/// be serving the Overlay, so the app must never stop it to take the socket.
+fn ensure_app_daemon_running() -> Result<(), String> {
+    omawarden::daemon::ensure_daemon_running().map_err(|error| error.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -1126,6 +1076,7 @@ fn expand_home(path: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use crate::auth::{normalize_optional_code, two_factor_provider_view};
     use crate::format::{MASK, format_card_number, mask_card_number};
     use crate::platform::validate_launch_url;
@@ -1685,15 +1636,14 @@ mod tests {
         }
     }
 
-    /// A locked daemon from another build must be replaced in-process.
+    /// A daemon from another build is kept, not replaced.
     ///
-    /// The engine's `ensure_daemon_running` stops a daemon whose commit differs
-    /// from its own and then spawns `current_exe() daemon`. Inside the nsh host
-    /// that executable is the GUI, so the replacement opens a second app window
-    /// and leaves no daemon behind: unlocking then fails with "the vault was
-    /// unlocked, but the Omawarden daemon did not start".
+    /// The engine compares protocol versions rather than commit hashes, so a
+    /// daemon this process did not start stays in place. Stopping it would
+    /// drop the session the Overlay or the CLI is using, and the app would
+    /// then have to start a second daemon of its own.
     #[test]
-    fn stale_locked_daemon_is_replaced_in_process() {
+    fn locked_daemon_from_another_build_is_kept() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
 
         // Keep the socket away from the login session's daemon.
@@ -1719,13 +1669,13 @@ mod tests {
             }
         }
 
-        assert!(running, "the app must leave a daemon answering ping");
-        let ping = ping.expect("the in-process daemon answers ping");
+        assert!(running.is_ok(), "the app must leave a daemon answering ping");
+        let ping = ping.expect("the daemon answers ping");
         assert_eq!(ping.get("ok").and_then(Value::as_bool), Some(true));
-        assert_ne!(
+        assert_eq!(
             ping.get("commit").and_then(Value::as_str),
             Some(STALE_COMMIT),
-            "a locked daemon from another build must be replaced in-process"
+            "a daemon from another build must be kept"
         );
     }
 
