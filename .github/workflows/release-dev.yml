@@ -188,9 +188,11 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       AUR_KEY: ${{ secrets.AUR_KEY }}
+      AUR_USERNAME: ${{ secrets.AUR_USERNAME }}
+      AUR_EMAIL: ${{ secrets.AUR_EMAIL }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -327,9 +329,17 @@ jobs:
           files: |
             dist/*
 
+      # The deploy action needs a commit identity as well as the key. A
+      # half-configured AUR setup should skip with a warning, not fail a release
+      # that has already been published.
+      - name: Check the AUR configuration
+        if: env.AUR_KEY != '' && (env.AUR_USERNAME == '' || env.AUR_EMAIL == '')
+        run: |
+          echo "::warning::AUR_KEY is set but AUR_USERNAME and/or AUR_EMAIL is missing; skipping the AUR publish."
+
       - name: Generate AUR PKGBUILD (omawarden-app-dev-bin)
         id: aur
-        if: env.AUR_KEY != ''
+        if: env.AUR_KEY != '' && env.AUR_USERNAME != '' && env.AUR_EMAIL != ''
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
@@ -337,7 +347,7 @@ jobs:
           echo "pkgver=$(cat dist/aur/pkgver)" >> "$GITHUB_OUTPUT"
 
       - name: Publish AUR package
-        if: env.AUR_KEY != ''
+        if: env.AUR_KEY != '' && env.AUR_USERNAME != '' && env.AUR_EMAIL != ''
         uses: KSXGitHub/github-actions-deploy-aur@2ac5a4c1d7035885d46b10e3193393be8460b6f1 # v4.1.1
         with:
           pkgname: omawarden-app-dev-bin
