@@ -43,7 +43,7 @@ import {
   type ThemePaletteOverrides,
 } from "../theme/palette";
 import { scaleType, type TypeScale } from "../theme/typeScale";
-import { clearAuthSecrets } from "./authForm";
+import { clearAuthSecrets, clearTwoFactorCodes, serverPanelOpen } from "./authForm";
 
 export type ModalKind =
   | "none"
@@ -146,6 +146,14 @@ export const activeModal = signal<ModalKind>("none");
 export const reveal = signal<RevealStateInput>(defaultReveal());
 export const selectedIndex = signal(0);
 export const selectedProvider = signal(0);
+/**
+ * The login screen's own step. The engine's `phase` stays the truth about the
+ * session; this only says which half of the login the screen shows, so Back
+ * can return to the credentials without cancelling the outstanding challenge.
+ */
+export const loginStep = signal<"credentials" | "secondFactor">("credentials");
+/** The auth failure the login or unlock form shows above its fields. */
+export const authError = signal<string | null>(null);
 /** The live security-key state, refreshed while the FIDO2 provider is active. */
 export const fido2Status = signal<string | null>(null);
 /** Whether this challenge has already sent its verification email. */
@@ -510,15 +518,21 @@ function applySnapshot(next: VaultSnapshotView): void {
   if (next.phase !== "twoFactor") {
     twoFactorEmailSent.set(false);
   }
-  syncFido2Ticker();
-  // The auth screens render `snapshot.error` inside the form, so raising a
-  // toast as well would show the same failure twice. Everything else has no
-  // inline surface and still needs the notification.
+  // The engine's phase decides the step: an outstanding challenge means the
+  // second factor, and every other phase starts over at the credentials.
+  loginStep.set(
+    next.phase === "twoFactor" && next.twoFactor ? "secondFactor" : "credentials",
+  );
+  // The auth screens render the failure inside the form, so raising a toast as
+  // well would show the same failure twice. Everything else has no inline
+  // surface and still needs the notification.
   const showsErrorInline =
     next.phase === "login" || next.phase === "twoFactor" || next.phase === "locked";
+  authError.set(showsErrorInline ? next.error ?? null : null);
   if (next.error && !showsErrorInline) {
     notify(next.error, "error");
   }
+  syncFido2Ticker();
   if (currentLayer() !== previousLayer) {
     clearActionFocus();
   }
@@ -707,6 +721,7 @@ function stopFido2Ticker(): void {
 /** Polls the security key while the FIDO2 provider is the active one. */
 function syncFido2Ticker(): void {
   const wanted =
+    loginStep() === "secondFactor" &&
     snapshot().phase === "twoFactor" &&
     snapshot().twoFactor !== null &&
     selectedProvider() === 7 &&
@@ -724,7 +739,7 @@ function syncFido2Ticker(): void {
 /** Re-reads the libfido2 tools and the attached security key. */
 export function checkFido2Status(): void {
   defer(() => {
-    if (snapshot().phase !== "twoFactor") {
+    if (snapshot().phase !== "twoFactor" || loginStep() !== "secondFactor") {
       return;
     }
     const next = OmawardenBridge.checkFido2Status();
@@ -739,6 +754,27 @@ export function checkFido2Status(): void {
 export function selectTwoFactorProvider(id: number): void {
   selectedProvider.set(id);
   syncFido2Ticker();
+}
+
+/**
+ * Returns the login screen to its credentials step.
+ *
+ * The engine keeps its outstanding challenge: there is no way to cancel one,
+ * and a challenge without a completed first factor holds no session. Only the
+ * screen's step and the transient state that belonged to the second step move.
+ */
+export function backToCredentials(): void {
+  if (isSubmitting() || loginStep() !== "secondFactor") {
+    return;
+  }
+  loginStep.set("credentials");
+  authError.set(null);
+  clearTwoFactorCodes();
+  selectedProvider.set(0);
+  fido2Status.set(null);
+  twoFactorEmailSent.set(false);
+  serverPanelOpen.set(false);
+  stopFido2Ticker();
 }
 
 /** Opens a terminal to install libfido2, the tool security keys need. */

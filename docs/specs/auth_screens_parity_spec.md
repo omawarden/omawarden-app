@@ -83,7 +83,16 @@ The view keeps its data model (`PackageStatusView`: name, description, required,
 
 ### Two-factor
 
-The screen keeps its own phase — the engine drives it, and folding it into the login form the way the plugin does would change the flow, not the layout. It inherits the shared header and column, and keeps its provider tabs, code field, resend and back control as they are.
+The screen keeps its own engine-driven phase and inherits the shared header and
+column, with its provider tabs, code field, resend control and security-key card.
+
+A later change made the login two-step, which is a deliberate divergence from the
+plugin: the plugin appends the two-factor block under the still-visible email and
+password fields, while the app's second step hides every first-factor control and
+the server's edit chip, keeping only the read-only server address. The step is
+local (`loginStep`); the engine's phase is unchanged, and Back returns to the
+credentials without cancelling the challenge. See `ARCHITECTURE.md` §5.1 and the
+**Login Step** entry in `GLOSSARY.md`.
 
 ## Testing Decisions
 
@@ -93,10 +102,11 @@ One seam: the app-level suite in `App.test.tsx`, where these screens already liv
 - **Server panel** — the chip opens it, `login-server-url` starts at the snapshot's URL, `Save & Apply` persists (assert via a following login attempt or the saved toast), and `Reset to Official` writes the official URL and hides the mTLS fields.
 - **mTLS** — the existing tests open the panel first; the toggle and both browse buttons still work, and the official server still hides the mTLS fields.
 - **Login / two-factor / lock** — the existing flow tests pass unchanged apart from the new entry points; the logout confirm test keeps its three test IDs.
+- **Login steps** — the second step hides the credentials and the server chip, Back restores the typed email and password and clears the step's error and code.
 
 ## Out of Scope
 
-- **Inline two-factor inside the login form.** The engine exposes a `twoFactor` phase; merging the two screens changes the flow, not the layout, and belongs in its own ticket.
+- **Inline two-factor inside the login form.** The engine exposes a `twoFactor` phase; merging the two screens changes the flow, not the layout, and belongs in its own ticket. (That ticket has since made the login two-step rather than one flat form: the second step replaces the credentials instead of stacking under them.)
 - **Pixel parity.** The plugin's 32-point fields, 5-point radii and 14-point checkboxes are not copied; the app keeps its own primitives and type scale.
 - **An engine minimum version on the dependency screen.** The plugin checks its bundled engine against `0.8.1`; the app ships its own engine.
 - **Removing the server fields from Settings.** They stay there for the vault view; the login panel is a second way in, exactly as the plugin has both.

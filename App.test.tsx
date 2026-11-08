@@ -314,6 +314,99 @@ test("two-factor verification supports email resend and completes login", async 
   expect(app.shows("id:vault-workspace")).toBe(true);
 });
 
+test("the second login step hides the credentials it no longer needs", async () => {
+  const app = await openMock({
+    phase: "login",
+    email: "user@example.com",
+    twoFactorRequired: true,
+  });
+
+  await app.type("id:login-email", "user@example.com");
+  await app.type("id:login-password", "master-password");
+  await app.press("id:login-submit");
+
+  expect(app.shows("id:auth-view-twoFactor")).toBe(true);
+  expect(app.shows("id:login-email")).toBe(false);
+  expect(app.shows("id:login-password")).toBe(false);
+  expect(app.shows("id:login-tab-password")).toBe(false);
+  expect(app.shows("id:login-tab-api")).toBe(false);
+  expect(app.shows("id:login-remember-email")).toBe(false);
+  expect(app.shows("id:login-server-chip")).toBe(false);
+  // The server stays readable; only its edit control goes away.
+  expect(app.texts()).toContain("https://vault.bitwarden.com");
+  expect(app.shows("id:twofactor-code")).toBe(true);
+  expect(app.shows("id:login-back")).toBe(true);
+});
+
+test("Back from the second step returns to the credentials it kept", async () => {
+  const app = await openMock({
+    phase: "login",
+    email: "user@example.com",
+    twoFactorRequired: true,
+  });
+
+  await app.type("id:login-email", "user@example.com");
+  await app.type("id:login-password", "master-password");
+  await app.press("id:login-submit");
+  await app.press("id:login-back");
+
+  expect(app.shows("id:auth-view-login")).toBe(true);
+  expect(app.shows("id:login-email")).toBe(true);
+  expect(app.value("id:login-email")).toBe("user@example.com");
+  expect(app.shows("id:login-password")).toBe(true);
+  expect(app.value("id:login-password")).toBe("master-password");
+  expect(app.shows("id:login-server-chip")).toBe(true);
+  expect(app.shows("id:twofactor-code")).toBe(false);
+  expect(app.shows("id:login-submit")).toBe(true);
+});
+
+test("Back clears the second-factor error with the step", async () => {
+  const app = await openMock({
+    phase: "login",
+    email: "user@example.com",
+    twoFactorRequired: true,
+  });
+
+  await app.type("id:login-email", "user@example.com");
+  await app.type("id:login-password", "master-password");
+  await app.press("id:login-submit");
+
+  await app.press("id:twofactor-submit");
+  expect(app.texts()).toContain("Enter a verification code.");
+
+  await app.press("id:login-back");
+  expect(app.texts()).not.toContain("Enter a verification code.");
+  expect(app.shows("id:login-email")).toBe(true);
+});
+
+test("new-device verification is the same step without provider tabs", async () => {
+  const app = await openMock({
+    phase: "login",
+    email: "user@example.com",
+    twoFactorRequired: true,
+    twoFactor: {
+      email: "user@example.com",
+      providers: [],
+      selectedProvider: 0,
+      newDevice: true,
+    },
+  });
+
+  await app.type("id:login-email", "user@example.com");
+  await app.type("id:login-password", "master-password");
+  await app.press("id:login-submit");
+
+  expect(app.shows("id:auth-view-twoFactor")).toBe(true);
+  expect(app.shows("id:twofactor-provider-0")).toBe(false);
+  expect(app.texts()).toContain("New Device Email Verification Code:");
+  expect(app.shows("id:login-email")).toBe(false);
+  expect(app.shows("id:login-back")).toBe(true);
+
+  await app.type("id:twofactor-code", "123456");
+  await app.press("id:twofactor-submit");
+  expect(app.shows("id:vault-workspace")).toBe(true);
+});
+
 test("two-factor verification rejects an empty code", async () => {
   const app = await openMock({
     phase: "login",
@@ -357,6 +450,7 @@ test("two-factor selects the server's default FIDO2 provider", async () => {
   expect(app.shows("id:auth-view-twoFactor")).toBe(true);
   expect(app.shows("id:twofactor-retry-fido2")).toBe(true);
   expect(app.shows("id:twofactor-code")).toBe(false);
+  expect(app.shows("id:login-back")).toBe(true);
   expect(app.texts()).toContain("Security Key Detected");
   expect(app.texts()).toContain("Click 'Verify with Security Key' and touch your key.");
 });

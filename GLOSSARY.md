@@ -61,6 +61,38 @@ re-entering the master password. The engine reports `quick_unlock_ready`
 (system auth is available) and `quick_unlock_usable` (the user configured it);
 the app shows the quick-unlock action only when both hold.
 
+## Login Step
+
+Which half of the login `components/AuthView.tsx` shows: `credentials` or
+`secondFactor`. It is the screen's own signal (`loginStep` in `store/appStore.ts`),
+not an `AppPhase`: the engine's phase stays the truth about the session, and the
+step only decides what is rendered. `applySnapshot` derives it — an outstanding
+challenge means `secondFactor`, every other phase `credentials` — so a successful
+sign-in, a lock, a logout or a boot all return it to `credentials`. Back from the
+second factor sets it to `credentials` without calling the engine.
+
+This two-step login is a deliberate divergence from the plugin, which keeps the
+first factor's fields visible under the two-factor block.
+
+## Login Credentials
+
+The first factor the credentials step collects: an email and master password,
+or an API Key's client ID and client secret. They stay in the store while the
+second factor is shown — the engine needs the password again to verify a code or
+resend a verification email — but the second step does not render them, and Back
+restores them untouched. `clearAuthSecrets()` is what removes them, only after a
+successful sign-in.
+
+## Second Factor
+
+The extra verification a server demands after the first factor is accepted,
+covering both two-factor authentication (Authenticator App, Email, YubiKey OTP,
+FIDO2 security key) and the new-device email verification. It is the login's
+second step, so it hides the Login Credentials and the server's edit control; it
+keeps the logo, title, read-only server address, error banner, method tabs (when
+the server offers more than one) and the code or security-key card, with the
+primary action and Back on one row.
+
 ## Cold path / Hot path
 
 - **Cold path**: any operation that may read the vault from disk, contact the

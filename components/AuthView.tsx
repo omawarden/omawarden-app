@@ -1,4 +1,5 @@
 import { Image, Text, View } from "nsh";
+import type { InputRef } from "nsh";
 import { Button, Checkbox, Input } from "nsh/base";
 import * as store from "../store/appStore";
 import logo from "../assets/icon.png";
@@ -30,19 +31,42 @@ export type AuthMode = "login" | "twoFactor" | "locked";
 const OFFICIAL_SERVER = "https://vault.bitwarden.com";
 
 /**
+ * The password field's handle, so Back can put the keyboard back where the user
+ * left it. A module value rather than state, as the vault search field's is:
+ * component bodies run once, and the next mount overwrites it.
+ */
+let passwordField: InputRef | null = null;
+
+function setPasswordField(ref: InputRef | null): void {
+  passwordField = ref;
+}
+
+/**
  * The three ways into the vault share one column and one header shape, as the
- * plugin's do: an accent glyph, the action's name, and the account or server
- * the action applies to.
+ * plugin's do: the app's logo for a login, a lock glyph for the locked vault,
+ * the action's name, and the account or server the action applies to.
+ *
+ * Logging in is two steps here, which the plugin does not do: the credentials
+ * step takes the server, the method and the first factor, and the second step
+ * shows only the second factor. The engine's `phase` says a challenge is
+ * outstanding; `loginStep` says which half of it the screen shows.
  */
 export function AuthView(props: { mode: AuthMode }) {
   const palette = store.palette;
   const snap = store.snapshot;
   const loginLike = () => props.mode !== "locked";
+  const secondFactor = () => props.mode === "twoFactor" && store.loginStep() === "secondFactor";
   const title = () => (props.mode === "locked" ? "Vault is Locked" : "Log In to Bitwarden");
+  const testID = () =>
+    props.mode === "locked"
+      ? "auth-view-locked"
+      : secondFactor()
+        ? "auth-view-twoFactor"
+        : "auth-view-login";
 
   return (
     <View
-      testID={`auth-view-${props.mode}`}
+      testID={testID()}
       style={{
         flex: 1,
         backgroundColor: palette().menu.background,
@@ -73,7 +97,7 @@ export function AuthView(props: { mode: AuthMode }) {
             {title()}
           </Text>
           {loginLike() ? (
-            <LoginServerRow />
+            <LoginServerRow editable={!secondFactor()} />
           ) : (
             <Text style={{ color: palette().muted, fontSize: store.type().sm, textAlign: "center" }}>
               Logged in as {snap().email || "your account"}
@@ -81,7 +105,7 @@ export function AuthView(props: { mode: AuthMode }) {
           )}
         </View>
 
-        {snap().error ? (
+        {store.authError() ? (
           <View
             style={{
               backgroundColor: tint(palette().danger, palette().menu.background, 0.18),
@@ -97,19 +121,27 @@ export function AuthView(props: { mode: AuthMode }) {
                 fontSize: store.type().base,
               }}
             >
-              {snap().error}
+              {store.authError()}
             </Text>
           </View>
         ) : null}
 
-        {loginLike() ? <LoginForm twoFactor={props.mode === "twoFactor"} /> : <UnlockForm />}
+        {loginLike() ? (
+          secondFactor() ? (
+            <SecondFactorForm />
+          ) : (
+            <CredentialsForm />
+          )
+        ) : (
+          <UnlockForm />
+        )}
       </View>
     </View>
   );
 }
 
 /** The server the login will talk to, with the chip that opens its panel. */
-function LoginServerRow() {
+function LoginServerRow(props: { editable: boolean }) {
   const palette = store.palette;
   const snap = store.snapshot;
   const shown = () =>
@@ -134,18 +166,20 @@ function LoginServerRow() {
       >
         {shown()}
       </Text>
-      <SmallButton testID="login-server-chip" paddingVertical={1} onPress={toggleServerPanel}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-          <Icon
-            name={serverPanelOpen() ? "x" : "settings"}
-            size={10}
-            color={palette().menu.selectedText}
-          />
-          <Text style={{ color: palette().menu.selectedText, fontSize: store.type().sm }}>
-            {serverPanelOpen() ? "Close" : "Server"}
-          </Text>
-        </View>
-      </SmallButton>
+      {props.editable ? (
+        <SmallButton testID="login-server-chip" paddingVertical={1} onPress={toggleServerPanel}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Icon
+              name={serverPanelOpen() ? "x" : "settings"}
+              size={10}
+              color={palette().menu.selectedText}
+            />
+            <Text style={{ color: palette().menu.selectedText, fontSize: store.type().sm }}>
+              {serverPanelOpen() ? "Close" : "Server"}
+            </Text>
+          </View>
+        </SmallButton>
+      ) : null}
     </View>
   );
 }
@@ -367,46 +401,13 @@ function AuthCheckbox(props: {
   );
 }
 
-function LoginForm(props: { twoFactor: boolean }) {
+/**
+ * The first login step: the server's panel, the method, and that method's
+ * credentials. The primary button fills the row; there is nowhere to go back to.
+ */
+function CredentialsForm() {
   const palette = store.palette;
   const submitting = store.isSubmitting;
-  const challenge = () => store.snapshot().twoFactor;
-  const fido2 = () => props.twoFactor && store.selectedProvider() === 7;
-  const fidoStatus = () => store.fido2Status() ?? challenge()?.fido2Status ?? null;
-
-  const primaryLabel = () => {
-    if (!props.twoFactor) {
-      return submitting() ? "Logging in…" : "Log In";
-    }
-    if (!fido2()) {
-      return submitting() ? "Verifying…" : "Verify";
-    }
-    if (fidoStatus() === "tool_not_found") {
-      return "Install libfido2";
-    }
-    if (fidoStatus() === "no_device") {
-      return "Insert Security Key to Verify";
-    }
-    return submitting() ? "Waiting for key touch…" : "Verify with Security Key";
-  };
-  const primaryTestID = () => {
-    if (!props.twoFactor) {
-      return "login-submit";
-    }
-    return fido2() ? "twofactor-retry-fido2" : "twofactor-submit";
-  };
-  const primaryDisabled = () => submitting() || (fido2() && fidoStatus() === "no_device");
-  const primaryPress = () => {
-    if (!props.twoFactor) {
-      submitLogin();
-      return;
-    }
-    if (fido2() && fidoStatus() === "tool_not_found") {
-      store.installFido2();
-      return;
-    }
-    submitTwoFactor();
-  };
 
   return (
     <View style={{ gap: 10 }}>
@@ -416,14 +417,14 @@ function LoginForm(props: { twoFactor: boolean }) {
         <TabButton
           label="Master Password"
           active={loginTab() === "password"}
-          disabled={submitting() || props.twoFactor}
+          disabled={submitting()}
           onPress={() => loginTab.set("password")}
           testID="login-tab-password"
         />
         <TabButton
           label="API Key"
           active={loginTab() === "apiKey"}
-          disabled={submitting() || props.twoFactor}
+          disabled={submitting()}
           onPress={() => loginTab.set("apiKey")}
           testID="login-tab-api"
         />
@@ -447,6 +448,7 @@ function LoginForm(props: { twoFactor: boolean }) {
             Master Password:
           </Text>
           <Input
+            ref={setPasswordField}
             testID="login-password"
             value={password()}
             placeholder="Master password"
@@ -456,10 +458,9 @@ function LoginForm(props: { twoFactor: boolean }) {
             readonly={submitting()}
             submitBehavior="submit"
             onChange={({ value }) => password.set(value)}
-            onSubmit={() => primaryPress()}
+            onSubmit={() => submitLogin()}
             style={inputStyle()}
           />
-          {props.twoFactor ? <TwoFactorSection /> : null}
           <AuthCheckbox
             testID="login-remember-email"
             checked={rememberEmail()}
@@ -502,14 +503,79 @@ function LoginForm(props: { twoFactor: boolean }) {
       )}
 
       <ActionButton
-        label={primaryLabel()}
-        testID={primaryTestID()}
+        label={submitting() ? "Logging in…" : "Log In"}
+        testID="login-submit"
         tone="primary"
-        disabled={primaryDisabled()}
-        onPress={primaryPress}
+        disabled={submitting()}
+        onPress={submitLogin}
       />
     </View>
   );
+}
+
+/**
+ * The second login step: only the second factor, with the primary action on the
+ * left and Back on its right. The credentials that started the challenge stay
+ * in the store — the engine needs them again to verify — but are not shown.
+ */
+function SecondFactorForm() {
+  const submitting = store.isSubmitting;
+  const challenge = () => store.snapshot().twoFactor;
+  const fido2 = () => store.selectedProvider() === 7;
+  const fidoStatus = () => store.fido2Status() ?? challenge()?.fido2Status ?? null;
+
+  const primaryLabel = () => {
+    if (!fido2()) {
+      return submitting() ? "Verifying…" : "Verify";
+    }
+    if (fidoStatus() === "tool_not_found") {
+      return "Install libfido2";
+    }
+    if (fidoStatus() === "no_device") {
+      return "Insert Security Key to Verify";
+    }
+    return submitting() ? "Waiting for key touch…" : "Verify with Security Key";
+  };
+  const primaryDisabled = () => submitting() || (fido2() && fidoStatus() === "no_device");
+  const primaryPress = () => {
+    if (fido2() && fidoStatus() === "tool_not_found") {
+      store.installFido2();
+      return;
+    }
+    submitTwoFactor();
+  };
+
+  return (
+    <View style={{ gap: 10 }}>
+      <TwoFactorSection />
+      <View style={{ flexDirection: "row", alignItems: "stretch", gap: 8 }}>
+        <View style={{ flex: 1 }}>
+          <ActionButton
+            label={primaryLabel()}
+            testID={fido2() ? "twofactor-retry-fido2" : "twofactor-submit"}
+            tone="primary"
+            disabled={primaryDisabled()}
+            onPress={primaryPress}
+          />
+        </View>
+        <ActionButton
+          label="Back"
+          testID="login-back"
+          disabled={submitting()}
+          onPress={backToCredentials}
+        />
+      </View>
+    </View>
+  );
+}
+
+/** Leaves the second factor for the credentials step, keeping what was typed. */
+function backToCredentials(): void {
+  if (store.isSubmitting()) {
+    return;
+  }
+  store.backToCredentials();
+  setTimeout(() => passwordField?.focus(), 0);
 }
 
 function submitLogin(): void {
@@ -598,9 +664,9 @@ function codeLabel(newDevice: boolean, id: number | undefined): string {
 }
 
 /**
- * The challenge the login form grows into once the password is accepted, laid
- * out as the plugin's: the method tabs, then the code field or the security-key
- * card, with the primary button below the form.
+ * The challenge itself, laid out as the plugin's: the method tabs, then the
+ * code field or the security-key card. It renders inside the second step, which
+ * owns the primary and Back buttons.
  */
 function TwoFactorSection() {
   const palette = store.palette;
@@ -621,7 +687,7 @@ function TwoFactorSection() {
   };
 
   return (
-    <View testID="auth-view-twoFactor" style={{ gap: 6 }}>
+    <View testID="login-second-factor" style={{ gap: 6 }}>
       {providers().length > 1 ? (
         <View style={{ flexDirection: "row", gap: 4 }}>
           <Each of={providers()} key="index">
@@ -653,6 +719,7 @@ function TwoFactorSection() {
               placeholder="123456"
               autoCapitalize="none"
               autoCorrect={false}
+              autoFocus
               readonly={store.isSubmitting()}
               submitBehavior="submit"
               onSubmit={submitTwoFactor}
