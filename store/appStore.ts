@@ -533,6 +533,7 @@ function applySnapshot(next: VaultSnapshotView): void {
     notify(next.error, "error");
   }
   syncFido2Ticker();
+  syncLockTicker();
   if (currentLayer() !== previousLayer) {
     clearActionFocus();
   }
@@ -974,6 +975,54 @@ function syncTotpTicker(): void {
     }
   } else {
     stopTotpTicker();
+  }
+}
+
+// The daemon locks the vault on its own timer, and nothing else tells the app.
+// Polling while unlocked is what turns that lock into a screen change; the
+// probe carries `touch: false`, so it cannot postpone the lock it watches for.
+const LOCK_TICK_MS = 2000;
+
+let lockTimer: ReturnType<typeof setInterval> | null = null;
+let lockTickRunning = false;
+
+function stopLockTicker(): void {
+  if (lockTimer !== null) {
+    clearInterval(lockTimer);
+    lockTimer = null;
+  }
+}
+
+function syncLockTicker(): void {
+  if (phase() !== "unlocked") {
+    stopLockTicker();
+    return;
+  }
+  if (lockTimer === null) {
+    lockTimer = setInterval(tickDaemon, LOCK_TICK_MS);
+  }
+}
+
+/** One daemon tick: notice a lock and leave the vault screen. */
+function tickDaemon(): void {
+  // Synchronous on purpose: the flag is exact only while the call owns the
+  // thread, and there is no user action waiting to be acknowledged.
+  if (lockTickRunning || phase() !== "unlocked") {
+    return;
+  }
+  lockTickRunning = true;
+  try {
+    const tick = OmawardenBridge.pollDaemonTick(null);
+    // A missing daemon is not a lock. Reacting to it would fight the daemon's
+    // own idle exit; copy, inspect and TOTP already report it in place.
+    if (!tick.online || tick.unlocked) {
+      return;
+    }
+    applySnapshot(OmawardenBridge.boot(null));
+    selectedIndex.set(0);
+    activeModal.set("none");
+  } finally {
+    lockTickRunning = false;
   }
 }
 

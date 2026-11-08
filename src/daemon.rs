@@ -175,6 +175,18 @@ fn real_tick(active_cipher_id: Option<String>) -> DaemonTickView {
 
 /// Answers the tick from the seeded state.
 fn mock_tick(state: &mut MockState, active_cipher_id: Option<String>) -> DaemonTickView {
+    state.daemon_ticks = state.daemon_ticks.saturating_add(1);
+    if !state.daemon_online {
+        return DaemonTickView {
+            online: false,
+            unlocked: false,
+            quick_unlock_ready: false,
+            ssh_prompt: None,
+            ssh_pending_count: 0,
+            totp: None,
+            error: Some("The Omawarden daemon is not running.".to_string()),
+        };
+    }
     let totp = active_cipher_id.as_ref().and_then(|id| {
         state
             .items

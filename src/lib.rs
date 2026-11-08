@@ -268,6 +268,10 @@ pub(crate) struct MockState {
     error: Option<String>,
     /// A sync failure the mock reports while keeping the unlocked view.
     sync_error: Option<String>,
+    /// Whether the mock daemon answers; `false` exercises the offline branch.
+    daemon_online: bool,
+    /// How many mock ticks have been answered, so a test can see the timer stop.
+    daemon_ticks: u32,
     filter: VaultFilterInput,
     selected_cipher_id: Option<String>,
     master_password: String,
@@ -305,6 +309,8 @@ impl Default for MockState {
             last_sync: None,
             error: None,
             sync_error: None,
+            daemon_online: true,
+            daemon_ticks: 0,
             filter: VaultFilterInput::default(),
             selected_cipher_id: None,
             master_password: "correct horse battery staple".to_string(),
@@ -593,6 +599,7 @@ fn configure_mock_from_json(state: &mut MockState, value: &Value) {
     state.quick_unlock_usable = json_bool(value, "quickUnlockUsable", state.quick_unlock_usable);
     state.two_factor_required = json_bool(value, "twoFactorRequired", state.two_factor_required);
     state.update_available = json_bool(value, "updateAvailable", state.update_available);
+    state.daemon_online = json_bool(value, "daemonOnline", state.daemon_online);
     if let Some(password) = json_string(value, "masterPassword") {
         state.master_password = password;
     }
@@ -803,6 +810,11 @@ impl OmawardenBridge {
             *state = fresh;
             state.snapshot()
         })
+    }
+
+    /// Counts the mock ticks answered so far, so a test can see the timer stop.
+    pub fn mock_daemon_ticks() -> u32 {
+        with_mock(|state| state.daemon_ticks)
     }
 
     /// Initialize the app or handle an external summon payload (e.g. `{"view":"ssh-approval","id":1}`).

@@ -698,6 +698,54 @@ test("live TOTP ticks down and auto-refreshes when the period ends", async () =>
   expect(app.texts()).toContain("30s");
 });
 
+test("a daemon lock reaches the locked screen within one tick", async () => {
+  const app = await openMockWithClock({
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+  });
+
+  await app.press("id:cipher-row-login1");
+  expect(app.shows("id:inspector-totp")).toBe(true);
+
+  OmawardenBridge.configureMockState(JSON.stringify({ phase: "locked" }));
+  await app.wait(2000);
+
+  expect(app.shows("id:auth-view-locked")).toBe(true);
+  expect(app.shows("id:cipher-row-login1")).toBe(false);
+  expect(app.shows("id:inspector-totp")).toBe(false);
+});
+
+test("a missing daemon does not leave the vault screen", async () => {
+  const app = await openMockWithClock({
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+    daemonOnline: false,
+  });
+
+  await app.press("id:cipher-row-login1");
+  await app.wait(2000);
+
+  expect(app.shows("id:cipher-row-login1")).toBe(true);
+  expect(app.shows("id:inspector-totp")).toBe(true);
+});
+
+test("the lock ticker stops once the vault is locked", async () => {
+  const app = await openMockWithClock({
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+  });
+
+  OmawardenBridge.configureMockState(JSON.stringify({ phase: "locked" }));
+  await app.wait(2000);
+  expect(app.shows("id:auth-view-locked")).toBe(true);
+
+  const afterLock = OmawardenBridge.mockDaemonTicks();
+  expect(afterLock).toBe(1);
+
+  await app.wait(6000);
+  expect(OmawardenBridge.mockDaemonTicks()).toBe(afterLock);
+});
+
 test("master password re-prompt hides secrets until confirmed", async () => {
   const app = await openMock({ phase: "unlocked", items: [REPROMPT_ITEM] });
 
