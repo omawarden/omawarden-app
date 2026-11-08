@@ -894,7 +894,9 @@ impl OmawardenBridge {
                     .unwrap_or_else(|| "available".to_string())
             });
         }
-        omawarden::webauthn::check_fido2_status().as_str().to_string()
+        omawarden::webauthn::check_fido2_status()
+            .as_str()
+            .to_string()
     }
 
     /// Lock or log out of the current vault session, purging sensitive state and preview files.
@@ -1088,11 +1090,11 @@ fn expand_home(path: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use crate::auth::{normalize_optional_code, two_factor_provider_view};
     use crate::format::{MASK, format_card_number, mask_card_number};
     use crate::platform::validate_launch_url;
     use crate::projection::fuzzy_score;
+    use serde_json::json;
 
     /// Serializes tests that share the process-wide mock state.
     static TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -1681,7 +1683,10 @@ mod tests {
             }
         }
 
-        assert!(running.is_ok(), "the app must leave a daemon answering ping");
+        assert!(
+            running.is_ok(),
+            "the app must leave a daemon answering ping"
+        );
         let ping = ping.expect("the daemon answers ping");
         assert_eq!(ping.get("ok").and_then(Value::as_bool), Some(true));
         assert_eq!(

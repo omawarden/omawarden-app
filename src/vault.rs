@@ -79,9 +79,9 @@ fn real_sync(filter: VaultFilterInput) -> VaultSnapshotView {
                 .map(str::to_string)
                 .unwrap_or_else(|| "Sync failed.".to_string()),
         ),
-        None => Some(
-            start_error.unwrap_or_else(|| "The Omawarden daemon is not running.".to_string()),
-        ),
+        None => {
+            Some(start_error.unwrap_or_else(|| "The Omawarden daemon is not running.".to_string()))
+        }
     };
     let Some(error) = failure else {
         // Only replace the cache once the daemon reports a successful sync.
