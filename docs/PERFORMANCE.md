@@ -3,11 +3,14 @@
 Measured on 2026-11-08 on one machine, against one vault. It exists so the next
 change can be compared against the same numbers instead of against an impression.
 
-**Status: the first round is superseded.** The locked rows were re-taken later the
-same day and came out 31 MB lower, because the first round sampled a process that
-had already been unlocked. See "Why the first round is not used". The unlocked
-rows and the locked-to-unlocked delta still need the same treatment, and that
-needs the vault unlocked.
+The numbers are from two rounds. The first round recorded each state once; the
+second, later the same day, re-took them with one fresh process per state and
+paired the two states back to back. The two rounds agree, so the table below is
+the first round's numbers with the second round as confirmation.
+
+A reading of 155.1 MB locked, taken between the rounds, is **not** used. It came
+from a session that had been idle long enough to lock, so the window was never
+painted. See "Why 155 MB was wrong".
 
 ## Machine and builds
 
@@ -24,7 +27,7 @@ needs the vault unlocked.
 | --- | --- | --- |
 | `omawarden` | 0.11.0 (`57b2f1c`, 2026-11-08) | release |
 | `omawarden-app` | 0.4.0 | `nsh package --target linux`, release profile |
-| `omawarden-app` | 0.4.0-dev.034e8ba | the same command on the CI runner (ubuntu-24.04) |
+| `omawarden-app` | 0.4.0-dev.04843ff | the same command on the CI runner (ubuntu-24.04) |
 | Bitwarden desktop | 2026.3.1-2 | Electron 39 |
 | Bitwarden CLI | 2026.2.0-1 | `bw serve`, Node 26 |
 
@@ -47,8 +50,13 @@ different field sets, not because they hold different items.
 **One fresh process per state.** Start the app, let the screen settle, take three
 samples two seconds apart, quit. Never sample two states in one process: glibc
 does not return freed memory to the kernel, so a locked sample taken after an
-unlock inherits the unlock's footprint. That mistake is what the first round made,
-and it cost 31 MB.
+unlock inherits the unlock's footprint.
+
+**The session must be unlocked and the displays on.** A window on a locked, dark
+session still allocates its surfaces, but nothing paints it. The heap stays at
+about half its real size and Mesa loads less shader code, so the process reads
+roughly 30 MB low. The signature is an identical anonymous mapping with a much
+smaller `[heap]`.
 
 Each row records `Rss`, `Pss` and `Pss_Anon` from `/proc/<pid>/smaps_rollup`, plus
 the `[heap]` mapping's `Rss` from `/proc/<pid>/smaps`. Where a product is more
@@ -59,63 +67,85 @@ Geometry is 948 × 1046 logical pixels on an output at scale 2, so the window is
 number, and the scale is the one that is easy to forget.
 
 Record what else is running. `Pss` is proportional to sharing, so it moves with
-the rest of the session; `Rss` does not.
+the rest of the session; `Rss` does not. The two rounds were taken with different
+background load, which is why their PSS values differ by about 15 MB while their
+RSS values agree to 1 MB.
 
-## Resident memory, re-measured (locked)
+## Resident memory
 
 | Binary | State | Processes | RSS | PSS | Pss_Anon | `[heap]` |
 | --- | --- | --- | --- | --- | --- | --- |
-| local package, fix commit tree | locked, fresh process | 1 | 155.1 MB | 94.6 MB | 52.4 MB | 8.4 MB |
-| CI artifact (`034e8ba`) | locked, fresh process | 1 | 155.2 MB | 94.9 MB | 52.4 MB | 8.4 MB |
+| local package | locked, fresh process | 1 | 185.2 MB | 101.2 MB | 64.5 MB | 18.5 MB |
+| CI artifact | locked, fresh process | 1 | 185.4 MB | 101.2 MB | 64.4 MB | 18.5 MB |
+| local package | unlocked, 1049 items, fresh process | 1 | 213.9 MB | 118.9 MB | 78.0 MB | 22.6 MB |
+| CI artifact | unlocked, 1049 items, fresh process | 1 | 212.4 MB | 117.3 MB | 76.2 MB | 21.7 MB |
 
-The two binaries agree to 0.7 MB. `[heap]` is identical at 8,644 kB in both, which
-is the clearest sign that this is the steady state of a locked screen rather than
-a leftover: a process that has only ever drawn the locked screen reaches the same
-heap size every time.
+The two binaries agree to 1.5 MB in both states, and `[heap]` agrees to 0.1 MB
+locked and 0.9 MB unlocked. The build channel is not a variable here; see below.
 
-The `omawarden` daemon was running and locked for both rows. Its own footprint is
-counted in the single-sample table below, not here.
+The `omawarden` daemon was running and unlocked for the unlocked rows. Its own
+footprint is counted in the single-sample table below, not here.
+
+## The vault costs about 29 MB
+
+Subtracting the paired rows, local package:
+
+| | RSS | PSS | Pss_Anon | `[heap]` |
+| --- | --- | --- | --- | --- |
+| unlocked | 213.9 MB | 118.9 MB | 78.0 MB | 22.6 MB |
+| locked | 185.2 MB | 101.2 MB | 64.5 MB | 18.5 MB |
+| difference | +28.7 MB | +17.7 MB | +13.5 MB | +4.1 MB |
+
+At 1049 items that is 3.9 KB of heap per item. The first round put the same
+difference at +25.6 MB RSS, +16.5 MB PSS, +13.1 MB `Pss_Anon` and +3.4 MB heap
+(3.3 KB per item). The two rounds agree within run-to-run variation; the PSS
+deltas differ because PSS tracks sharing.
 
 ## Build channel is not the variable
 
-Same source tree (the fix commit), CI artifact against the local package:
+The two binaries, same source tree:
 
 | | text | data | bss | file |
 | --- | --- | --- | --- | --- |
 | CI (ubuntu-24.04) | 39.78 MB | 2.13 MB | 13.4 KB | 41.9 MB |
-| local (Arch) | 39.90 MB | 2.13 MB | 12.1 KB | 42.0 MB |
+| local (Arch) | 39.79 MB | 2.13 MB | 12.7 KB | 41.9 MB |
 
-120 KiB of text, 0.31%, which is the difference between two glibc and two linker
+11 KiB of text, 0.03%, which is the difference between two glibc and two linker
 versions, not between two build profiles. A release build of this app is a
 release build; the only thing "dev" about the published artifact is the channel
 name.
 
-## Why the first round is not used
+## Why 155 MB was wrong
 
-The first round recorded, for the same binary at the same geometry:
+Between the two rounds, the same locked binary read 155.1 MB RSS and 8.4 MB of
+heap. That reading was taken while the machine had been left unattended: the
+session locks after 150 seconds idle, the lock screen covers the output and the
+display goes off. The app had allocated its window surfaces — the largest
+anonymous mapping is 24,492 kB in both readings — but the compositor never
+painted it, so the heap never filled and the software rasterizer never loaded its
+shader code.
 
 | | RSS | PSS | Pss_Anon | `[heap]` |
 | --- | --- | --- | --- | --- |
-| first round, locked | 186.1 MB | 117.0 MB | 63.8 MB | 18.3 MB |
-| re-measured, locked | 155.1 MB | 94.6 MB | 52.4 MB | 8.4 MB |
-| difference | −31.0 MB | −22.4 MB | −11.4 MB | −9.9 MB |
+| dark session | 155.1 MB | 94.6 MB | 52.4 MB | 8.4 MB |
+| painted | 185.2 MB | 101.2 MB | 64.5 MB | 18.5 MB |
 
-The heap gap is the tell. A process that has only drawn the locked screen ends at
-8.4 MB; the first round read 18.3 MB, which is what the heap looks like after an
-unlock has filled it and a lock has emptied it without giving the pages back.
+The gap is concentrated in exactly the two places painting touches: the heap
+doubles, and the Mesa rasterizer mappings (`libLLVM`, `libgallium`) grow by about
+10 MB. That is why the reading looked like a fresh process rather than a stale
+one — it was fresh, it just never drew.
 
 Two things follow:
 
-- The first round's locked row was inflated, so the locked → unlocked delta it
-  produced (+25.6 MB RSS, +3.4 MB heap, 3.3 KB per item) cannot be used as it
-  stands. The delta has to be re-taken, one fresh process per state.
-- Every absolute number in this file needs the process history stated next to it.
-  A number without "fresh process" or "after an unlock" is not comparable.
+- A memory number is only comparable when it states whether the window was
+  painted. "Fresh process" alone is not enough.
+- The first round was not inflated. The 31 MB difference was the dark session,
+  not the first round.
 
-## First round, single samples (not re-taken)
+## First round, single samples
 
-These products were measured once each in the first round and have not been
-re-measured. Treat them as an order of magnitude, not a reference.
+These products were measured once each and have not been re-measured. Treat them
+as an order of magnitude, not a reference.
 
 | Product | State | Processes | RSS | PSS | Pss_Anon |
 | --- | --- | --- | --- | --- | --- |
@@ -125,29 +155,36 @@ re-measured. Treat them as an order of magnitude, not a reference.
 | `bw serve` | signed in, locked | 1 | 267.9 MB | 263.4 MB | 210.4 MB |
 | `bw serve` | unlocked, 1049 items | 1 | 396.9 MB | 391.8 MB | 335.2 MB |
 
+The daemon row was re-read during the second round at 52.5 MB, which confirms it
+within a rounding error. The daemon runs with `dumpable=0`, so its `smaps_rollup`
+is unreadable even to the same user; only `ps` RSS is available.
+
 ## One-shot command cost
 
-Also from the first round. Neither command can be re-run while the vault is
-locked, and wall clock varies more than memory between runs.
+Also from the first round. Wall clock varies more than memory between runs.
 
 | Command | Items | Wall clock | Peak RSS |
 | --- | --- | --- | --- |
 | `omawarden vault list` | 1049 | 0.50 s, range 0.40–0.55 over 5 runs | 36.0 MB |
 | `bw list items --raw` | 1049 | 3.78 s, single run | 379.0 MB |
 
-## What the numbers say so far
+## What the numbers say
 
-- A locked `omawarden-app` is 155 MB of resident memory, and the same number on
-  the shipped artifact as on a local package.
-- The 31 MB the first round added was measurement error, not vault content: a
-  locked screen has no vault in it.
-- The cost of the vault itself is still unmeasured. The deferred secret-locality
-  change rests on that number, so it waits on the re-measurement.
+- A locked `omawarden-app` is about 185 MB of resident memory, and the shipped
+  artifact matches a local package within 1.5 MB.
+- The vault adds about 29 MB of RSS and 4 MB of heap at 1049 items, roughly
+  3.9 KB of heap per item.
+- Against Bitwarden desktop's 849 MB locked and 1.19 GB unlocked, the `omawarden`
+  app is the smaller of the two by a wide margin, and the daemon adds 53 MB.
 
 ## Caveats
 
 **A process cannot be sampled in two states.** Covered above, and worth repeating
-because it is the mistake that produced the first round.
+because glibc's refusal to return freed pages is what makes the second state look
+like the first.
+
+**A window that is not painted is not a measurement.** Covered above. The screen
+must be on and the session unlocked.
 
 **PSS is unavailable for Electron.** Its `smaps_rollup` is not readable by the
 same user (`dumpable=0`), so the Bitwarden desktop rows carry RSS only. The two
@@ -158,8 +195,8 @@ per process, so the 8-process Bitwarden row is an upper bound, not a sum of
 distinct memory.
 
 **Geometry and scale both move the number.** Rendering surfaces and font atlases
-move RSS by tens of megabytes between window sizes, and the output scale multiplies
-the device-pixel count. Pin both before comparing.
+move RSS by tens of megabytes between window sizes, and the output scale
+multiplies the device-pixel count. Pin both before comparing.
 
 **The debug host binary is not a baseline.** `target/debug/nsh-app-*-linux-host`
 never loads the bundle — it shows a "Connecting to ws://127.0.0.1:8790" screen —
@@ -176,9 +213,7 @@ The only way in is `POST /unlock` with `{"password": "..."}` — the field is
 
 **The Bitwarden desktop window cannot be captured here.** `grim` returned a black
 frame for it on this multi-monitor setup, so "unlocked" was confirmed by the
-memory delta rather than by a screenshot. On the re-measurement day `grim` failed
-outright on this session — `ext_image_copy_capture` never delivered a frame — so
-screen contents were read through AT-SPI instead.
+memory delta rather than by a screenshot.
 
 **Wall clock varies more than memory.** `omawarden vault list` ranged from 0.35 s
 to 0.91 s across runs on the same vault, with five consecutive runs landing
@@ -188,7 +223,8 @@ figure as the measurement and the wall clock as an order of magnitude; the
 
 ## Reproducing
 
-Resident memory, one fresh process, with the heap mapping:
+Resident memory, one fresh process, with the heap mapping. The session must be
+unlocked and the displays on:
 
 ```bash
 ./omawardenApp --window-size 948x1046 &
@@ -205,6 +241,10 @@ kill $pid
 
 The `[heap]` name sits in the mapping header, not at the start of a line, so the
 `smaps_rollup` alone will not give it to you.
+
+For the unlocked row, unlock the vault in the app and wait for the list to
+render before sampling. For the locked row, lock the daemon first
+(`omawarden auth lock`) and start a new process; do not reuse the unlocked one.
 
 Resident memory, process tree:
 
@@ -243,11 +283,10 @@ print('exit=%d wall=%.3fs peak_rss=%.1f MB' % (
 
 ## Pending
 
-- The unlocked rows for `omawarden-app`, one fresh process each, at the same
-  geometry and scale.
-- The locked → unlocked delta, from those two fresh processes.
-- The 3.3 KB per item figure, which is that delta divided by 1049.
-- The daemon and Bitwarden rows above, which have only ever been single samples.
+- The Bitwarden desktop and `bw serve` rows, which have only ever been single
+  samples.
+- p95 latency of copy, inspect and TOTP over the local socket, which the
+  deferred secret-locality change needs as its cost side.
 
 ## Related
 

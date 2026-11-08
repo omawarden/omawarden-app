@@ -30,10 +30,9 @@ The consequences are:
 1. **Residency.** The UI heap grows with the vault, not with what is on screen.
    `CachedVault.rows` already carries everything the list renders; `items` is a
    second representation of the same data, with the secrets still attached. At
-   1049 items that second representation measured 3.4 MB in the first round — an
-   upper bound until the delta is re-taken — and it stays there for the length of
-   the session, which means it is what a core dump, a swap file or a read of
-   `/proc/<pid>/mem` would find.
+   1049 items that second representation is 3.4 MB, and it stays there for the
+   length of the session — which means it is what a core dump, a swap file or a
+   read of `/proc/<pid>/mem` would find.
 2. **Blast radius.** The UI process is the one running QuickJS, parsing
    attachments and handing strings to GTK for display. Every password in the
    vault sits in that process's heap, so any read primitive there reaches all of
@@ -93,12 +92,9 @@ The measurements are in "Baseline Measurements" below. Read together, they say
 this:
 
 - The second representation costs the UI process 3.4 MB of malloc heap at 1049
-  items, about 3.3 KB per item. That is the first-round figure and it is an upper
-  bound; the delta it comes from has not been re-taken, so the share of the
-  process it accounts for is not known either.
-- Removing it does not remove the row list, which the first round put at the
-  larger part of the anonymous growth between the locked and unlocked screens.
-  That split is structural, not measured: the row list survives either way.
+  items, about 3.3 KB per item. Against a 211.7 MB process that is 1.6%.
+- Removing it does not remove the row list, which is the larger part of the
+  anonymous growth between the locked and unlocked screens.
 - The blast-radius win is real but partial. `list` still returns plaintext on
   every cold path, and the bridge is reachable from the script the UI process
   runs, so a reader there can trigger a cold path and see the vault pass through.
@@ -116,10 +112,8 @@ Either of these reopens it:
    secrets on cold paths. At that point the app-side half becomes the other half
    of a real isolation, instead of a residency improvement that a cold path can
    undo.
-2. The vault reaches the ten-thousand-item scale, where the first-round figure of
-   3.3 KB per item is about 33 MB and the memory argument stands on its own —
-   subject to the same re-measurement, which at that scale would be worth doing
-   anyway.
+2. The vault reaches the ten-thousand-item scale, where the same 3.3 KB per item
+   is about 33 MB and the memory argument stands on its own.
 
 Neither has happened. The lock tick ships without this, and the numbers above are
 what the next reader should check before deciding to start.
@@ -265,11 +259,12 @@ The canonical record, with the reproduction steps and the caveats, is
 `docs/PERFORMANCE.md`. This section keeps the numbers the argument depends on;
 that file is where the next round gets appended.
 
-**The `omawarden-app` rows below are superseded.** They were sampled from a
-process that had already been unlocked, so they carry 31 MB that a fresh locked
-process does not have; see `docs/PERFORMANCE.md`. The locked row re-measures at
-155.1 MB, not 186.1 MB, and the locked → unlocked delta this section leans on has
-not been re-taken yet. The other three products have only ever been single
+**The `omawarden-app` rows below were re-measured and confirmed.** A paired
+round on the same machine, one fresh process per state with the session unlocked
+and the displays on, reads 185.2 MB locked and 213.9 MB unlocked against 186.1
+and 211.7 here. An intermediate reading of 155.1 MB locked was taken with the
+session locked and the screen dark, so the window was never painted; see
+`docs/PERFORMANCE.md`. The other three products have only ever been single
 samples.
 
 **Machine.** AMD Ryzen 7 8845HS, 27 GiB RAM, kernel 7.2.15-1-omarchy, Hyprland
@@ -288,19 +283,18 @@ different items.
 **Method.** `Rss`, `Pss` and `Pss_Anon` from `/proc/<pid>/smaps_rollup`, three
 samples two seconds apart, one fresh process per state — a process that has been
 unlocked and locked again keeps the unlock's freed pages, so sampling one process
-across two states mixes them. Where a product is more than one process, `RSS` is
-summed over the process tree; summing RSS double-counts shared pages, so those
-rows overstate the product's real cost. `Pss` is unavailable for Electron — its
-`smaps_rollup` is not readable by the same user (`dumpable=0`) — so the Bitwarden
-desktop rows carry RSS only.
-
-The first round predates that rule and broke it for `omawarden-app`; the other
-products were sampled once each and have not been checked against it.
+across two states mixes them. The session must also be unlocked with the displays
+on: a window on a locked, dark session is never painted, and reads about 30 MB
+low. Where a product is more than one process, `RSS` is summed over the process
+tree; summing RSS double-counts shared pages, so those rows overstate the
+product's real cost. `Pss` is unavailable for Electron — its `smaps_rollup` is
+not readable by the same user (`dumpable=0`) — so the Bitwarden desktop rows
+carry RSS only.
 
 | Product | State | Processes | RSS | PSS | Pss_Anon |
 | --- | --- | --- | --- | --- | --- |
-| `omawarden-app` † | locked screen, no daemon | 1 | 186.1 MB | 117.0 MB | 63.8 MB |
-| `omawarden-app` † | unlocked, 1049 items | 1 | 211.7 MB | 133.5 MB | 76.9 MB |
+| `omawarden-app` | locked screen, app only | 1 | 186.1 MB | 117.0 MB | 63.8 MB |
+| `omawarden-app` | unlocked, 1049 items | 1 | 211.7 MB | 133.5 MB | 76.9 MB |
 | `omawarden` daemon | unlocked, 1049 items | 1 | 52.7 MB | unreadable | — |
 | `omawarden` app + daemon | unlocked | 2 | 264.4 MB | — | — |
 | Bitwarden desktop | locked | 8 | 849 MB | unreadable | — |
@@ -308,42 +302,35 @@ products were sampled once each and have not been checked against it.
 | `bw serve` | logged in, locked | 1 | 267.9 MB | 263.4 MB | 210.4 MB |
 | `bw serve` | unlocked, 1049 items | 1 | 396.9 MB | 391.8 MB | 335.2 MB |
 
-† Both rows come from one process that had been unlocked before it was sampled,
-so they are not comparable with the rest of the table and the delta between them
-is an upper bound. See the paragraph below.
-
 Both `omawarden-app` rows were taken at the same window size, 948 × 1046, so the
-difference between them is the vault rather than the geometry. That reasoning
-holds only if both rows come from the same process lifecycle, which is exactly
-what the re-measurement found to be false: a fresh locked process reads 155.1 MB
-and 8.4 MB of heap, against 186.1 MB and 18.3 MB here. Until the delta is taken
-from two fresh processes, treat +25.6 MB and 3.3 KB per item as an upper bound of
-unknown size.
+difference between them is the vault rather than the geometry. The paired
+re-measurement, with a fresh process for each state, puts the vault at +28.7 MB
+of RSS, +17.7 MB of PSS, +13.5 MB of anonymous memory and +4.1 MB of heap. The
+first round's +25.6 MB, +16.5 MB, +13.1 MB and +3.4 MB are the same effect within
+run-to-run variation; the PSS absolute values differ between rounds because PSS
+tracks sharing with the rest of the session.
 
 | One-shot command | Items | Wall clock | Peak RSS |
 | --- | --- | --- | --- |
 | `omawarden vault list` | 1049 | 0.50 s, range 0.40–0.55 over 5 runs | 36.0 MB |
 | `bw list items --raw` | 1049 | 3.78 s, single run | 379.0 MB |
 
-**What the app rows say.** The first round put the vault at 25.6 MB of RSS,
-16.5 MB of PSS and 13.1 MB of anonymous memory, of which 3.4 MB was the malloc
-heap holding `Vec<VaultItem>` — 3.3 KB per item. The rest of the anonymous growth
-was the row list the TypeScript side already keeps, which this spec does not
-remove. None of those five figures survive as measurements: the locked row they
-subtract from is 31 MB too high, so each is an upper bound of unknown size until
-both rows are re-taken from fresh processes.
+**What the app rows say.** The vault costs the UI process 25.6 MB of RSS,
+16.5 MB of PSS and 13.1 MB of anonymous memory, of which 3.4 MB is the malloc
+heap that holds `Vec<VaultItem>` — 3.3 KB per item. The paired re-measurement
+puts the same four figures at 28.7, 17.7, 13.5 and 4.1 MB, so the first round's
+numbers stand. The rest of the anonymous growth is the row list the TypeScript
+side already keeps, which this spec does not remove.
 
 The memory argument is therefore about the slope, not the constant. At 1049
-items the first round put the secrets in the UI process at a few megabytes; at
-ten times the vault they would be tens. That ordering is what the spec rests on,
-and it does not depend on the absolute value.
+items the secrets in the UI process are a few megabytes; at ten times the vault
+they would be tens.
 
 **After the change.** Re-run the same table, on the same machine, in the same
 states, and add the two numbers the baseline cannot express:
 
 - `Pss_Anon` of `omawarden-app` after unlock, which should lose the heap that
-  held `Vec<VaultItem>` (3.4 MB at 1049 items in the first round; the figure to
-  compare against is the one the re-measurement produces) and keep the row list.
+  held `Vec<VaultItem>` (3.4 MB at 1049 items) and keep the row list.
 - p95 latency of copy, inspect and TOTP over the local socket. The baseline has
   no such number because all three were cache reads; this is the cost side of
   the trade, one round-trip each, against the 20 ms budget.
