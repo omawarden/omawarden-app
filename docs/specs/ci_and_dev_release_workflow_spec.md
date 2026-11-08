@@ -290,7 +290,7 @@ jobs:
           cd ..
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             dist/*.tar.gz
@@ -419,7 +419,7 @@ jobs:
             done
 
       - name: Publish GitHub Pre-release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: dev
           name: "${{ steps.meta.outputs.date }}"
