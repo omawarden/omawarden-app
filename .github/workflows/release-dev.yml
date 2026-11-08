@@ -134,9 +134,12 @@ jobs:
           TARGET: ${{ matrix.target }}
           ARCH: ${{ matrix.arch }}
         run: |
-          SHORT_SHA=$(git rev-parse --short HEAD)
+          # One stable name per target: the channel suffix and the target, never
+          # the commit SHA. The version only changes on a version bump, so a
+          # published filename stays put across dev builds and the AUR source
+          # URL and the release's asset list stay valid between publishes.
           CARGO_VER=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)
-          PKG_NAME="omawarden-app-${CARGO_VER}-dev.${SHORT_SHA}-${TARGET}"
+          PKG_NAME="omawarden-app-${CARGO_VER}-dev-${TARGET}"
           PKG_DIR="dist-pkg/omawardenApp"
           if [ ! -d "$PKG_DIR" ]; then
             PKG_DIR=$(find dist-pkg -mindepth 1 -maxdepth 1 -type d | head -n 1)
@@ -151,10 +154,6 @@ jobs:
           cd dist
           tar -czvf "${PKG_NAME}.tar.gz" "${PKG_NAME}"
           sha256sum "${PKG_NAME}.tar.gz" > "${PKG_NAME}.tar.gz.sha256"
-
-          # Generic name for AUR / direct download
-          cp "${PKG_NAME}.tar.gz" "omawarden-app-${TARGET}.tar.gz"
-          sha256sum "omawarden-app-${TARGET}.tar.gz" > "omawarden-app-${TARGET}.tar.gz.sha256"
           cd ..
 
           # 2. Build AppImage
@@ -162,8 +161,6 @@ jobs:
           cd dist
           if [ -f "${PKG_NAME}.AppImage" ]; then
             sha256sum "${PKG_NAME}.AppImage" > "${PKG_NAME}.AppImage.sha256"
-            cp "${PKG_NAME}.AppImage" "omawarden-app-${TARGET}.AppImage"
-            sha256sum "omawarden-app-${TARGET}.AppImage" > "omawarden-app-${TARGET}.AppImage.sha256"
           fi
           cd ..
 
@@ -211,6 +208,53 @@ jobs:
           rm -f -- *.sha256
           sha256sum --check SHA256SUMS
 
+      # The changelog is the range between the last published build and this
+      # one, and the rolling tag is the only record of what "last published"
+      # means. Read it before the tag moves.
+      - name: Collect release metadata
+        id: meta
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)
+          short_sha=$(git rev-parse --short HEAD)
+          subject=$(git log -1 --pretty=%s)
+          date=$(date -u +'%Y-%m-%d %H:%M UTC')
+          local_date=$(TZ=Asia/Shanghai date +'%Y-%m-%d %H:%M +08')
+
+          previous=$(gh api "repos/${{ github.repository }}/git/ref/tags/dev" \
+            --jq .object.sha 2>/dev/null || true)
+          if [ -n "$previous" ]; then
+            previous=$(git rev-parse --verify --quiet "${previous}^{commit}" || true)
+          fi
+
+          changelog="First dev build on this channel."
+          if [ -n "$previous" ] && [ "$previous" != "$GITHUB_SHA" ]; then
+            count=$(git rev-list --count --no-merges "$previous..$GITHUB_SHA")
+            if [ "$count" -gt 0 ]; then
+              changelog=$(git log -n 20 --no-merges \
+                --pretty='- `%h` %s' "$previous..$GITHUB_SHA")
+              if [ "$count" -gt 20 ]; then
+                changelog="$changelog"$'\n'"- …and $((count - 20)) more"
+              fi
+            else
+              changelog="No new commits since the previous dev build."
+            fi
+            changelog="$changelog"$'\n\n'"[Full diff](https://github.com/${{ github.repository }}/compare/${previous}..$GITHUB_SHA)"
+          fi
+
+          {
+            echo "version=$version"
+            echo "short_sha=$short_sha"
+            echo "subject=$subject"
+            echo "date=$date"
+            echo "local_date=$local_date"
+            echo "changelog<<CHANGELOG_EOF"
+            echo "$changelog"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       # GITHUB_TOKEN cannot push a commit or tag that changes a workflow file
       # (GitHub rejects it with "refusing to allow a GitHub App to create or
       # update workflow ... without `workflows` permission"). Update the rolling
@@ -228,29 +272,58 @@ jobs:
               -f ref="refs/tags/dev" -f sha="${{ github.sha }}" >/dev/null
           fi
 
-      - name: Release metadata
-        id: meta
+      # The dev channel carries one build at a time. Assets are removed before
+      # the upload rather than after it: a failed upload then leaves an empty
+      # release, which is obviously broken, instead of a mix of two builds that
+      # looks fine until someone downloads a mismatched tarball and AppImage.
+      - name: Remove the previous build's assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "date=$(date -u +'%Y-%m-%d %H:%M UTC')" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          release_id=$(gh api "repos/${{ github.repository }}/releases/tags/dev" \
+            --jq .id 2>/dev/null || true)
+          if [ -z "$release_id" ]; then
+            echo "No dev release yet; nothing to remove."
+            exit 0
+          fi
+          gh api --paginate "repos/${{ github.repository }}/releases/$release_id/assets" \
+            --jq '.[].id' | while read -r asset_id; do
+              gh api --method DELETE \
+                "repos/${{ github.repository }}/releases/assets/$asset_id"
+            done
 
       - name: Publish GitHub Pre-release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: dev
-          name: "Omawarden App (dev)"
+          name: "${{ steps.meta.outputs.date }}"
           prerelease: true
           make_latest: false
           body: |
-            ## Omawarden App Development Build
+            ## Omawarden App (dev)
 
-            - **Version**: `0.4.0-dev.${{ github.sha }}`
-            - **Commit**: [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
-            - **Date**: ${{ steps.meta.outputs.date }}
+            - **Version**: `${{ steps.meta.outputs.version }}-dev.${{ steps.meta.outputs.short_sha }}`
+            - **Commit**: [`${{ steps.meta.outputs.short_sha }}`](https://github.com/${{ github.repository }}/commit/${{ github.sha }}) — ${{ steps.meta.outputs.subject }}
+            - **Published**: ${{ steps.meta.outputs.date }} (${{ steps.meta.outputs.local_date }})
+            - **Branch**: `${{ github.ref_name }}`
+            - **Runners**: `ubuntu-24.04` (x86_64), `ubuntu-24.04-arm` (aarch64)
 
-            ### Included Artifacts
-            - Native Tarballs: `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`
-            - Standalone AppImages: `x86_64`, `aarch64`
-            - Verified Checksums: `SHA256SUMS`
+            ### Changes since the previous dev build
+
+            ${{ steps.meta.outputs.changelog }}
+
+            ### Artifacts
+
+            | Asset | Architecture |
+            | --- | --- |
+            | `omawarden-app-${{ steps.meta.outputs.version }}-dev-x86_64-unknown-linux-gnu.tar.gz` | x86_64 |
+            | `omawarden-app-${{ steps.meta.outputs.version }}-dev-aarch64-unknown-linux-gnu.tar.gz` | aarch64 |
+            | `omawarden-app-${{ steps.meta.outputs.version }}-dev-x86_64-unknown-linux-gnu.AppImage` | x86_64 |
+            | `omawarden-app-${{ steps.meta.outputs.version }}-dev-aarch64-unknown-linux-gnu.AppImage` | aarch64 |
+            | `SHA256SUMS` | both |
+
+            Verify a download with `sha256sum --check SHA256SUMS`.
           files: |
             dist/*
 

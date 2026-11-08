@@ -4,7 +4,7 @@
 # Usage: build-appimage.sh <package-dir> <output-dir> <output-name> <arch>
 #   <package-dir>  e.g. dist-pkg/omawardenApp
 #   <output-dir>   e.g. dist
-#   <output-name>  e.g. omawarden-app-0.3.0-dev.abc1234-x86_64-unknown-linux-gnu.AppImage
+#   <output-name>  e.g. omawarden-app-0.4.0-dev-x86_64-unknown-linux-gnu.AppImage
 #   <arch>         x86_64 or aarch64
 set -euo pipefail
 

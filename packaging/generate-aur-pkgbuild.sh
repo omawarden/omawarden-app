@@ -9,6 +9,11 @@
 #   PKGVER               full pacman version (default: <VERSION>.dev.<SHORT_SHA>)
 #   GITHUB_REPOSITORY    owner/repo (default: omawarden/omawarden-app)
 #   RELEASE_TAG          rolling release tag (default: dev)
+#
+# The dev channel publishes one stable filename per target,
+# `omawarden-app-<version>-dev-<target>.tar.gz`, with no commit SHA in it. The
+# source URLs below are therefore derived from VERSION, and they change only
+# when the app version does.
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -25,6 +30,7 @@ find_tarball() {
   local arch=$1
   local candidate
   for candidate in \
+    "$DIST_DIR/omawarden-app-$VERSION-dev-$arch-unknown-linux-gnu.tar.gz" \
     "$DIST_DIR/omawarden-app-$arch-unknown-linux-gnu.tar.gz" \
     "$DIST_DIR/omawarden-app-$arch.tar.gz"; do
     if [ -f "$candidate" ]; then
@@ -64,9 +70,9 @@ optdepends=('libfido2: WebAuthn / Passkey / FIDO2 security key support')
 provides=('omawarden-app')
 conflicts=('omawarden-app')
 install='omawarden-policy.install'
-source_x86_64=("omawarden-app-x86_64.tar.gz::https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/omawarden-app-x86_64-unknown-linux-gnu.tar.gz")
+source_x86_64=("omawarden-app-x86_64.tar.gz::https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/omawarden-app-$VERSION-dev-x86_64-unknown-linux-gnu.tar.gz")
 sha256sums_x86_64=('$SHA_X86')
-source_aarch64=("omawarden-app-aarch64.tar.gz::https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/omawarden-app-aarch64-unknown-linux-gnu.tar.gz")
+source_aarch64=("omawarden-app-aarch64.tar.gz::https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/omawarden-app-$VERSION-dev-aarch64-unknown-linux-gnu.tar.gz")
 sha256sums_aarch64=('$SHA_AARCH64')
 
 package() {
