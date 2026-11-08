@@ -47,7 +47,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # See ci.yml: CI has no sibling engine checkout, so let Cargo use the
       # git dependency instead of the developer's local path patch.

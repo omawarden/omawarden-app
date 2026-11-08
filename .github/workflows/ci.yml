@@ -18,7 +18,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # .cargo/config.toml patches the engine to the developer's sibling
       # checkout. CI has no such checkout, so drop the patch and let Cargo
