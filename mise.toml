@@ -12,7 +12,7 @@
 # Local development toolchain. Keep `rust` in sync with rust-toolchain.toml
 # and `nsh` in sync with the version installed by CI (.github/workflows/*.yml).
 [tools]
-rust = "1.98.0"
+rust = "1.99.1"
 "github:longbridge/nsh" = "0.4.0"
 
 [tasks.run]
