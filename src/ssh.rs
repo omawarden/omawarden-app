@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use serde_json::json;
+use serde_json::{json, Value};
 
 use crate::vault;
 use crate::{
@@ -134,6 +134,26 @@ fn prepare(input: &SshKeySaveInput) -> Result<SshKeyPreviewView, SshKeySaveOutco
     }
 }
 
+/// Probes the daemon for the vault's unlocked state without spawning
+/// anything. The ping reply carries `unlocked`; the status reply carries
+/// `is_unlocked`. Either field is authoritative, so read both.
+fn daemon_unlocked() -> bool {
+    let ping = daemon(json!({ "action": "ping", "touch": false }));
+    if let Some(unlocked) = ping
+        .as_ref()
+        .and_then(|value| value.get("unlocked"))
+        .and_then(|value| value.as_bool())
+    {
+        return unlocked;
+    }
+    let status = daemon(json!({ "action": "status", "touch": false }));
+    status
+        .as_ref()
+        .and_then(|value| value.get("is_unlocked"))
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+}
+
 /// Writes the key to the vault or to `~/.ssh`.
 fn real_save_ssh_key(input: SshKeySaveInput) -> SshKeySaveOutcomeView {
     let preview = match prepare(&input) {
@@ -192,8 +212,21 @@ fn real_save_ssh_key(input: SshKeySaveInput) -> SshKeySaveOutcomeView {
     } else {
         input.name.trim().to_string()
     };
+    // The daemon only accepts `ssh_key_create_v2`; the legacy action is
+    // rejected with "Update the CLI to create SSH keys safely." It also
+    // refuses the write when the vault is locked, so probe first instead of
+    // sending a request the daemon will throw away.
+    if !daemon_unlocked() {
+        return SshKeySaveOutcomeView {
+            ok: false,
+            message: "Could not save the SSH key.".to_string(),
+            path: None,
+            item_id: None,
+            error: Some("Unlock the vault before saving an SSH key.".to_string()),
+        };
+    }
     let response = daemon(json!({
-        "action": "ssh_key_create",
+        "action": "ssh_key_create_v2",
         "name": name,
         "private_key": preview.private_key,
         "public_key": preview.public_key,
@@ -201,6 +234,16 @@ fn real_save_ssh_key(input: SshKeySaveInput) -> SshKeySaveOutcomeView {
         "notes": input.comment,
         "touch": true,
     }));
+    map_ssh_save_response(response)
+}
+
+/// Maps a daemon save reply onto the outcome view the UI asserts on.
+///
+/// The v2 action returns `{"ok": true, "outcome": "saved"|"saved_needs_sync",
+/// "item": {"id": ..., "revisionDate": ...}}`; `item.id` becomes `item_id`.
+/// `None` means the daemon did not answer, and a non-ok reply carries its own
+/// error string.
+fn map_ssh_save_response(response: Option<Value>) -> SshKeySaveOutcomeView {
     match response {
         Some(response) if response.get("ok").and_then(|value| value.as_bool()) == Some(true) => {
             vault::clear_cached_vault();
@@ -282,5 +325,114 @@ fn parse_ssh_algorithm(raw: &str) -> Result<omawarden::ssh::SshAlgorithm, String
         "ecdsa-p256" | "p256" => Ok(omawarden::ssh::SshAlgorithm::EcdsaP256),
         "ecdsa-p384" | "p384" => Ok(omawarden::ssh::SshAlgorithm::EcdsaP384),
         other => Err(format!("Unknown SSH algorithm '{other}'.")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::daemon::test_seam;
+    use serde_json::{json, Value};
+
+    /// A save input that generates an ED25519 key and writes to the vault.
+    fn vault_save_input() -> SshKeySaveInput {
+        SshKeySaveInput {
+            mode: SshKeyMode::Create,
+            algorithm: "ed25519".to_string(),
+            comment: "test".to_string(),
+            private_key_pem: String::new(),
+            name: "My Key".to_string(),
+            filename: String::new(),
+            save_to_vault: true,
+            export_to_ssh: false,
+            export_dir: None,
+        }
+    }
+
+    /// Ticket 1 + 2: the save path sends `ssh_key_create_v2` with the same
+    /// payload fields the daemon expects, and the v2 receipt's `item.id`
+    /// becomes `item_id`.
+    #[test]
+    fn real_save_ssh_key_sends_v2_action_and_reads_item_id() {
+        let _seam = test_seam::set(|action: Value| {
+            match action.get("action").and_then(|value| value.as_str()) {
+                Some("ping") => Some(json!({ "ok": true, "unlocked": true })),
+                Some("ssh_key_create_v2") => {
+                    assert_eq!(
+                        action.get("name").and_then(|value| value.as_str()),
+                        Some("My Key"),
+                        "the item name must pass through unchanged"
+                    );
+                    assert_eq!(
+                        action.get("notes").and_then(|value| value.as_str()),
+                        Some("test"),
+                        "the comment must pass through as notes"
+                    );
+                    assert_eq!(
+                        action.get("touch").and_then(|value| value.as_bool()),
+                        Some(true),
+                        "the touch flag must pass through"
+                    );
+                    Some(json!({
+                        "ok": true,
+                        "outcome": "saved_needs_sync",
+                        "item": { "id": "cipher-123", "revisionDate": "2026-11-09T00:00:00Z" }
+                    }))
+                }
+                _ => None,
+            }
+        });
+
+        let outcome = real_save_ssh_key(vault_save_input());
+
+        assert!(outcome.ok, "save must succeed: {:?}", outcome.error);
+        assert_eq!(outcome.item_id.as_deref(), Some("cipher-123"));
+        assert_eq!(outcome.message, "Saved SSH key to the vault.");
+    }
+
+    /// Ticket 3: a locked vault short-circuits before any write request is
+    /// sent, with the unlock message the daemon would otherwise reject with.
+    #[test]
+    fn real_save_ssh_key_refuses_when_vault_locked() {
+        let _seam = test_seam::set(|action: Value| {
+            let action_str = action.get("action").and_then(|value| value.as_str()).unwrap_or("");
+            assert_ne!(
+                action_str, "ssh_key_create_v2",
+                "no write request may be sent when the vault is locked"
+            );
+            Some(json!({ "ok": true, "unlocked": false }))
+        });
+
+        let outcome = real_save_ssh_key(vault_save_input());
+
+        assert!(!outcome.ok, "a locked vault must not save");
+        assert_eq!(
+            outcome.error.as_deref(),
+            Some("Unlock the vault before saving an SSH key.")
+        );
+    }
+
+    /// Ticket 2: the outcome mapper preserves the existing error handling for
+    /// a non-ok reply and for `None` (daemon not running).
+    #[test]
+    fn map_ssh_save_response_handles_rejection_and_missing_daemon() {
+        let rejected = map_ssh_save_response(Some(json!({
+            "ok": false,
+            "outcome": "rejected",
+            "error": "Vault is locked. Please unlock the vault first."
+        })));
+        assert!(!rejected.ok);
+        assert_eq!(
+            rejected.error.as_deref(),
+            Some("Vault is locked. Please unlock the vault first.")
+        );
+        assert!(rejected.item_id.is_none());
+
+        let missing = map_ssh_save_response(None);
+        assert!(!missing.ok);
+        assert_eq!(
+            missing.error.as_deref(),
+            Some("The Omawarden daemon is not running.")
+        );
     }
 }
