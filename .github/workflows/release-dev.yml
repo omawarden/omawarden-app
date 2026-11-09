@@ -172,7 +172,7 @@ jobs:
             dist/*.AppImage
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.target }}
           path: |
@@ -197,7 +197,7 @@ jobs:
           fetch-depth: 0
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: release-*
           merge-multiple: true
@@ -274,26 +274,22 @@ jobs:
               -f ref="refs/tags/dev" -f sha="${{ github.sha }}" >/dev/null
           fi
 
-      # The dev channel carries one build at a time. Assets are removed before
-      # the upload rather than after it: a failed upload then leaves an empty
-      # release, which is obviously broken, instead of a mix of two builds that
-      # looks fine until someone downloads a mismatched tarball and AppImage.
-      - name: Remove the previous build's assets
+      # The dev channel carries one build at a time. The release is deleted and
+      # recreated rather than updated, because GitHub only sets `published_at`
+      # when a release is created; an updated release keeps the date of its
+      # first publish. Deleting it also removes the previous build's assets,
+      # before the new ones are uploaded, so a failed upload leaves an empty
+      # release instead of a mix of two builds. The tag is left in place, so
+      # the release URL and the AUR source URLs do not change.
+      - name: Delete the previous release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
-          release_id=$(gh api "repos/${{ github.repository }}/releases/tags/dev" \
-            --jq .id 2>/dev/null || true)
-          if [ -z "$release_id" ]; then
-            echo "No dev release yet; nothing to remove."
-            exit 0
+          if gh release view dev >/dev/null 2>&1; then
+            gh release delete dev --yes
+          else
+            echo "No dev release yet."
           fi
-          gh api --paginate "repos/${{ github.repository }}/releases/$release_id/assets" \
-            --jq '.[].id' | while read -r asset_id; do
-              gh api --method DELETE \
-                "repos/${{ github.repository }}/releases/assets/$asset_id"
-            done
 
       - name: Publish GitHub Pre-release
         uses: softprops/action-gh-release@v3
