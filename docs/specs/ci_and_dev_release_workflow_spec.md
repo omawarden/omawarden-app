@@ -22,7 +22,7 @@ This document specifies the continuous integration, multi-architecture packaging
      - `omawarden-app-<version>-dev-<target>.AppImage`.
    - Combines and verifies checksums (`SHA256SUMS`).
    - Updates rolling GitHub tag `dev` and replaces the single GitHub Pre-release on that tag. The release title is the publish time and the body carries the version, commit, publish date and the commits since the previous build; the previous build's assets are deleted before the new ones are uploaded, so the channel holds exactly one build.
-   - Publishes `omawarden-app-dev-bin` to the Arch User Repository (AUR) if `secrets.AUR_KEY` is present; gracefully skips if absent.
+   - Publishes `omawarden-app-git-bin` to the Arch User Repository (AUR) if `secrets.AUR_KEY` is present; gracefully skips if absent. The package installs the binary, bundle, desktop entry, icon and documentation, but not the Polkit action: that action's subject is the daemon, and `omawarden-bin` installs it.
 
 ---
 
@@ -49,7 +49,7 @@ Create `packaging/` directory in `omawarden-app`:
 1. `packaging/org.omarchy.plugin.icyleaf.omarchy-bitwarden.policy`: Polkit authorization rules for Quick Unlock.
 2. `packaging/omawarden-policy.install`: Pacman/system post-install scriptlet.
 3. `packaging/build-appimage.sh`: Helper script to package `.nsh/out/omawardenApp` into `.AppImage` using `appimagetool`.
-4. `packaging/generate-aur-pkgbuild.sh`: Generates PKGBUILD for `omawarden-app-dev-bin`.
+4. `packaging/generate-aur-pkgbuild.sh`: Generates PKGBUILD for `omawarden-app-git-bin`.
 
 ---
 
@@ -458,7 +458,7 @@ jobs:
         run: |
           echo "::warning::AUR_KEY is set but AUR_USERNAME and/or AUR_EMAIL is missing; skipping the AUR publish."
 
-      - name: Generate AUR PKGBUILD (omawarden-app-dev-bin)
+      - name: Generate AUR PKGBUILD (omawarden-app-git-bin)
         id: aur
         if: env.AUR_KEY != '' && env.AUR_USERNAME != '' && env.AUR_EMAIL != ''
         env:
@@ -471,13 +471,13 @@ jobs:
         if: env.AUR_KEY != '' && env.AUR_USERNAME != '' && env.AUR_EMAIL != ''
         uses: KSXGitHub/github-actions-deploy-aur@2ac5a4c1d7035885d46b10e3193393be8460b6f1 # v4.1.1
         with:
-          pkgname: omawarden-app-dev-bin
+          pkgname: omawarden-app-git-bin
           pkgbuild: ./dist/aur/PKGBUILD
           assets: ./dist/aur/omawarden-policy.install
           commit_username: ${{ secrets.AUR_USERNAME }}
           commit_email: ${{ secrets.AUR_EMAIL }}
           ssh_private_key: ${{ secrets.AUR_KEY }}
-          commit_message: "upgpkg: omawarden-app-dev-bin ${{ steps.aur.outputs.pkgver }}"
+          commit_message: "upgpkg: omawarden-app-git-bin ${{ steps.aur.outputs.pkgver }}"
           ssh_keyscan_types: rsa,ecdsa,ed25519
 ```
 

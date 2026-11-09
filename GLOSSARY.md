@@ -166,4 +166,4 @@ multi-architecture tarballs (`.tar.gz`) and standalone AppImages.
 The complete distribution package produced by `nsh package --target linux` and
 augmented with the Polkit authorization policy (`.policy`), install scriptlet,
 desktop entry, and application icon. Distributable via GitHub Releases and
-packaged for Arch Linux as `omawarden-app-dev-bin`.
+packaged for Arch Linux as `omawarden-app-git-bin`.

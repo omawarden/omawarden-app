@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate a PKGBUILD for the rolling `omawarden-app-dev-bin` AUR package.
+# Generate a PKGBUILD for the rolling `omawarden-app-git-bin` AUR package.
 #
 # Inputs (environment):
 #   DIST_DIR             artifact directory (default: <repo>/dist)
@@ -58,17 +58,20 @@ cp "$ROOT_DIR/packaging/omawarden-policy.install" "$OUT_DIR/"
 cat > "$OUT_DIR/PKGBUILD" <<EOF
 # Maintainer: icyleaf <icyleaf.cn at gmail dot com>
 
-pkgname=omawarden-app-dev-bin
+pkgname=omawarden-app-git-bin
 pkgver=$PKGVER
 pkgrel=1
-pkgdesc="Omawarden desktop app for Bitwarden/Vaultwarden (development build)"
+pkgdesc="Omawarden desktop app for Bitwarden/Vaultwarden (prebuilt development build)"
 arch=('x86_64' 'aarch64')
 url="https://github.com/$GITHUB_REPOSITORY"
 license=('MIT')
 depends=('gtk4' 'webkitgtk-6.0' 'libsecret' 'polkit' 'wl-clipboard')
 optdepends=('libfido2: WebAuthn / Passkey / FIDO2 security key support')
-provides=('omawarden-app')
-conflicts=('omawarden-app')
+# The package was called omawarden-app-dev-bin before the rename. Naming the
+# old package in conflicts makes pacman replace it on upgrade instead of
+# failing with "exists in filesystem".
+provides=('omawarden-app' 'omawarden-app-dev-bin')
+conflicts=('omawarden-app' 'omawarden-app-dev-bin')
 install='omawarden-policy.install'
 source_x86_64=("omawarden-app-x86_64.tar.gz::https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/omawarden-app-$VERSION-dev-x86_64-unknown-linux-gnu.tar.gz")
 sha256sums_x86_64=('$SHA_X86')
