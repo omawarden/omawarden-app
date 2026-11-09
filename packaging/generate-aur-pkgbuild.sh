@@ -85,10 +85,10 @@ package() {
     error "omawarden-app package directory not found"
   fi
 
-  install -Dm755 "\${appdir}/omawardenApp" "\${pkgdir}/usr/lib/omawarden-app/omawardenApp"
+  install -Dm755 "\${appdir}/Omawarden" "\${pkgdir}/usr/lib/omawarden-app/Omawarden"
   cp -a "\${appdir}/nsh" "\${pkgdir}/usr/lib/omawarden-app/nsh"
   install -d "\${pkgdir}/usr/bin"
-  ln -s /usr/lib/omawarden-app/omawardenApp "\${pkgdir}/usr/bin/omawardenApp"
+  ln -s /usr/lib/omawarden-app/Omawarden "\${pkgdir}/usr/bin/Omawarden"
 
   install -Dm644 "\${appdir}/com.icyleaf.omawarden.desktop" \
     "\${pkgdir}/usr/share/applications/com.icyleaf.omawarden.desktop"

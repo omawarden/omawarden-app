@@ -140,7 +140,7 @@ jobs:
           # URL and the release's asset list stay valid between publishes.
           CARGO_VER=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)
           PKG_NAME="omawarden-app-${CARGO_VER}-dev-${TARGET}"
-          PKG_DIR="dist-pkg/omawardenApp"
+          PKG_DIR="dist-pkg/Omawarden"
           if [ ! -d "$PKG_DIR" ]; then
             PKG_DIR=$(find dist-pkg -mindepth 1 -maxdepth 1 -type d | head -n 1)
           fi

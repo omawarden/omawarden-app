@@ -48,7 +48,7 @@ This ensures CI builds cleanly from GitHub without requiring a sibling checkout,
 Create `packaging/` directory in `omawarden-app`:
 1. `packaging/org.omarchy.plugin.icyleaf.omarchy-bitwarden.policy`: Polkit authorization rules for Quick Unlock.
 2. `packaging/omawarden-policy.install`: Pacman/system post-install scriptlet.
-3. `packaging/build-appimage.sh`: Helper script to package `.nsh/out/omawardenApp` into `.AppImage` using `appimagetool`.
+3. `packaging/build-appimage.sh`: Helper script to package `.nsh/out/Omawarden` into `.AppImage` using `appimagetool`.
 4. `packaging/generate-aur-pkgbuild.sh`: Generates PKGBUILD for `omawarden-app-git-bin`.
 
 ---
@@ -265,7 +265,7 @@ jobs:
           # URL and the release's asset list stay valid between publishes.
           CARGO_VER=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)
           PKG_NAME="omawarden-app-${CARGO_VER}-dev-${TARGET}"
-          PKG_DIR="dist-pkg/omawardenApp"
+          PKG_DIR="dist-pkg/Omawarden"
           if [ ! -d "$PKG_DIR" ]; then
             PKG_DIR=$(find dist-pkg -mindepth 1 -maxdepth 1 -type d | head -n 1)
           fi

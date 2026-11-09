@@ -227,8 +227,8 @@ Resident memory, one fresh process, with the heap mapping. The session must be
 unlocked and the displays on:
 
 ```bash
-./omawardenApp --window-size 948x1046 &
-pid=$(pgrep -x omawardenApp)
+./Omawarden --window-size 948x1046 &
+pid=$(pgrep -x Omawarden)
 for i in 1 2 3; do
   grep -E '^(Rss|Pss|Pss_Anon):' /proc/$pid/smaps_rollup | tr '\n' ' '
   echo

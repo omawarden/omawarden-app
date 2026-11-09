@@ -119,17 +119,17 @@ cargo build --release
 `mise run package` writes to `.nsh/out` by default:
 
 ```text
-.nsh/out/omawarden-app/
-.nsh/out/omawarden-app/omawardenapp
-.nsh/out/omawarden-app/com.icyleaf.omawarden.desktop
-.nsh/out/omawarden-app/com.icyleaf.omawarden.png
-.nsh/out/omawarden-app.tar.gz
+.nsh/out/Omawarden/
+.nsh/out/Omawarden/Omawarden
+.nsh/out/Omawarden/com.icyleaf.omawarden.desktop
+.nsh/out/Omawarden/com.icyleaf.omawarden.png
+.nsh/out/Omawarden.tar.gz
 ```
 
 Run the packaged binary directly with:
 
 ```sh
-./.nsh/out/omawarden-app/omawardenapp
+./.nsh/out/Omawarden/Omawarden
 ```
 
 ## Repository layout

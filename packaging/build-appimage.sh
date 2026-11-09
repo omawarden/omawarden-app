@@ -2,7 +2,7 @@
 # Build a standalone AppImage from an `nsh package --target linux` directory.
 #
 # Usage: build-appimage.sh <package-dir> <output-dir> <output-name> <arch>
-#   <package-dir>  e.g. dist-pkg/omawardenApp
+#   <package-dir>  e.g. dist-pkg/Omawarden
 #   <output-dir>   e.g. dist
 #   <output-name>  e.g. omawarden-app-0.4.0-dev-x86_64-unknown-linux-gnu.AppImage
 #   <arch>         x86_64 or aarch64
@@ -27,10 +27,10 @@ if [ ! -d "$PKG_DIR/nsh" ]; then
   exit 1
 fi
 
-# The runner's name is derived from nsh.json's display name; accept either the
-# sanitized lowercase form or the directory's own executable.
+# The runner's name is derived from nsh.json's display name; accept the
+# current name and the older spellings a package may still carry.
 EXE=""
-for candidate in "$PKG_DIR/omawardenapp" "$PKG_DIR/omawardenApp"; do
+for candidate in "$PKG_DIR/Omawarden" "$PKG_DIR/omawardenApp" "$PKG_DIR/omawardenapp"; do
   if [ -x "$candidate" ]; then
     EXE=$candidate
     break
