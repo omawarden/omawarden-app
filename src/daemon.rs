@@ -51,7 +51,53 @@ impl DaemonEngine for Mock {
 
 /// Sends one daemon request, returning `None` when no daemon answers.
 pub(crate) fn daemon(action: Value) -> Option<Value> {
+    #[cfg(test)]
+    if let Some(reply) = test_seam::answer(&action) {
+        return reply;
+    }
     omawarden::daemon::send_daemon_request(&action)
+}
+
+/// Test-only seam that answers `daemon()` without a real socket.
+///
+/// The override is per-thread and dropped at the end of each test; it never
+/// ships. Install it with [`test_seam::set`] and the guard clears on drop.
+/// Because it is thread-local, a test using the seam never interferes with the
+/// other tests that still talk to the real daemon socket.
+#[cfg(test)]
+pub(crate) mod test_seam {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use serde_json::Value;
+
+    thread_local! {
+        static SEAM: RefCell<Option<Rc<dyn Fn(Value) -> Option<Value>>>> = RefCell::new(None);
+    }
+
+    /// Installs `f` as the daemon answerer for the duration of the test.
+    pub(crate) fn set<F>(f: F) -> SeamGuard
+    where
+        F: Fn(Value) -> Option<Value> + 'static,
+    {
+        SEAM.with(|seam| *seam.borrow_mut() = Some(Rc::new(f)));
+        SeamGuard
+    }
+
+    /// Returns `Some(reply)` when an override is installed on this thread,
+    /// `None` otherwise (the real daemon socket is used).
+    pub(crate) fn answer(action: &Value) -> Option<Option<Value>> {
+        SEAM.with(|seam| seam.borrow().as_ref().map(|f| f(action.clone())))
+    }
+
+    /// Drops the installed override.
+    pub(crate) struct SeamGuard;
+
+    impl Drop for SeamGuard {
+        fn drop(&mut self) {
+            SEAM.with(|seam| *seam.borrow_mut() = None);
+        }
+    }
 }
 
 /// Parses the first pending SSH prompt.
