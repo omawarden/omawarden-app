@@ -91,8 +91,9 @@ package() {
     "\${pkgdir}/usr/share/applications/com.icyleaf.omawarden.desktop"
   install -Dm644 "\${appdir}/com.icyleaf.omawarden.png" \
     "\${pkgdir}/usr/share/icons/hicolor/1024x1024/apps/com.icyleaf.omawarden.png"
-  install -Dm644 "\${appdir}/org.omarchy.plugin.icyleaf.omarchy-bitwarden.policy" \
-    "\${pkgdir}/usr/share/polkit-1/actions/org.omarchy.plugin.icyleaf.omarchy-bitwarden.policy"
+  # The polkit action belongs to the daemon, which is its subject, and
+  # omawarden-bin already installs it. Installing it here too makes pacman
+  # abort with a conflicting-files error.
   install -Dm644 "\${appdir}/README.md" "\${pkgdir}/usr/share/doc/\${pkgname}/README.md"
 }
 EOF

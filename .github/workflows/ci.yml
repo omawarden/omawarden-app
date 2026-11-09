@@ -83,6 +83,9 @@ jobs:
       - name: Reject private details
         run: python3 scripts/check_privacy.py
 
+      - name: Check the AUR PKGBUILD
+        run: bash scripts/check_aur_pkgbuild.sh
+
       - name: Check Rust formatting
         run: cargo fmt --all --check
 
