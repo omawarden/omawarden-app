@@ -84,6 +84,37 @@ export function contextActions(): PaletteAction[] {
     }
   }
   if (current.category === "sshKey") {
+    const ssh = store.inspector()?.ssh;
+    if (ssh && ssh.privateKey) {
+      actions.push({
+        id: "copy-private-key",
+        label: "Copy Private Key",
+        hint: "Copy the selected SSH private key",
+        icon: "key",
+        shortcut: "↵",
+        run: () => store.copyField("private_key"),
+      });
+    }
+    if (ssh && ssh.publicKey) {
+      actions.push({
+        id: "copy-public-key",
+        label: "Copy Public Key",
+        hint: "Copy the selected SSH public key",
+        icon: "key",
+        shortcut: "Ctrl+U",
+        keystroke: "mod+u",
+        run: () => store.copyField("public_key"),
+      });
+    }
+    if (ssh && ssh.fingerprint) {
+      actions.push({
+        id: "copy-fingerprint",
+        label: "Copy Fingerprint",
+        hint: "Copy the key's SHA256 fingerprint",
+        icon: "key",
+        run: () => store.copyText(ssh.fingerprint, "fingerprint", false),
+      });
+    }
     actions.push({
       id: "export-ssh-key",
       label: "Export SSH Key",

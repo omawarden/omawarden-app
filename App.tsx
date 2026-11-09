@@ -152,7 +152,11 @@ keymap.bind({
   },
   "mod+u": () => {
     if (canUseVaultShortcuts()) {
-      store.copyField("username");
+      if (store.selectedCipher()?.category === "sshKey") {
+        store.copyField("public_key");
+      } else {
+        store.copyField("username");
+      }
     }
   },
   "mod+t": () => {

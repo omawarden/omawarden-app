@@ -854,6 +854,27 @@ test("SSH inspector reveals, copies, and exports the private key", async () => {
   expect(app.texts()).toContain("Exported to ~/.ssh/id_ed25519");
 });
 
+test("SSH copy shortcuts and palette actions mirror the plugin", async () => {
+  const app = await openMock({ phase: "unlocked", items: [SSH_ITEM] });
+
+  await app.press("id:cipher-row-ssh1");
+
+  // Ctrl+U copies the public key, while Enter copies the private key.
+  await app.keyboard.press("mod+u");
+  expect(app.texts()).toContain("Copied public key to clipboard.");
+  await app.keyboard.press("enter");
+  expect(app.texts()).toContain("Copied private key to clipboard (clears in 30s).");
+
+  await app.keyboard.press("mod+k");
+  expect(app.shows("id:action-copy-private-key")).toBe(true);
+  expect(app.shows("id:action-copy-public-key")).toBe(true);
+  expect(app.shows("id:action-copy-fingerprint")).toBe(true);
+  expect(app.shows("id:action-export-ssh-key")).toBe(true);
+
+  await app.press("id:action-copy-fingerprint");
+  expect(app.texts()).toContain("Copied fingerprint to clipboard.");
+});
+
 test("timestamps read on the reader's clock", async () => {
   const app = await openMock({
     phase: "unlocked",
@@ -1057,7 +1078,7 @@ test("a failed sync keeps the vault unlocked and surfaces the error", async () =
   expect(app.shows("id:auth-view-locked")).toBe(false);
 });
 
-test("TOTP reads as a normal inspector field and SSH primary copy uses the public key", async () => {
+test("TOTP reads as a normal inspector field and SSH primary copy uses the private key", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM, SSH_ITEM] });
 
   await app.press("id:cipher-row-login1");
@@ -1067,7 +1088,7 @@ test("TOTP reads as a normal inspector field and SSH primary copy uses the publi
   await app.press("id:category-sshKey");
   await app.press("id:cipher-row-ssh1");
   await app.keyboard.press("enter");
-  expect(app.texts()).toContain("Copied public key to clipboard.");
+  expect(app.texts()).toContain("Copied private key to clipboard (clears in 30s).");
 });
 
 test("SSH quick actions live on the SSH tab, not the search header", async () => {

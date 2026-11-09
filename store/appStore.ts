@@ -1173,9 +1173,17 @@ export function primaryCopy(): void {
     case "identity":
       copyField("username");
       break;
-    case "sshKey":
-      copyField("public_key");
+    case "sshKey": {
+      // The plugin's primary action is the private key, falling back to the
+      // public key for a key that was imported without one.
+      const ssh = inspector()?.ssh;
+      if (ssh && ssh.privateKey) {
+        copyField("private_key");
+      } else {
+        copyField("public_key");
+      }
       break;
+    }
     case "secureNote":
       copyField("notes");
       break;
