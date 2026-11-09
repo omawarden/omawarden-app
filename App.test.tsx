@@ -115,6 +115,29 @@ const SSH_ITEM: Record<string, unknown> = {
   },
 };
 
+// A real, parseable OpenSSH ed25519 key (a throwaway fixture) so the import
+// path's preview and the saved item's inspector carry the same material.
+const IMPORTED_SSH_KEY_PEM =
+  "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\n" +
+  "QyNTUxOQAAACDR7YcuJorl4z0GjvlCRHFjaf/GkQesvcExg/Q9U4avpAAAAJhp9jsXafY7\n" +
+  "FwAAAAtzc2gtZWQyNTUxOQAAACDR7YcuJorl4z0GjvlCRHFjaf/GkQesvcExg/Q9U4avpA\n" +
+  "AAAECK8QucQD6uVKWOM8q8h5etLaPHPAQe/Oqkb2ChGWF5UtHthy4miuXjPQaO+UJEcWNp\n" +
+  "/8aRB6y9wTGD9D1Thq+kAAAADm9tYXdhcmRlbi10ZXN0AQIDBAUGBw==\n" +
+  "-----END OPENSSH PRIVATE KEY-----";
+
+const SAVED_SSH_ITEM: Record<string, unknown> = {
+  id: "ssh1",
+  title: "Imported Work Key",
+  category: "sshKey",
+  ssh: {
+    keyType: "ED25519",
+    fingerprint: "SHA256:LIissAvesxtwZfWiChMKqTskkdcAsgUAq0Yr1WdMBC8",
+    publicKey:
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINHthy4miuXjPQaO+UJEcWNp/8aRB6y9wTGD9D1Thq+k omawarden-test",
+    privateKey: IMPORTED_SSH_KEY_PEM,
+  },
+};
+
 const VAULT_ITEMS: Array<Record<string, unknown>> = [
   LOGIN_ITEM,
   MAIL_ITEM,
@@ -1722,4 +1745,58 @@ test("footer shows shortcut hints, theme, and engine version", async () => {
   expect(app.texts()).toContain("Ctrl+,");
   expect(app.texts()).toContain("Theme: Dark");
   expect(app.texts()).toContain("Engine 0.4.0");
+});
+
+// ---------------------------------------------------------------------------
+// SSH key vault write (create → save → reveal)
+// ---------------------------------------------------------------------------
+
+// Locks the end-to-end type-5 path: create an SSH key, save it to the vault,
+// reopen its inspector, reveal the private key, and assert the revealed
+// private key is non-empty and matches the preview's private key.
+test("SSH key saves to the vault and its inspector reveals the saved private key", async () => {
+  // The mock save path returns a receipt but does not itself add the saved item
+  // to the seeded vault, so the post-save inspector reopen seeds that item.
+  const app = await openMock({ phase: "unlocked", items: [SAVED_SSH_ITEM] });
+
+  await app.press("id:category-sshKey");
+  await app.press("id:open-ssh-key");
+  expect(app.shows("id:ssh-key-modal")).toBe(true);
+  expect(app.shows("id:ssh-create-panel")).toBe(true);
+
+  // Import a real OpenSSH key so the preview carries parseable material.
+  await app.press("id:ssh-mode-import");
+  await app.paste("id:ssh-private-key-input", { text: IMPORTED_SSH_KEY_PEM });
+  expect(app.value("id:ssh-private-key-input")).toBe(IMPORTED_SSH_KEY_PEM);
+
+  await app.press("id:ssh-preview");
+  expect(app.shows("id:ssh-key-preview")).toBe(true);
+  expect(app.texts()).toContain("Ready");
+
+  // The preview's private key is the material we will later compare against.
+  await app.press("id:ssh-reveal-private");
+  const previewPrivateKey = app
+    .texts()
+    .find((text) => text.startsWith("-----BEGIN OPENSSH PRIVATE KEY-----"));
+  expect(previewPrivateKey).toBeTruthy();
+  expect(previewPrivateKey).toBe(IMPORTED_SSH_KEY_PEM);
+
+  // Save the key to the vault. The mock adapter answers ssh_key_create_v2 with
+  // a receipt and "Saved SSH key to the vault.", then the modal closes.
+  await app.press("id:ssh-save");
+  expect(app.shows("id:ssh-key-modal")).toBe(false);
+  expect(app.texts()).toContain("Saved SSH key to the vault.");
+
+  // The saved key shows up in the SSH key category and opens its inspector.
+  expect(app.shows("id:category-sshKey")).toBe(true);
+  await app.press("id:cipher-row-ssh1");
+  expect(app.shows("id:inspector-ssh")).toBe(true);
+
+  // Reveal the private key and assert it is non-empty and matches the preview.
+  await app.press("id:reveal-private-key");
+  const revealedPrivateKey = app
+    .texts()
+    .find((text) => text.startsWith("-----BEGIN OPENSSH PRIVATE KEY-----"));
+  expect(revealedPrivateKey).toBeTruthy();
+  expect(revealedPrivateKey).toBe(previewPrivateKey);
 });
