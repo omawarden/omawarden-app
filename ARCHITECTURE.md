@@ -205,6 +205,21 @@ pub mod native {
    - `server_url` / `identity_url` only allow `http://` on loopback (`localhost`, `127.0.0.1`, `[::1]`); remote hosts require `https://`.
 4. **Idle Auto-Lock Integrity**:
    - `poll_daemon_tick` MUST query the daemon with `"touch": false` so background polling never resets the idle inactivity timer.
+5. **GUI Vault Cache Memory Hygiene**:
+   - The GUI process holds a full plaintext copy of the unlocked vault in
+     `CachedVault` (`src/vault.rs`), mirroring the engine daemon's
+     `decrypted_items`. This is intentional: the UI must render decrypted
+     items, and the engine daemon already carries the same plaintext under
+     its own `mlock`/`PR_SET_DUMPABLE` protections (upstream ADR 0009).
+   - The GUI host process does **not** run `mlock` or `PR_SET_DUMPABLE`.
+     Defense against same-user memory scraping therefore relies on the OS
+     process boundary plus scrubbing the plaintext before it is freed.
+   - `clear_cached_vault()` must zero every `String` and `serde_json::Value`
+     leaf — passwords, TOTP seeds, card numbers, CVV, identity SSNs, SSH
+     private keys and passphrases — before dropping the `CachedVault`. Neither
+     `String` nor `serde_json::Value` implements `Zeroize`, so the app scrubs
+     them in place via `scrub_vault_item()` rather than trusting the allocator
+     to overwrite the freed heap.
 
 ---
 

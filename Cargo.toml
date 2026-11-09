@@ -18,6 +18,7 @@ which = "8.0"
 chrono = "0.4"
 regex = "1.10"
 rfd = "0.15"
+zeroize = { version = "1.8", features = ["derive"] }
 
 [dev-dependencies]
 tempfile = "3"

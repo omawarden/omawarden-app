@@ -20,6 +20,74 @@ use crate::{
     ensure_app_daemon_running, load_config, sanitize_server_url, with_mock,
 };
 
+/// Clears a `String` and shrinks its buffer so the former heap bytes are
+/// reclaimable and overwritable, instead of lingering as plaintext in the
+/// freed heap after the value is dropped.
+fn scrub_string(string: &mut String) {
+    string.clear();
+    string.shrink_to_fit();
+}
+
+/// Recursively zeroes every string in a JSON value tree.
+///
+/// `serde_json::Value` is an enum of `String`, `Number`, `Bool`, `Null`,
+/// `Array` and `Object`. Only the string leaves carry secrets; the others are
+/// either numeric, boolean, or structural and carry nothing sensitive. Walking
+/// the tree and clearing each string is the only way to reach the heap bytes
+/// without re-implementing the JSON parser.
+fn scrub_value(value: &mut Value) {
+    match value {
+        Value::String(s) => scrub_string(s),
+        Value::Array(items) => {
+            for item in items {
+                scrub_value(item);
+            }
+        }
+        Value::Object(map) => {
+            for (_, item) in map.iter_mut() {
+                scrub_value(item);
+            }
+        }
+        Value::Number(_) | Value::Bool(_) | Value::Null => {}
+    }
+}
+
+/// Scrubs the decrypted secrets out of one cached vault item before it is
+/// dropped. `VaultItem` is defined by the engine crate and carries its
+/// secrets as `serde_json::Value` leaves (passwords, TOTP seeds, card numbers,
+/// CVV, identity SSNs) plus raw `String`s for SSH private keys and passphrases.
+/// None of those implement `Zeroize`, so the app scrubs them in place: the
+/// engine's own `decrypted_items` is cleared the same way on lock.
+fn scrub_vault_item(item: &mut VaultItem) {
+    if let Some(ref mut login) = item.login {
+        scrub_value(login);
+    }
+    if let Some(ref mut card) = item.card {
+        scrub_value(card);
+    }
+    if let Some(ref mut identity) = item.identity {
+        scrub_value(identity);
+    }
+    for field in &mut item.fields {
+        scrub_value(field);
+    }
+    for attachment in &mut item.attachments {
+        scrub_value(attachment);
+    }
+    if let Some(ref mut notes) = item.notes {
+        scrub_string(notes);
+    }
+    scrub_string(&mut item.search_text);
+    if let Some(ref mut ssh) = item.ssh_key {
+        if let Some(ref mut private_key) = ssh.private_key {
+            scrub_string(private_key);
+        }
+        if let Some(ref mut passphrase) = ssh.passphrase {
+            scrub_string(passphrase);
+        }
+    }
+}
+
 /// The vault capabilities the bridge exposes.
 pub(crate) trait VaultEngine {
     /// Projects the cached or freshly read vault through `filter`.
@@ -158,8 +226,39 @@ pub(crate) fn cached_vault() -> &'static Mutex<Option<CachedVault>> {
     CACHE.get_or_init(|| Mutex::new(None))
 }
 
+/// Clears the in-memory cache and scrubs the decrypted secrets out of every
+/// cached item before the heap is freed.
+///
+/// Setting the `Mutex` to `None` drops the `CachedVault`, which drops its
+/// `Vec<VaultItem>`. The engine's `purge_decrypted_state` clears its own
+/// `decrypted_items` the same way, but neither `String` nor `serde_json::Value`
+/// implements `Zeroize`, so the plaintext would otherwise linger in the freed
+/// heap until the allocator reuses those bytes. This scrubs each item first.
 pub(crate) fn clear_cached_vault() {
     if let Ok(mut guard) = cached_vault().lock() {
+        if let Some(ref mut cached) = *guard {
+            for item in &mut cached.items {
+                scrub_vault_item(item);
+            }
+            // Rows carry the raw login URIs, which may embed credentials in
+            // the userinfo component of the scheme://user:pass@host form.
+            for row in &mut cached.rows {
+                for uri in &mut row.uris {
+                    scrub_string(uri);
+                }
+            }
+            scrub_string(&mut cached.email);
+            scrub_string(&mut cached.server_url);
+            if let Some(ref mut identity_url) = cached.identity_url {
+                scrub_string(identity_url);
+            }
+            if let Some(ref mut last_sync) = cached.last_sync {
+                scrub_string(last_sync);
+            }
+            if let Some(ref mut engine_version) = cached.engine_version {
+                scrub_string(engine_version);
+            }
+        }
         *guard = None;
     }
 }
@@ -313,4 +412,114 @@ pub(crate) fn real_snapshot(filter: VaultFilterInput) -> VaultSnapshotView {
         ssh_prompt,
         engine_version,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `scrub_value` must reach every string leaf, including nested ones, so
+    /// that clearing the cache leaves no plaintext behind in the freed heap.
+    #[test]
+    fn scrub_value_clears_every_string_leaf() {
+        let mut value = json!({
+            "password": "hunter2",
+            "login": {
+                "username": "alice",
+                "totp": "JBSWY3DPEHPK3PXP"
+            },
+            "cards": [
+                {"number": "4111111111111234", "code": "123"},
+                {"number": "378282246310005", "code": "456"}
+            ],
+            "identity": {
+                "ssn": "123-45-6789",
+                "passportNumber": "X1234567"
+            },
+            "ssh": {
+                "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----\nsecret\n-----END OPENSSH PRIVATE KEY-----",
+                "passphrase": "letmein"
+            },
+            "count": 42,
+            "favorite": true
+        });
+        scrub_value(&mut value);
+        assert_eq!(value["password"].as_str(), Some(""));
+        assert_eq!(value["login"]["username"].as_str(), Some(""));
+        assert_eq!(value["login"]["totp"].as_str(), Some(""));
+        assert_eq!(value["cards"][0]["number"].as_str(), Some(""));
+        assert_eq!(value["cards"][0]["code"].as_str(), Some(""));
+        assert_eq!(value["cards"][1]["number"].as_str(), Some(""));
+        assert_eq!(value["cards"][1]["code"].as_str(), Some(""));
+        assert_eq!(value["identity"]["ssn"].as_str(), Some(""));
+        assert_eq!(value["identity"]["passportNumber"].as_str(), Some(""));
+        assert_eq!(value["ssh"]["privateKey"].as_str(), Some(""));
+        assert_eq!(value["ssh"]["passphrase"].as_str(), Some(""));
+        // Numeric and boolean leaves carry no secrets and must survive intact.
+        assert_eq!(value["count"].as_u64(), Some(42));
+        assert_eq!(value["favorite"].as_bool(), Some(true));
+    }
+
+    /// `scrub_vault_item` must reach the decrypted secrets of every field the
+    /// engine carries: login JSON, card JSON, identity JSON, custom fields,
+    /// attachments, notes, and the SSH private key + passphrase.
+    #[test]
+    fn scrub_vault_item_clears_all_decrypted_secrets() {
+        let mut item = VaultItem {
+            id: "abc".to_string(),
+            name: "Example".to_string(),
+            item_type: 1,
+            type_name: "Login".to_string(),
+            sub_title: String::new(),
+            notes: Some("a note".to_string()),
+            favorite: false,
+            created_at: None,
+            updated_at: None,
+            folder_id: None,
+            folder_name: None,
+            organization_id: None,
+            organization_name: None,
+            collection_ids: None,
+            login: Some(json!({
+                "username": "alice",
+                "password": "hunter2",
+                "totp": "JBSWY3DPEHPK3PXP"
+            })),
+            card: Some(json!({
+                "number": "4111111111111234",
+                "code": "123"
+            })),
+            identity: Some(json!({"ssn": "123-45-6789"})),
+            ssh_key: Some(omawarden::vault::SshMetadata {
+                is_ssh_key: true,
+                key_type: "ED25519".to_string(),
+                private_key: Some("-----BEGIN OPENSSH PRIVATE KEY-----\nsecret\n-----END OPENSSH PRIVATE KEY-----".to_string()),
+                public_key: Some("ssh-ed25519 AAAA...".to_string()),
+                fingerprint: Some("SHA256:abc".to_string()),
+                passphrase: Some("letmein".to_string()),
+            }),
+            fields: vec![json!({"name": "field", "value": "secret", "type": "hidden"})],
+            attachments: vec![json!({"id": "att1", "fileName": "doc.txt", "size": 1024})],
+            search_text: "alice example".to_string(),
+        };
+        scrub_vault_item(&mut item);
+        assert_eq!(item.notes.as_deref(), Some(""));
+        assert_eq!(item.login.as_ref().unwrap()["password"].as_str(), Some(""));
+        assert_eq!(item.login.as_ref().unwrap()["username"].as_str(), Some(""));
+        assert_eq!(item.login.as_ref().unwrap()["totp"].as_str(), Some(""));
+        assert_eq!(item.card.as_ref().unwrap()["number"].as_str(), Some(""));
+        assert_eq!(item.card.as_ref().unwrap()["code"].as_str(), Some(""));
+        assert_eq!(item.identity.as_ref().unwrap()["ssn"].as_str(), Some(""));
+        assert_eq!(
+            item.ssh_key.as_ref().unwrap().private_key.as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            item.ssh_key.as_ref().unwrap().passphrase.as_deref(),
+            Some("")
+        );
+        assert_eq!(item.fields[0]["value"].as_str(), Some(""));
+        assert_eq!(item.attachments[0]["fileName"].as_str(), Some(""));
+        assert_eq!(item.search_text, "");
+    }
 }

@@ -1904,6 +1904,7 @@ dependencies = [
  "tempfile",
  "url",
  "which",
+ "zeroize",
 ]
 
 [[package]]
