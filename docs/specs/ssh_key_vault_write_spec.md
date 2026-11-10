@@ -22,6 +22,12 @@ Send `ssh_key_create_v2` instead of `ssh_key_create`, carrying the same payload 
 - The Rust bridge's SSH save path sends the daemon action `ssh_key_create_v2` with the existing payload fields (name, private_key, public_key, fingerprint, notes, touch).
 - The daemon reply shape stays the same: ok, message, item_id, error. The new action returns a receipt with `id` and `revisionDate` on success.
 - Save to vault is only offered when the daemon reports the vault unlocked; the UI already gates on `saveToVault`.
+- Before the write, the bridge asks the daemon for `server_capabilities` and
+  refuses when `ssh-key-vault-item` is `disabled` or `unsupported`, with the
+  same actionable text the CLI prints. The check fails open: an older daemon
+  without the action, a failed discovery, or a missing matrix entry lets the
+  save through, so a capability lookup can never be the only reason a save
+  fails. The daemon answers from the cache its sync refreshes.
 - A failed save shows the daemon's own reason inside the modal, not just the
   generic "Could not save the SSH key." toast. That keeps an actionable message
   such as a server without `ssh-key-vault-item` visible even when the upstream
@@ -31,6 +37,9 @@ Send `ssh_key_create_v2` instead of `ssh_key_create`, carrying the same payload 
 ## Testing Decisions
 
 - Unit test the bridge's SSH save path against a daemon stub that rejects `ssh_key_create` and accepts `ssh_key_create_v2`.
+- Unit test the capability pre-check: a `disabled` `ssh-key-vault-item` refuses
+  before `ssh_key_create_v2` is sent, and an unknown `server_capabilities`
+  action lets the save through.
 - Headless UI test: create a key, save to vault, reopen the inspector, reveal the private key, assert it is non-empty and matches the preview.
 - Headless UI test: a rejected save leaves the modal open with the daemon's
   reason in `ssh-save-error`, and switching modes clears it.

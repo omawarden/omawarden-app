@@ -156,6 +156,38 @@ fn daemon_unlocked() -> Option<bool> {
         .and_then(|value| value.as_bool())
 }
 
+/// The upstream flag that must be enabled for type-5 SSH key storage.
+const SSH_KEY_CAPABILITY: &str = "ssh-key-vault-item";
+
+/// Asks the daemon whether the server advertises `ssh-key-vault-item`.
+///
+/// Returns `Some(reason)` only when the daemon reports the feature as disabled
+/// or unsupported. Everything else — an older daemon without the
+/// `server_capabilities` action, a failed discovery, or a reply without the
+/// entry — returns `None`, so this check fails open and never blocks a save on
+/// its own. The daemon answers from the cache its sync refreshes, so the usual
+/// call is a file read rather than a network probe.
+fn ssh_key_capability_block() -> Option<String> {
+    let response = daemon(json!({ "action": "server_capabilities", "touch": false }))?;
+    if response.get("ok").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let entry = response
+        .get("matrix")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|entry| entry.get("name").and_then(Value::as_str) == Some(SSH_KEY_CAPABILITY))?;
+    let status = entry.get("status").and_then(Value::as_str)?;
+    if status != "disabled" && status != "unsupported" {
+        return None;
+    }
+    Some(format!(
+        "Upstream server does not support '{SSH_KEY_CAPABILITY}' (feature status: {status}). \
+         For Vaultwarden self-hosters: enable SSH Key vault storage by configuring \
+         EXPERIMENTAL_CLIENT_FEATURE_FLAGS={SSH_KEY_CAPABILITY} in your server environment."
+    ))
+}
+
 /// Writes the key to the vault or to `~/.ssh`.
 fn real_save_ssh_key(input: SshKeySaveInput) -> SshKeySaveOutcomeView {
     let preview = match prepare(&input) {
@@ -239,6 +271,15 @@ fn real_save_ssh_key(input: SshKeySaveInput) -> SshKeySaveOutcomeView {
                 error: Some("The Omawarden daemon is not running.".to_string()),
             };
         }
+    }
+    if let Some(error) = ssh_key_capability_block() {
+        return SshKeySaveOutcomeView {
+            ok: false,
+            message: "Could not save the SSH key.".to_string(),
+            path: None,
+            item_id: None,
+            error: Some(error),
+        };
     }
     let response = daemon(json!({
         "action": "ssh_key_create_v2",
@@ -440,6 +481,61 @@ mod tests {
             outcome.error.as_deref(),
             Some("The Omawarden daemon is not running.")
         );
+    }
+
+    /// A server without `ssh-key-vault-item` is refused before the write, with
+    /// the actionable message the CLI prints.
+    #[test]
+    fn real_save_ssh_key_refuses_when_the_server_lacks_ssh_key_storage() {
+        let _seam = test_seam::set(|action: Value| {
+            match action.get("action").and_then(|value| value.as_str()) {
+                Some("ping") => Some(json!({ "ok": true, "unlocked": true })),
+                Some("server_capabilities") => Some(json!({
+                    "ok": true,
+                    "matrix": [
+                        { "name": "ssh-key-vault-item", "status": "disabled" }
+                    ]
+                })),
+                Some("ssh_key_create_v2") => panic!("the write must not be sent"),
+                _ => None,
+            }
+        });
+
+        let outcome = real_save_ssh_key(vault_save_input());
+
+        assert!(!outcome.ok);
+        let error = outcome.error.unwrap_or_default();
+        assert!(error.contains("ssh-key-vault-item"), "{error}");
+        assert!(
+            error.contains("EXPERIMENTAL_CLIENT_FEATURE_FLAGS"),
+            "{error}"
+        );
+    }
+
+    /// An older daemon that does not know `server_capabilities` must not block
+    /// the save: the capability check fails open.
+    #[test]
+    fn real_save_ssh_key_fails_open_when_capabilities_are_unknown() {
+        let _seam = test_seam::set(|action: Value| {
+            match action.get("action").and_then(|value| value.as_str()) {
+                Some("ping") => Some(json!({ "ok": true, "unlocked": true })),
+                Some("server_capabilities") => Some(json!({
+                    "ok": false,
+                    "error": "Unknown action: server_capabilities"
+                })),
+                Some("ssh_key_create_v2") => Some(json!({
+                    "ok": true,
+                    "outcome": "saved",
+                    "item": { "id": "cipher-9" }
+                })),
+                _ => None,
+            }
+        });
+
+        let outcome = real_save_ssh_key(vault_save_input());
+
+        assert!(outcome.ok, "{:?}", outcome.error);
+        assert_eq!(outcome.item_id.as_deref(), Some("cipher-9"));
     }
 
     /// Ticket 2: the outcome mapper preserves the existing error handling for
