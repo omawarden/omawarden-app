@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::vault;
 use crate::{
@@ -388,7 +388,7 @@ fn parse_ssh_algorithm(raw: &str) -> Result<omawarden::ssh::SshAlgorithm, String
 mod tests {
     use super::*;
     use crate::daemon::test_seam;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     /// A save input that generates an ED25519 key and writes to the vault.
     fn vault_save_input() -> SshKeySaveInput {
@@ -451,7 +451,10 @@ mod tests {
     #[test]
     fn real_save_ssh_key_refuses_when_vault_locked() {
         let _seam = test_seam::set(|action: Value| {
-            let action_str = action.get("action").and_then(|value| value.as_str()).unwrap_or("");
+            let action_str = action
+                .get("action")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
             assert_ne!(
                 action_str, "ssh_key_create_v2",
                 "no write request may be sent when the vault is locked"
