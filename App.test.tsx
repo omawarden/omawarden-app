@@ -674,7 +674,7 @@ test("login inspector reveals, copies TOTP, and shows history", async () => {
   await app.press("id:copy-totp");
   expect(app.texts()).toContain("Copied TOTP code to clipboard (clears in 30s).");
 
-  expect(app.texts()).toContain("github.com");
+  expect(app.texts()).toContain("https://github.com");
   await app.press("id:copy-uri-github.com");
   expect(app.texts()).toContain("Copied website URL to clipboard.");
 
@@ -1848,19 +1848,25 @@ test("the create form requires a name", async () => {
   expect(app.texts()).toContain("Enter an item name before saving.");
 });
 
-test("the create form switches to a secure note and hides login fields", async () => {
+test("the create form takes its type from the tab and hides the type switch", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
   await app.press("id:category-login");
   await app.press("id:create-login");
+  expect(app.texts()).toContain("New Login");
   expect(app.shows("id:cipher-form-username")).toBe(true);
+  // The type is fixed by the entry point, so no Login/Secure Note switch.
+  expect(app.shows("id:cipher-type-login")).toBe(false);
+  expect(app.shows("id:cipher-type-note")).toBe(false);
+  await app.press("id:cipher-form-cancel");
 
-  await app.press("id:cipher-type-note");
+  await app.press("id:category-secureNote");
+  await app.press("id:create-secure-note");
+  expect(app.texts()).toContain("New Secure Note");
   expect(app.shows("id:cipher-form-username")).toBe(false);
   expect(app.shows("id:cipher-form-password")).toBe(false);
-
-  await app.press("id:cipher-type-login");
-  expect(app.shows("id:cipher-form-username")).toBe(true);
+  expect(app.shows("id:cipher-type-login")).toBe(false);
+  expect(app.shows("id:cipher-type-note")).toBe(false);
 });
 
 test("editing a single field through the modal updates the inspector", async () => {
@@ -2034,8 +2040,8 @@ test("the create form stores every website URL", async () => {
 
   expect(app.shows("id:cipher-form-modal")).toBe(false);
   await app.press("id:cipher-row-mock-cipher");
-  expect(app.texts()).toContain("one.example.com");
-  expect(app.texts()).toContain("two.example.com");
+  expect(app.texts()).toContain("https://one.example.com");
+  expect(app.texts()).toContain("https://two.example.com");
 });
 
 test("the edit form only lets the first URL change and keeps the rest", async () => {
@@ -2064,8 +2070,8 @@ test("the edit form only lets the first URL change and keeps the rest", async ()
   await app.type("id:cipher-form-uri-0", "https://renamed.example.com");
   await app.press("id:cipher-form-submit");
 
-  expect(app.texts()).toContain("renamed.example.com");
-  expect(app.texts()).toContain("two.example.com");
+  expect(app.texts()).toContain("https://renamed.example.com");
+  expect(app.texts()).toContain("https://two.example.com");
 });
 
 test("editing another field leaves the untouched password alone", async () => {

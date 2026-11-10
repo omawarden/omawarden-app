@@ -308,6 +308,9 @@ pub struct UriView {
     pub uri: String,
     /// The parsed hostname, when it has one.
     pub host: String,
+    /// The row's display form: `scheme://host` for a website, `scheme:host` for
+    /// an app scheme, so every URL reads the way it opens.
+    pub display: String,
 }
 
 /// A payment card's fields.

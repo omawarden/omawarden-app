@@ -3,7 +3,7 @@ import { Input } from "nsh/base";
 import type { CipherMutationInput } from "omawarden-app/native";
 import * as store from "../store/appStore";
 import { tint } from "../theme/palette";
-import { TabButton, inputStyle } from "./AuthView";
+import { inputStyle } from "./AuthView";
 import { ActionButton, ModalShell, Panel, SectionTitle, SmallButton } from "./ui";
 
 function isLoginDraft(draft: CipherMutationInput | null): boolean {
@@ -49,46 +49,20 @@ export function CipherFormModal() {
 
   return (
     <ModalShell
-      title={editing() ? "Edit Item" : "New Item"}
+      title={
+        editing() ? "Edit Item" : login() ? "New Login" : "New Secure Note"
+      }
       testID="cipher-form-modal"
       subtitle={
-        editing() ? "Update the fields you want to change." : "Create a login or a secure note."
+        editing()
+          ? "Update the fields you want to change."
+          : login()
+            ? "Create a login."
+            : "Create a secure note."
       }
       width={620}
       onClose={store.cancelCipherForm}
     >
-      <If when={!editing()}>
-        <View style={{ gap: 6 }}>
-          <Text style={{ color: palette().muted, fontSize: store.type().base }}>Type</Text>
-          <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
-            <TabButton
-              label="Login"
-              testID="cipher-type-login"
-              active={login()}
-              onPress={() =>
-                store.updateCipherDraft({
-                  cipherType: "login",
-                  uris: uriList(draft()).length > 0 ? uriList(draft()) : [""],
-                })
-              }
-            />
-            <TabButton
-              label="Secure Note"
-              testID="cipher-type-note"
-              active={!login()}
-              onPress={() =>
-                store.updateCipherDraft({
-                  cipherType: "note",
-                  username: null,
-                  password: null,
-                  uris: null,
-                })
-              }
-            />
-          </View>
-        </View>
-      </If>
-
       <Panel testID="cipher-form-fields">
         <SectionTitle hint="The name is what the vault list shows.">Details</SectionTitle>
         <FormInput
@@ -217,22 +191,6 @@ export function CipherFormModal() {
             autoCorrect={false}
             onChange={({ value }) => store.updateCipherDraft({ notes: value })}
             style={{ ...inputStyle(), minHeight: 110 }}
-          />
-        </View>
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 10,
-          }}
-        >
-          <Text style={{ color: palette().popups.text, fontSize: store.type().base }}>Favorite</Text>
-          <ActionButton
-            label={draft()?.favorite ? "On" : "Off"}
-            testID="cipher-form-favorite"
-            tone={draft()?.favorite ? "primary" : "secondary"}
-            onPress={() => store.updateCipherDraft({ favorite: !draft()?.favorite })}
           />
         </View>
       </Panel>

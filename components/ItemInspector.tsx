@@ -769,7 +769,7 @@ function loginFields(item: () => InspectorView): FieldSpec[] {
   item().uris.forEach((uri) => {
     specs.push({
       label: isAppScheme(uri.uri) ? "App Scheme" : "Website",
-      value: uri.host || uri.uri,
+      value: uri.display || uri.uri,
       actions: [
         {
           icon: "copy",

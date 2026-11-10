@@ -47,8 +47,9 @@ replaces a terminal primitive rather than copying it.
    button is the deterministic default (16 characters, every class); the
    password generator modal remains the place for a different length or a
    passphrase.
-5. Create a Secure Note with name and notes: the `+` on the Secure Notes tab,
-   the palette's `Create Secure Note`, or the type switch inside the form.
+5. Create a Secure Note with name and notes: the `+` on the Secure Notes tab
+   or the palette's `Create Secure Note`. The form is typed by the entry point
+   that opened it, so it has no Login/Secure Note switch.
 6. Edit a cipher by name: `Ctrl+P` / palette `Go to Item` resolves a name
    through `resolveCipherTarget`, selects the matching row, and the inspector's
    `Edit` button opens the multi-field form.
@@ -56,7 +57,8 @@ replaces a terminal primitive rather than copying it.
    row targets it by id without any name lookup.
 8. Run `vault edit <target>` with no field flags to open `$EDITOR`: the
    inspector's header `Edit` button opens the multi-field modal, which carries
-   name, username, password, every website URL, notes, and favorite together.
+   name, username, password, every website URL, and notes together. Favoriting
+   is not part of the form.
 9. `$EDITOR` changes are parsed, encrypted, and uploaded on close: the modal's
    `Save Changes` sends one `cipher_update`, and the daemon encrypts before it
    transmits.
@@ -110,6 +112,10 @@ replaces a terminal primitive rather than copying it.
 - Editing is a single multi-field modal. There is no per-field inline editor:
   one form, one `cipher_update`, so a title change cannot be committed on its
   own and race a password change.
+- The create form's type comes from the affordance that opened it (the Logins
+  tab, the Secure Notes tab, or the matching palette row), so the modal never
+  offers a Login/Secure Note switch the user has already answered. Its title
+  names the type instead.
 - An edit sends the name plus only the fields the user changed
   (`cipherFormDirty`), so opening the edit modal and saving a new title cannot
   blank the password the form never decrypted. Deleting a field's text marks it

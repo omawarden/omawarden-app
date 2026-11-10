@@ -158,17 +158,7 @@ fn mock_item_inspector(item: &MockItem, reveal: &RevealStateInput) -> InspectorV
             }
         })
         .collect();
-    let uris = item
-        .uris
-        .iter()
-        .map(|uri| UriView {
-            uri: uri.clone(),
-            host: url::Url::parse(uri)
-                .ok()
-                .and_then(|parsed| parsed.host_str().map(str::to_string))
-                .unwrap_or_else(|| uri.clone()),
-        })
-        .collect();
+    let uris = item.uris.iter().map(|uri| uri_view(uri)).collect();
     InspectorView {
         id: item.id.clone(),
         title: item.title.clone(),
@@ -389,13 +379,7 @@ fn vault_item_inspector(
             array
                 .iter()
                 .filter_map(|entry| entry.get("uri").and_then(|value| value.as_str()))
-                .map(|uri| UriView {
-                    uri: uri.to_string(),
-                    host: url::Url::parse(uri)
-                        .ok()
-                        .and_then(|parsed| parsed.host_str().map(str::to_string))
-                        .unwrap_or_else(|| uri.to_string()),
-                })
+                .map(uri_view)
                 .collect()
         })
         .unwrap_or_default();
@@ -584,6 +568,78 @@ fn vault_item_inspector(
     }
 }
 
+/// Builds one URI row for the inspector.
+///
+/// The row shows the URI the way the plugin does, not the bare hostname, so a
+/// website reads `https://github.com` and an app scheme reads `otpauth://totp`.
+/// The raw URI stays on the view for copying and opening.
+fn uri_view(uri: &str) -> UriView {
+    UriView {
+        uri: uri.to_string(),
+        host: url::Url::parse(uri)
+            .ok()
+            .and_then(|parsed| parsed.host_str().map(str::to_string))
+            .unwrap_or_else(|| uri.to_string()),
+        display: format_scheme_host(uri),
+    }
+}
+
+/// Mirrors the plugin's `formatSchemeHost`: `scheme://host` for a URL,
+/// `scheme:host` for a non-http scheme, and an `https` URL for a bare host.
+fn format_scheme_host(uri: &str) -> String {
+    let trimmed = uri.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if let Some(index) = trimmed.find("://") {
+        let scheme = &trimmed[..index];
+        if is_uri_scheme(scheme) {
+            return format!(
+                "{}://{}",
+                scheme.to_ascii_lowercase(),
+                host_part(&trimmed[index + 3..])
+            );
+        }
+    }
+    if let Some(index) = trimmed.find(':') {
+        let scheme = &trimmed[..index];
+        if is_uri_scheme(scheme)
+            && !scheme.eq_ignore_ascii_case("http")
+            && !scheme.eq_ignore_ascii_case("https")
+        {
+            let rest = &trimmed[index + 1..];
+            let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+            return format!("{}:{}", scheme.to_ascii_lowercase(), &rest[..end]);
+        }
+    }
+    let clean = match trimmed.find("://") {
+        Some(index) => &trimmed[index + 3..],
+        None => trimmed,
+    };
+    format!("https://{}", host_part(clean))
+}
+
+/// The host a URI's authority part names, without userinfo, path, query, or
+/// fragment.
+fn host_part(rest: &str) -> &str {
+    let rest = match rest.find('@') {
+        Some(index) => &rest[index + 1..],
+        None => rest,
+    };
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    &rest[..end]
+}
+
+/// Whether `value` looks like a URI scheme (`letter *( letter / digit / + / - / . )`).
+fn is_uri_scheme(value: &str) -> bool {
+    let mut chars = value.chars();
+    match chars.next() {
+        Some(first) if first.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+}
+
 /// An empty inspector carrying an error.
 fn empty_inspector(cipher_id: &str, error: String) -> InspectorView {
     InspectorView {
@@ -611,5 +667,47 @@ fn empty_inspector(cipher_id: &str, error: String) -> InspectorView {
         },
         reprompt: 0,
         error: Some(error),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{format_scheme_host, host_part};
+
+    #[test]
+    fn a_website_reads_as_scheme_and_host() {
+        assert_eq!(
+            format_scheme_host("https://github.com/login?x=1"),
+            "https://github.com"
+        );
+        assert_eq!(
+            format_scheme_host("http://example.com:8443"),
+            "http://example.com:8443"
+        );
+    }
+
+    #[test]
+    fn a_bare_host_gets_an_https_scheme() {
+        assert_eq!(format_scheme_host("github.com/login"), "https://github.com");
+        assert_eq!(format_scheme_host("  example.com  "), "https://example.com");
+    }
+
+    #[test]
+    fn an_app_scheme_keeps_its_scheme() {
+        assert_eq!(
+            format_scheme_host("otpauth://totp/x?secret=1"),
+            "otpauth://totp"
+        );
+        assert_eq!(
+            format_scheme_host("mailto:user@example.com"),
+            "mailto:user@example.com"
+        );
+    }
+
+    #[test]
+    fn userinfo_is_dropped_and_empty_input_is_empty() {
+        assert_eq!(host_part("user:pass@example.com/x"), "example.com");
+        assert_eq!(format_scheme_host(""), "");
+        assert_eq!(format_scheme_host("   "), "");
     }
 }

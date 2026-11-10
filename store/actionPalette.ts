@@ -131,7 +131,7 @@ export function contextActions(): PaletteAction[] {
     actions.push({
       id: "open-url",
       label: "Open URL",
-      hint: first.host || first.uri,
+      hint: first.display || first.uri,
       icon: "external-link",
       shortcut: "Ctrl+O",
       keystroke: "mod+o",
