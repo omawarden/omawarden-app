@@ -140,6 +140,17 @@ export function contextActions(): PaletteAction[] {
   }
   if (current.category === "login" || current.category === "secureNote") {
     actions.push({
+      id: "toggle-favorite",
+      label: current.favorite ? "Unfavorite" : "Favorite",
+      hint: current.favorite
+        ? "Remove from the favorites"
+        : "Add to the favorites",
+      icon: "star",
+      shortcut: "Ctrl+V",
+      keystroke: "mod+v",
+      run: store.toggleFavorite,
+    });
+    actions.push({
       id: "edit-cipher",
       label: "Edit Item",
       hint: "Change the selected item's fields",

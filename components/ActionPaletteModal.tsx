@@ -35,6 +35,7 @@ export function ActionPaletteModal() {
         "mod+t": () => paletteActions.runShortcut("mod+t"),
         "mod+o": () => paletteActions.runShortcut("mod+o"),
         "mod+h": () => paletteActions.runShortcut("mod+h"),
+        "mod+v": () => paletteActions.runShortcut("mod+v"),
         "mod+e": () => paletteActions.runShortcut("mod+e"),
         "mod+g": () => paletteActions.runShortcut("mod+g"),
         "mod+r": () => paletteActions.runShortcut("mod+r"),

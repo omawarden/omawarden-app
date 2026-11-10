@@ -137,8 +137,14 @@ replaces a terminal primitive rather than copying it.
   form the daemon would reject.
 - `Ctrl+E` edits the selected Login or Secure Note and keeps exporting an SSH
   key, which is what the key previously did on its own.
+- Favoriting is a badge toggle in the inspector header and the palette's
+  `Favorite` / `Unfavorite` row; neither goes through the form. `Ctrl+V` runs it
+  from the vault and from the open palette.
+- Custom fields are read-only. The daemon's create and update drafts carry no
+  custom-field slot, so the inspector labels the section read-only instead of
+  offering an editor that could not save.
 - Shortcuts: `Ctrl+N` creates a login, `Ctrl+D` opens the delete confirmation,
-  `Ctrl+P` opens the resolver.
+  `Ctrl+P` opens the resolver, `Ctrl+V` toggles the favorite.
 
 ## Testing Decisions
 
@@ -150,13 +156,14 @@ replaces a terminal primitive rather than copying it.
   `MockState`, the bad-input rejection, and target resolution for an exact id,
   an exact name, a missing name, and an ambiguous substring.
 - Headless tests in `App.test.tsx` cover creating a login and a note from their
-  tabs, the required name, the type switch hiding login fields, creating a
-  login without a password, the `Generate` button, a create that stores several
-  website URLs, an edit that only replaces the first URL, the multi-field edit
-  modal, an edit that renames an item without touching its password, the delete
-  confirmation and its permanent warning, the palette rows, `Ctrl+N` /
-  `Ctrl+D`, the resolver's exact-match, candidate-list, and not-found paths, and
-  the category gate that keeps Cards and Identities read-only.
+  tabs, the required name, the entry-point-typed form hiding login fields,
+  creating a login without a password, the `Generate` button, a create that
+  stores several website URLs, an edit that only replaces the first URL, the
+  multi-field edit modal, an edit that renames an item without touching its
+  password, the delete confirmation and its permanent warning, the palette rows,
+  `Ctrl+N` / `Ctrl+D` / `Ctrl+V`, the favorite badge toggle, the read-only
+  custom-fields label, the resolver's exact-match, candidate-list, and not-found
+  paths, and the category gate that keeps Cards and Identities read-only.
 
 ## Out of Scope
 

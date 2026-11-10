@@ -304,6 +304,7 @@ effect(() => {
     {
       "mod+enter": () => store.copyField("totp"),
       "ctrl+enter": () => store.copyField("totp"),
+      "mod+v": () => store.toggleFavorite(),
       up: () => {
         // The palette owns its own key bindings while it is open.
         if (paletteOpen()) {

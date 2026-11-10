@@ -1229,6 +1229,27 @@ export function openUrl(rawUrl: string): void {
   }
 }
 
+/** Toggles the selected item's favorite flag, then refreshes the row. */
+export function toggleFavorite(): void {
+  const cipher = editableCipher();
+  if (!cipher) {
+    return;
+  }
+  const next: CipherMutationInput = {
+    cipherType: cipher.category === "secureNote" ? "note" : "login",
+    name: cipher.title,
+    favorite: !cipher.favorite,
+  };
+  const outcome = OmawardenBridge.mutateCipher(next, cipher.id);
+  if (outcome.ok) {
+    notify(outcome.outcome || "Favorite toggled.", "success");
+    reloadVault();
+    refreshInspector();
+  } else {
+    notify(outcome.error ?? "Could not toggle favorite.", "error");
+  }
+}
+
 /** Opens the selected item's first website URI. */
 export function openFirstUrl(): void {
   const uris = inspector()?.uris ?? [];

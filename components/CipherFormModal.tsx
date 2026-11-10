@@ -158,7 +158,7 @@ export function CipherFormModal() {
                         list[index()] = value;
                         store.updateCipherDraft({ uris: list });
                       }}
-                      style={{ flex: 1 }}
+                      style={{ ...inputStyle(), flex: 1 }}
                     />
                   </If>
                   <If when={!editing()}>

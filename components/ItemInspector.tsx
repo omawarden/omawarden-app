@@ -233,7 +233,13 @@ function InspectorHeader(props: { item: () => InspectorView }) {
             {props.item().title || "Untitled"}
           </Text>
           <If when={props.item().favorite}>
-            <Badge label="Favorite" icon="star" neutral />
+            <View
+              style={{ cursor: "pointer" }}
+              onPress={() => store.toggleFavorite()}
+              testID="toggle-favorite"
+            >
+              <Badge label="Favorite" icon="star" neutral />
+            </View>
           </If>
           <If when={props.item().metadata.organization !== ""}>
             <Badge
@@ -452,6 +458,12 @@ function InspectorBody(props: { item: () => InspectorView }) {
           {item().fields.length > 0 ? (
             <Section testID="inspector-fields">
               <SectionLabel>Custom Fields</SectionLabel>
+              <Text
+                testID="inspector-fields-read-only"
+                style={{ color: palette().muted, fontSize: store.type().xs }}
+              >
+                Read-only: the vault write API has no custom field support yet.
+              </Text>
               <Each of={item().fields} key="index">
                 {(field) => (
                   <View style={{ gap: 8 }}>

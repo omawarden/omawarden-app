@@ -687,6 +687,10 @@ test("login inspector reveals, copies TOTP, and shows history", async () => {
   expect(app.shows("id:password-history-modal")).toBe(false);
 
   expect(app.shows("id:inspector-fields")).toBe(true);
+  expect(app.shows("id:inspector-fields-read-only")).toBe(true);
+  expect(app.texts()).toContain(
+    "Read-only: the vault write API has no custom field support yet.",
+  );
   expect(app.texts()).toContain("••••••••");
   await app.press("id:reveal-field-0");
   expect(app.texts()).toContain("token-abc-123");
@@ -1932,8 +1936,29 @@ test("the action palette lists create, edit, and delete", async () => {
 
   expect(app.shows("id:action-create-login")).toBe(true);
   expect(app.shows("id:action-create-secure-note")).toBe(true);
+  expect(app.shows("id:action-toggle-favorite")).toBe(true);
   expect(app.shows("id:action-edit-cipher")).toBe(true);
   expect(app.shows("id:action-delete-cipher")).toBe(true);
+});
+
+test("Ctrl+V toggles the selected item's favorite", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:cipher-row-login1");
+  expect(app.shows("id:toggle-favorite")).toBe(true);
+
+  await app.keyboard.press("mod+v");
+  expect(app.shows("id:toggle-favorite")).toBe(false);
+
+  await app.keyboard.press("mod+v");
+  expect(app.shows("id:toggle-favorite")).toBe(true);
+
+  // The palette row carries the same shortcut, so it works while it is open.
+  await app.keyboard.press("mod+k");
+  expect(app.texts()).toContain("Unfavorite");
+  await app.keyboard.press("mod+v");
+  expect(app.shows("id:action-palette-modal")).toBe(false);
+  expect(app.shows("id:toggle-favorite")).toBe(false);
 });
 
 test("Ctrl+N opens the create form and Ctrl+D opens delete", async () => {
