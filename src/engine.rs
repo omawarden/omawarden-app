@@ -8,6 +8,7 @@ use crate::attachments::{
     AttachmentsEngine, InProcess as InProcessAttachments, Mock as MockAttachments,
 };
 use crate::auth::{AuthEngine, InProcess as InProcessAuth, Mock as MockAuth};
+use crate::cipher_mutation::{CipherEngine, InProcess as InProcessCipher, Mock as MockCipher};
 use crate::clipboard::{ClipboardEngine, InProcess as InProcessClipboard, Mock as MockClipboard};
 use crate::daemon::{DaemonEngine, InProcess as InProcessDaemon, Mock as MockDaemon};
 use crate::diagnostics::{
@@ -39,6 +40,17 @@ pub(crate) fn auth() -> &'static dyn AuthEngine {
         &MOCK
     } else {
         static IN_PROCESS: InProcessAuth = InProcessAuth;
+        &IN_PROCESS
+    }
+}
+
+/// The cipher mutation adapter for the current run mode.
+pub(crate) fn cipher() -> &'static dyn CipherEngine {
+    if crate::with_mock(|state| state.enabled) {
+        static MOCK: MockCipher = MockCipher;
+        &MOCK
+    } else {
+        static IN_PROCESS: InProcessCipher = InProcessCipher;
         &IN_PROCESS
     }
 }

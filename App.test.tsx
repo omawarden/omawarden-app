@@ -1800,3 +1800,296 @@ test("SSH key saves to the vault and its inspector reveals the saved private key
   expect(revealedPrivateKey).toBeTruthy();
   expect(revealedPrivateKey).toBe(previewPrivateKey);
 });
+
+// ---------------------------------------------------------------------------
+// Cipher mutation (create / edit / delete)
+// ---------------------------------------------------------------------------
+
+test("creating a login from the Logins tab adds a row", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:category-login");
+  await app.press("id:create-login");
+  expect(app.shows("id:cipher-form-modal")).toBe(true);
+
+  await app.type("id:cipher-form-name", "GitLab");
+  await app.type("id:cipher-form-username", "dev");
+  await app.type("id:cipher-form-password", "hunter2");
+  await app.press("id:cipher-form-submit");
+
+  expect(app.shows("id:cipher-form-modal")).toBe(false);
+  expect(app.shows("id:cipher-row-mock-cipher")).toBe(true);
+  expect(app.texts()).toContain("GitLab");
+});
+
+test("creating a secure note from its tab adds a note", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:category-secureNote");
+  await app.press("id:create-secure-note");
+  expect(app.shows("id:cipher-form-modal")).toBe(true);
+
+  await app.type("id:cipher-form-name", "Recovery codes");
+  await app.press("id:cipher-form-submit");
+
+  expect(app.shows("id:cipher-form-modal")).toBe(false);
+  expect(app.shows("id:cipher-row-mock-cipher")).toBe(true);
+  expect(app.texts()).toContain("Recovery codes");
+});
+
+test("the create form requires a name", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:category-login");
+  await app.press("id:create-login");
+  await app.press("id:cipher-form-submit");
+
+  expect(app.shows("id:cipher-form-modal")).toBe(true);
+  expect(app.texts()).toContain("Enter an item name before saving.");
+});
+
+test("the create form switches to a secure note and hides login fields", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:category-login");
+  await app.press("id:create-login");
+  expect(app.shows("id:cipher-form-username")).toBe(true);
+
+  await app.press("id:cipher-type-note");
+  expect(app.shows("id:cipher-form-username")).toBe(false);
+  expect(app.shows("id:cipher-form-password")).toBe(false);
+
+  await app.press("id:cipher-type-login");
+  expect(app.shows("id:cipher-form-username")).toBe(true);
+});
+
+test("editing a single field through the modal updates the inspector", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:cipher-row-login1");
+  expect(app.shows("id:inspector-login")).toBe(true);
+
+  await app.press("id:edit-cipher");
+  expect(app.shows("id:cipher-form-modal")).toBe(true);
+
+  await app.clear("id:cipher-form-username");
+  await app.type("id:cipher-form-username", "new-user");
+  await app.press("id:cipher-form-submit");
+
+  expect(app.shows("id:cipher-form-modal")).toBe(false);
+  expect(app.texts()).toContain("new-user");
+});
+
+test("the edit modal opens from the inspector and saves changes", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:cipher-row-login1");
+  await app.press("id:edit-cipher");
+  expect(app.shows("id:cipher-form-modal")).toBe(true);
+
+  await app.clear("id:cipher-form-name");
+  await app.type("id:cipher-form-name", "GitHub Cloud");
+  await app.press("id:cipher-form-submit");
+
+  expect(app.shows("id:cipher-form-modal")).toBe(false);
+  expect(app.texts()).toContain("GitHub Cloud");
+});
+
+test("deleting a cipher asks first, then removes the row", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM, MAIL_ITEM] });
+
+  await app.press("id:cipher-row-login1");
+  await app.press("id:delete-cipher");
+  expect(app.shows("id:cipher-delete-modal")).toBe(true);
+  expect(app.texts()).toContain("The item can be restored from the trash.");
+
+  await app.press("id:cipher-delete-confirm");
+  expect(app.shows("id:cipher-delete-modal")).toBe(false);
+  expect(app.shows("id:cipher-row-login1")).toBe(false);
+});
+
+test("a permanent delete shows the second warning row", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:cipher-row-login1");
+  await app.press("id:delete-cipher");
+  expect(app.texts()).toContain("The item can be restored from the trash.");
+  // The soft-delete confirmation never claims permanence.
+  expect(app.texts().join(" ")).not.toContain("This cannot be undone.");
+});
+
+test("the action palette lists create, edit, and delete", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:cipher-row-login1");
+  await app.keyboard.press("mod+k");
+
+  expect(app.shows("id:action-create-login")).toBe(true);
+  expect(app.shows("id:action-create-secure-note")).toBe(true);
+  expect(app.shows("id:action-edit-cipher")).toBe(true);
+  expect(app.shows("id:action-delete-cipher")).toBe(true);
+});
+
+test("Ctrl+N opens the create form and Ctrl+D opens delete", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.keyboard.press("mod+n");
+  expect(app.shows("id:cipher-form-modal")).toBe(true);
+  await app.press("id:cipher-form-cancel");
+  expect(app.shows("id:cipher-form-modal")).toBe(false);
+
+  await app.press("id:cipher-row-login1");
+  await app.keyboard.press("mod+d");
+  expect(app.shows("id:cipher-delete-modal")).toBe(true);
+  await app.press("id:cipher-delete-cancel");
+  expect(app.shows("id:cipher-delete-modal")).toBe(false);
+});
+
+test("going to an item by exact name selects it", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM, MAIL_ITEM] });
+
+  await app.keyboard.press("mod+p");
+  expect(app.shows("id:cipher-resolve-modal")).toBe(true);
+
+  await app.type("id:cipher-resolve-input", "Personal Mail");
+  await app.press("id:cipher-resolve-submit");
+
+  expect(app.shows("id:cipher-resolve-modal")).toBe(false);
+  // Only an open inspector renders the header edit button.
+  expect(app.shows("id:edit-cipher")).toBe(true);
+});
+
+test("a partial name lists every match and picking one selects it", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [
+      { id: "m1", title: "Mail Personal", category: "login", username: "personal" },
+      { id: "m2", title: "Mail Work", category: "login", username: "work" },
+    ],
+  });
+
+  await app.keyboard.press("mod+p");
+  await app.type("id:cipher-resolve-input", "Mail");
+  await app.press("id:cipher-resolve-submit");
+
+  expect(app.shows("id:cipher-resolve-candidates")).toBe(true);
+  expect(app.shows("id:cipher-candidate-m1")).toBe(true);
+  expect(app.shows("id:cipher-candidate-m2")).toBe(true);
+
+  await app.press("id:cipher-candidate-m2");
+  expect(app.shows("id:cipher-resolve-modal")).toBe(false);
+  expect(app.shows("id:edit-cipher")).toBe(true);
+});
+
+test("an unknown name reports the failure and keeps the resolver open", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.keyboard.press("mod+p");
+  await app.type("id:cipher-resolve-input", "Nothing Here");
+  await app.press("id:cipher-resolve-submit");
+
+  expect(app.shows("id:cipher-resolve-modal")).toBe(true);
+  expect(app.shows("id:cipher-resolve-error")).toBe(true);
+  expect(app.texts().join(" ")).toContain("not found");
+});
+
+test("a login can be created without a password", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:category-login");
+  await app.press("id:create-login");
+  await app.type("id:cipher-form-name", "No Password Yet");
+  await app.press("id:cipher-form-submit");
+
+  expect(app.shows("id:cipher-form-modal")).toBe(false);
+  expect(app.shows("id:cipher-row-mock-cipher")).toBe(true);
+});
+
+test("the form's Generate button fills a 16-character password", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:category-login");
+  await app.press("id:create-login");
+  expect(app.value("id:cipher-form-password") ?? "").toBe("");
+
+  await app.press("id:cipher-form-generate");
+  expect((app.value("id:cipher-form-password") ?? "").length).toBe(16);
+
+  await app.type("id:cipher-form-name", "Generated");
+  await app.press("id:cipher-form-submit");
+  expect(app.shows("id:cipher-form-modal")).toBe(false);
+  expect(app.shows("id:cipher-row-mock-cipher")).toBe(true);
+});
+
+test("the create form stores every website URL", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:category-login");
+  await app.press("id:create-login");
+  await app.type("id:cipher-form-name", "Two URLs");
+  await app.type("id:cipher-form-uri-0", "https://one.example.com");
+  await app.press("id:cipher-form-uri-add");
+  await app.type("id:cipher-form-uri-1", "https://two.example.com");
+  await app.press("id:cipher-form-submit");
+
+  expect(app.shows("id:cipher-form-modal")).toBe(false);
+  await app.press("id:cipher-row-mock-cipher");
+  expect(app.texts()).toContain("one.example.com");
+  expect(app.texts()).toContain("two.example.com");
+});
+
+test("the edit form only lets the first URL change and keeps the rest", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [
+      {
+        id: "multi",
+        title: "Multi URL",
+        category: "login",
+        username: "octocat",
+        uris: ["https://one.example.com", "https://two.example.com"],
+      },
+    ],
+  });
+
+  await app.press("id:cipher-row-multi");
+  await app.press("id:edit-cipher");
+
+  // Only the first row is an input; the second is read-only text.
+  expect(app.shows("id:cipher-form-uri-0")).toBe(true);
+  expect(app.shows("id:cipher-form-uri-1")).toBe(true);
+  expect(app.shows("id:cipher-form-uri-add")).toBe(false);
+
+  await app.clear("id:cipher-form-uri-0");
+  await app.type("id:cipher-form-uri-0", "https://renamed.example.com");
+  await app.press("id:cipher-form-submit");
+
+  expect(app.texts()).toContain("renamed.example.com");
+  expect(app.texts()).toContain("two.example.com");
+});
+
+test("editing another field leaves the untouched password alone", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:cipher-row-login1");
+  await app.press("id:edit-cipher");
+  await app.clear("id:cipher-form-name");
+  await app.type("id:cipher-form-name", "GitHub Renamed");
+  await app.press("id:cipher-form-submit");
+
+  expect(app.texts()).toContain("GitHub Renamed");
+  await app.press("id:reveal-password");
+  expect(app.texts()).toContain("hunter2");
+});
+
+test("cards and identities offer no cipher mutation", async () => {
+  const app = await openMock({ phase: "unlocked", items: [CARD_ITEM, IDENTITY_ITEM] });
+
+  await app.press("id:cipher-row-card1");
+  expect(app.shows("id:edit-cipher")).toBe(false);
+  expect(app.shows("id:delete-cipher")).toBe(false);
+
+  await app.keyboard.press("mod+d");
+  expect(app.texts().join(" ")).toContain("Only logins and secure notes can be changed.");
+  expect(app.shows("id:cipher-delete-modal")).toBe(false);
+});

@@ -250,6 +250,22 @@ function InspectorHeader(props: { item: () => InspectorView }) {
           {categoryLabel(props.item().category)}
         </Text>
       </View>
+      <If when={props.item().category === "login" || props.item().category === "secureNote"}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+          <GhostIconButton
+            testID="edit-cipher"
+            label="Edit item"
+            icon="pencil"
+            onPress={store.openCipherEdit}
+          />
+          <GhostIconButton
+            testID="delete-cipher"
+            label="Delete item"
+            icon="trash"
+            onPress={() => store.openCipherDelete(false)}
+          />
+        </View>
+      </If>
     </View>
   );
 }
@@ -750,7 +766,7 @@ function loginFields(item: () => InspectorView): FieldSpec[] {
       ],
     }),
   ];
-  for (const uri of item().uris) {
+  item().uris.forEach((uri) => {
     specs.push({
       label: isAppScheme(uri.uri) ? "App Scheme" : "Website",
       value: uri.host || uri.uri,
@@ -769,7 +785,7 @@ function loginFields(item: () => InspectorView): FieldSpec[] {
         },
       ],
     });
-  }
+  });
   return fields(specs);
 }
 

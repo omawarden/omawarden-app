@@ -52,6 +52,22 @@ export function CategoryTabBar() {
           />
         </View>
       ) : null}
+      {store.category() === "login" ? (
+        <GhostIconButton
+          testID="create-login"
+          label="Create login"
+          icon="plus"
+          onPress={() => store.openCipherForm("login")}
+        />
+      ) : null}
+      {store.category() === "secureNote" ? (
+        <GhostIconButton
+          testID="create-secure-note"
+          label="Create secure note"
+          icon="plus"
+          onPress={() => store.openCipherForm("note")}
+        />
+      ) : null}
     </View>
   );
 }

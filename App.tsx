@@ -6,6 +6,9 @@ import { windowBelowMinimum } from "./store/windowGate";
 import { ActionPaletteModal } from "./components/ActionPaletteModal";
 import { AuthView } from "./components/AuthView";
 import { CategoryTabBar } from "./components/CategoryTabBar";
+import { CipherDeleteModal } from "./components/CipherDeleteModal";
+import { CipherFormModal } from "./components/CipherFormModal";
+import { CipherResolveModal } from "./components/CipherResolveModal";
 import { DependencyCheckView } from "./components/DependencyCheckView";
 import { FooterBar } from "./components/FooterBar";
 import { ItemInspector } from "./components/ItemInspector";
@@ -82,6 +85,18 @@ function App() {
 
       <If when={store.activeModal() === "actionPalette"}>
         <ActionPaletteModal />
+      </If>
+      <If when={store.activeModal() === "cipherForm"}>
+        <CipherFormModal />
+      </If>
+      <If when={store.activeModal() === "cipherEdit"}>
+        <CipherFormModal />
+      </If>
+      <If when={store.activeModal() === "cipherDelete"}>
+        <CipherDeleteModal />
+      </If>
+      <If when={store.activeModal() === "cipherResolve"}>
+        <CipherResolveModal />
       </If>
       <If when={store.activeModal() === "generator"}>
         <PasswordGeneratorModal />
@@ -175,8 +190,29 @@ keymap.bind({
     }
   },
   "mod+e": () => {
-    if (canUseVaultShortcuts() && store.selectedCipher()?.category === "sshKey") {
+    if (!canUseVaultShortcuts()) {
+      return;
+    }
+    const category = store.selectedCipher()?.category;
+    if (category === "sshKey") {
       store.openSshKey("export");
+    } else if (category === "login" || category === "secureNote") {
+      store.openCipherEdit();
+    }
+  },
+  "mod+p": () => {
+    if (canUseVaultShortcuts()) {
+      store.openCipherResolve();
+    }
+  },
+  "mod+n": () => {
+    if (canUseVaultShortcuts()) {
+      store.openCipherForm("login");
+    }
+  },
+  "mod+d": () => {
+    if (canUseVaultShortcuts()) {
+      store.openCipherDelete(false);
     }
   },
   "mod+g": () => {

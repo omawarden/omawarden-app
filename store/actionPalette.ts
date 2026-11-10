@@ -138,6 +138,26 @@ export function contextActions(): PaletteAction[] {
       run: () => store.openUrl(first.uri),
     });
   }
+  if (current.category === "login" || current.category === "secureNote") {
+    actions.push({
+      id: "edit-cipher",
+      label: "Edit Item",
+      hint: "Change the selected item's fields",
+      icon: "pencil",
+      shortcut: "Ctrl+E",
+      keystroke: "mod+e",
+      run: store.openCipherEdit,
+    });
+    actions.push({
+      id: "delete-cipher",
+      label: "Delete Item",
+      hint: "Move the selected item to the trash",
+      icon: "trash",
+      shortcut: "Ctrl+D",
+      keystroke: "mod+d",
+      run: () => store.openCipherDelete(false),
+    });
+  }
   return actions;
 }
 
@@ -153,6 +173,15 @@ export function globalActions(): PaletteAction[] {
       // Focus once the palette that asked for it has closed, so the closing
       // dialog cannot take the field's focus on its way out.
       run: () => setTimeout(() => focusSearch(true), 0),
+    },
+    {
+      id: "go-to-item",
+      label: "Go to Item",
+      hint: "Jump to an item by name or id",
+      icon: "search",
+      shortcut: "Ctrl+P",
+      keystroke: "mod+p",
+      run: store.openCipherResolve,
     },
     {
       id: "sync",
@@ -171,6 +200,22 @@ export function globalActions(): PaletteAction[] {
       shortcut: "Ctrl+G",
       keystroke: "mod+g",
       run: store.openGenerator,
+    },
+    {
+      id: "create-login",
+      label: "Create Login",
+      hint: "Add a new login to the vault",
+      icon: "key",
+      shortcut: "Ctrl+N",
+      keystroke: "mod+n",
+      run: () => store.openCipherForm("login"),
+    },
+    {
+      id: "create-secure-note",
+      label: "Create Secure Note",
+      hint: "Add a new secure note to the vault",
+      icon: "file-text",
+      run: () => store.openCipherForm("note"),
     },
     {
       id: "create-ssh-key",

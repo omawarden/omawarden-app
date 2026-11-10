@@ -16,6 +16,7 @@ use serde_json::Value;
 
 mod attachments;
 mod auth;
+mod cipher_mutation;
 mod clipboard;
 mod config;
 mod daemon;
@@ -172,19 +173,22 @@ struct MockField {
 }
 
 /// A cipher as seeded by a test.
+///
+/// `pub(crate)` so the mutation seam can push items back into the mock vault
+/// during headless tests without reaching for the daemon socket.
 #[derive(Clone, Debug, Default)]
-struct MockItem {
-    id: String,
-    title: String,
-    category: ItemCategory,
-    username: Option<String>,
-    password: Option<String>,
-    totp: Option<String>,
-    notes: Option<String>,
-    uris: Vec<String>,
-    favorite: bool,
-    folder: Option<String>,
-    organization: Option<String>,
+pub(crate) struct MockItem {
+    pub(crate) id: String,
+    pub(crate) title: String,
+    pub(crate) category: ItemCategory,
+    pub(crate) username: Option<String>,
+    pub(crate) password: Option<String>,
+    pub(crate) totp: Option<String>,
+    pub(crate) notes: Option<String>,
+    pub(crate) uris: Vec<String>,
+    pub(crate) favorite: bool,
+    pub(crate) folder: Option<String>,
+    pub(crate) organization: Option<String>,
     card: Option<MockCard>,
     identity: Option<MockIdentity>,
     ssh: Option<MockSsh>,
@@ -327,7 +331,7 @@ fn mock_state() -> &'static Mutex<MockState> {
 }
 
 /// Runs `f` with the locked mock state.
-fn with_mock<T>(f: impl FnOnce(&mut MockState) -> T) -> T {
+pub(crate) fn with_mock<T>(f: impl FnOnce(&mut MockState) -> T) -> T {
     let mut guard = mock_state()
         .lock()
         .unwrap_or_else(|error| error.into_inner());
@@ -917,6 +921,34 @@ impl OmawardenBridge {
     /// Inspect a specific cipher item, computing masked/revealed fields, TOTP state, and actions.
     pub fn inspect_cipher(cipher_id: String, reveal: RevealStateInput) -> InspectorView {
         engine::inspector().inspect(cipher_id, reveal)
+    }
+
+    /// Create a login or secure note cipher, or update an existing one by id.
+    ///
+    /// `id` is `Some` for an edit and `None` for a create. The payload is
+    /// validated on the way in (type, name, login-only fields) and the receipt
+    /// carries the id the daemon assigned or confirmed.
+    pub fn mutate_cipher(
+        input: CipherMutationInput,
+        id: Option<String>,
+    ) -> CipherMutationOutcomeView {
+        engine::cipher().mutate(input, id)
+    }
+
+    /// Resolve a create/edit/delete target by name or id.
+    ///
+    /// Returns the single matched cipher, or the ambiguous candidates the UI
+    /// shows in a selection menu. The GUI never mutates on an ambiguous reply.
+    pub fn resolve_cipher_target(target: String) -> CipherTargetResolvedView {
+        engine::cipher().resolve_target(target)
+    }
+
+    /// Delete a cipher, soft by default or permanently with `permanent: true`.
+    ///
+    /// A soft delete keeps the item in the sync queue; a permanent delete
+    /// removes it from the vault and the server. The caller confirms both.
+    pub fn delete_cipher(id: String, permanent: bool) -> CipherMutationOutcomeView {
+        engine::cipher().delete(id, permanent)
     }
 
     /// Compute live TOTP code and remaining TTL for a cipher item.
@@ -1694,6 +1726,137 @@ mod tests {
             Some(STALE_COMMIT),
             "a daemon from another build must be kept"
         );
+    }
+
+    #[test]
+    fn mock_cipher_create_edit_delete_round_trip() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let snapshot = OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {"id": "1", "title": "GitHub", "category": "login", "username": "octocat"}
+            ]
+        })));
+        assert_eq!(snapshot.category_counts.logins, 1);
+
+        // Create a login.
+        let created = OmawardenBridge::mutate_cipher(
+            CipherMutationInput {
+                cipher_type: "login".to_string(),
+                name: Some("GitLab".to_string()),
+                username: Some("dev".to_string()),
+                password: Some("hunter2".to_string()),
+                notes: None,
+                uris: Some(vec!["https://gitlab.example.com".to_string()]),
+                folder_id: None,
+                favorite: Some(false),
+            },
+            None,
+        );
+        assert!(created.ok, "{:?}", created.error);
+        assert_eq!(created.name.as_deref(), Some("GitLab"));
+        let after_create = OmawardenBridge::query_vault(VaultFilterInput::default());
+        assert_eq!(after_create.category_counts.logins, 2);
+
+        // Edit the created cipher by its id.
+        let id = created.id.clone().expect("created id");
+        let edited = OmawardenBridge::mutate_cipher(
+            CipherMutationInput {
+                cipher_type: "login".to_string(),
+                name: Some("GitLab Cloud".to_string()),
+                username: None,
+                password: None,
+                notes: None,
+                uris: None,
+                folder_id: None,
+                favorite: Some(true),
+            },
+            Some(id.clone()),
+        );
+        assert!(edited.ok, "{:?}", edited.error);
+        let rows = OmawardenBridge::query_vault(VaultFilterInput::default());
+        let row = rows
+            .items
+            .iter()
+            .find(|row| row.id == id)
+            .expect("edited row");
+        assert_eq!(row.title, "GitLab Cloud");
+        assert!(row.favorite);
+
+        // Delete it softly.
+        let deleted = OmawardenBridge::delete_cipher(id.clone(), false);
+        assert!(deleted.ok, "{:?}", deleted.error);
+        let after_delete = OmawardenBridge::query_vault(VaultFilterInput::default());
+        assert_eq!(after_delete.category_counts.logins, 1);
+    }
+
+    #[test]
+    fn mock_cipher_create_rejects_bad_input() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": []
+        })));
+        let outcome = OmawardenBridge::mutate_cipher(
+            CipherMutationInput {
+                cipher_type: "login".to_string(),
+                name: Some("  ".to_string()),
+                username: None,
+                password: None,
+                notes: None,
+                uris: None,
+                folder_id: None,
+                favorite: None,
+            },
+            None,
+        );
+        assert!(!outcome.ok);
+        assert!(outcome.error.is_some());
+    }
+
+    #[test]
+    fn mock_cipher_resolve_targets() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {"id": "1", "title": "GitHub", "category": "login", "username": "octocat"},
+                {"id": "2", "title": "GitHub Work", "category": "login", "username": "work"}
+            ]
+        })));
+        let exact = OmawardenBridge::resolve_cipher_target("GitHub".to_string());
+        assert!(exact.ok);
+        assert_eq!(exact.item.as_ref().map(|item| item.id.as_str()), Some("1"));
+
+        let by_id = OmawardenBridge::resolve_cipher_target("2".to_string());
+        assert!(by_id.ok);
+        assert_eq!(
+            by_id.item.as_ref().map(|item| item.name.as_str()),
+            Some("GitHub Work")
+        );
+
+        let ambiguous = OmawardenBridge::resolve_cipher_target("GitHub".to_string());
+        assert!(ambiguous.ok, "an exact match is not ambiguous");
+
+        let missing = OmawardenBridge::resolve_cipher_target("Nope".to_string());
+        assert!(!missing.ok);
+        assert!(missing.error.is_some());
+    }
+
+    #[test]
+    fn mock_cipher_resolve_is_ambiguous_for_partial_names() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {"id": "1", "title": "Mail Personal", "category": "login"},
+                {"id": "2", "title": "Mail Work", "category": "login"}
+            ]
+        })));
+        let ambiguous = OmawardenBridge::resolve_cipher_target("Mail".to_string());
+        assert!(!ambiguous.ok);
+        assert_eq!(ambiguous.candidates.len(), 2);
+        assert!(ambiguous.error.is_some());
     }
 
     #[test]

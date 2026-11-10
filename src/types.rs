@@ -531,6 +531,78 @@ pub struct AuthActionInput {
     pub new_device_otp: Option<String>,
 }
 
+/// The outcome of a cipher mutation (create, edit, or delete).
+#[derive(Clone, Debug, JsObject)]
+pub struct CipherMutationOutcomeView {
+    /// Whether the mutation succeeded.
+    pub ok: bool,
+    /// What the daemon did (`saved`, `saved_needs_sync`, `deleted`, `deleted_needs_sync`).
+    pub outcome: String,
+    /// The cipher id the mutation touched.
+    pub id: Option<String>,
+    /// The cipher name, when the daemon returned one.
+    pub name: Option<String>,
+    /// The cipher's new revision date, when the daemon returned one.
+    pub revision_date: Option<String>,
+    /// The error, when the mutation failed.
+    pub error: Option<String>,
+}
+
+/// The fields a create or edit form submits.
+///
+/// Every field is optional so the same payload serves both `create` (where the
+/// caller always supplies a name) and `edit` (where the caller supplies only
+/// the fields they want to change). An empty string clears a field; `None`
+/// leaves it untouched.
+#[derive(Clone, Debug, JsObject)]
+pub struct CipherMutationInput {
+    /// The cipher type: `login` or `note`.
+    pub cipher_type: String,
+    /// The item name.
+    pub name: Option<String>,
+    /// The login username.
+    pub username: Option<String>,
+    /// The login password.
+    pub password: Option<String>,
+    /// The login URIs. A blank entry is dropped on a create. An update only
+    /// carries the first entry, which replaces the stored first URL.
+    pub uris: Option<Vec<String>>,
+    /// The cipher notes.
+    pub notes: Option<String>,
+    /// The folder id, or an empty string to clear it.
+    pub folder_id: Option<String>,
+    /// The favorite flag.
+    pub favorite: Option<bool>,
+}
+
+/// A candidate cipher returned when a name target matches more than one item.
+#[derive(Clone, Debug, JsObject)]
+pub struct CipherTargetCandidateView {
+    /// The cipher id.
+    pub id: String,
+    /// The cipher name.
+    pub name: String,
+    /// The cipher type name (`login`, `note`, ...).
+    pub type_name: String,
+    /// The secondary line, when the daemon provides one.
+    pub sub_title: Option<String>,
+    /// The organization id, when the cipher belongs to one.
+    pub organization_id: Option<String>,
+}
+
+/// The result of resolving a create/edit/delete target by name or id.
+#[derive(Clone, Debug, JsObject)]
+pub struct CipherTargetResolvedView {
+    /// Whether exactly one cipher matched.
+    pub ok: bool,
+    /// The matched cipher, when exactly one matched.
+    pub item: Option<CipherTargetCandidateView>,
+    /// The candidates, when more than one matched.
+    pub candidates: Vec<CipherTargetCandidateView>,
+    /// The error, when no cipher matched or the target was empty.
+    pub error: Option<String>,
+}
+
 /// The vault filter.
 #[derive(Clone, Debug, JsObject)]
 pub struct VaultFilterInput {

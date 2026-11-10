@@ -4,7 +4,10 @@ import {
   type AppPhase,
   type AuthActionInput,
   type CategoryCountsView,
+  type CipherMutationInput,
+  type CipherMutationOutcomeView,
   type CipherRowView,
+  type CipherTargetCandidateView,
   type CopyOutcomeView,
   type DaemonTickView,
   type DependencyStatusView,
@@ -48,6 +51,10 @@ import { clearAuthSecrets, clearTwoFactorCodes, serverPanelOpen } from "./authFo
 export type ModalKind =
   | "none"
   | "actionPalette"
+  | "cipherForm"
+  | "cipherEdit"
+  | "cipherDelete"
+  | "cipherResolve"
   | "generator"
   | "sshKey"
   | "passwordHistory"
@@ -165,6 +172,23 @@ export const isSyncing = signal(false);
 /** The cipher whose master-password re-prompt grant is active. */
 export const repromptCipherId = signal<string | null>(null);
 export const repromptError = signal<string | null>(null);
+
+/** The cipher mutation form's live draft, or null when the form is closed. */
+export const cipherForm = signal<CipherMutationInput | null>(null);
+/** The draft fields the user changed since the form opened. */
+export const cipherFormDirty = signal<string[]>([]);
+/** The id being edited, or null when the form is a create. */
+export const cipherFormId = signal<string | null>(null);
+/** The outcome of the last mutation, shown inline until the modal closes. */
+export const cipherFormOutcome = signal<CipherMutationOutcomeView | null>(null);
+/** The target-resolution menu, when a name matched more than one cipher. */
+export const cipherCandidates = signal<CipherTargetCandidateView[] | null>(null);
+/** The name typed into the "go to item" resolver. */
+export const cipherResolveQuery = signal("");
+/** The resolver's failure message, shown under its input. */
+export const cipherResolveError = signal<string | null>(null);
+/** The delete confirmation's permanent flag. */
+export const cipherDeletePermanent = signal(false);
 
 // Vault rows are GTK widget subtrees, so mounting every item at once makes a
 // large vault expensive. Render a window and grow it as the user asks or moves
@@ -873,6 +897,12 @@ export function query(): void {
   }
 }
 
+/** Re-reads the vault after a mutation so the rows reflect the new state. */
+function reloadVault(): void {
+  applySnapshot(OmawardenBridge.queryVault(currentFilter()));
+  selectFirstIfNeeded();
+}
+
 export function sync(): void {
   if (isSyncing()) {
     return;
@@ -1480,6 +1510,10 @@ export function closeModal(): void {
     pendingRepromptAction = null;
     repromptError.set(null);
   }
+  if (activeModal() === "cipherResolve") {
+    cipherCandidates.set(null);
+    cipherResolveError.set(null);
+  }
   activeModal.set("none");
   clearActionFocus();
 }
@@ -1521,4 +1555,267 @@ export function openReleaseNotes(): void {
 
 export function openActionPalette(): void {
   openModal("actionPalette");
+}
+
+// ---------------------------------------------------------------------------
+// Cipher mutation: create, edit, delete
+// ---------------------------------------------------------------------------
+
+/** Opens the create form for a login or secure note cipher. */
+export function openCipherForm(cipherType: "login" | "note" = "login"): void {
+  cipherForm.set({
+    cipherType,
+    name: null,
+    username: null,
+    password: null,
+    notes: null,
+    uris: cipherType === "login" ? [""] : null,
+    folderId: null,
+    favorite: null,
+  });
+  cipherFormId.set(null);
+  cipherFormDirty.set([]);
+  cipherFormOutcome.set(null);
+  cipherCandidates.set(null);
+  openModal("cipherForm");
+}
+
+/** The selected cipher when it is a login or a secure note, else null. */
+function editableCipher(): CipherRowView | null {
+  const cipher = selectedCipher();
+  if (!cipher) {
+    notify("Select an item first.", "error");
+    return null;
+  }
+  if (cipher.category !== "login" && cipher.category !== "secureNote") {
+    notify("Only logins and secure notes can be changed.", "error");
+    return null;
+  }
+  return cipher;
+}
+
+/** Opens the edit form pre-filled from the selected cipher. */
+export function openCipherEdit(): void {
+  const cipher = editableCipher();
+  if (!cipher) {
+    return;
+  }
+  const detail = inspector();
+  // An update can only replace the first URL, so the form carries the whole
+  // list and only the first row is editable; the rest are preserved.
+  cipherForm.set({
+    cipherType: cipher.category === "secureNote" ? "note" : "login",
+    name: cipher.title,
+    username: detail?.username ?? null,
+    password: null,
+    notes: detail?.notes ?? null,
+    uris: (detail?.uris ?? []).map((uri) => uri.uri),
+    folderId: cipher.folder ?? null,
+    favorite: cipher.favorite,
+  });
+  cipherFormId.set(cipher.id);
+  cipherFormDirty.set([]);
+  cipherFormOutcome.set(null);
+  cipherCandidates.set(null);
+  openModal("cipherEdit");
+}
+
+/** Submits the create/edit form through the daemon. */
+export function submitCipherForm(input: CipherMutationInput, id: string | null): void {
+  isSubmitting.set(true);
+  notify(id ? "Saving item…" : "Creating item…", "info");
+  defer(() => {
+    const payload = id === null ? input : editPayload(input, cipherFormDirty());
+    const outcome: CipherMutationOutcomeView = OmawardenBridge.mutateCipher(payload, id);
+    cipherFormOutcome.set(outcome);
+    if (outcome.ok) {
+      notify(outcome.outcome || (id ? "Item saved." : "Item created."), "success");
+      reloadVault();
+      refreshInspector();
+      cipherForm.set(null);
+      cipherFormId.set(null);
+      cipherCandidates.set(null);
+      activeModal.set("none");
+      clearActionFocus();
+    } else {
+      notify(outcome.error ?? "Could not save the item.", "error");
+    }
+    isSubmitting.set(false);
+  });
+}
+
+/** Updates one field of the live cipher form draft. */
+export function updateCipherDraft(fields: Partial<CipherMutationInput>): void {
+  cipherForm.update((current) => (current ? { ...current, ...fields } : current));
+  cipherFormDirty.update((current) => {
+    const next = [...current];
+    for (const key of Object.keys(fields)) {
+      if (!next.includes(key)) {
+        next.push(key);
+      }
+    }
+    return next;
+  });
+}
+
+/**
+ * On an edit, sends the name plus only the fields the user changed, so an
+ * untouched password is left alone instead of being cleared.
+ */
+function editPayload(input: CipherMutationInput, dirty: string[]): CipherMutationInput {
+  const payload: CipherMutationInput = {
+    cipherType: input.cipherType,
+    name: input.name,
+  };
+  const target = payload as unknown as Record<string, unknown>;
+  const source = input as unknown as Record<string, unknown>;
+  for (const key of dirty) {
+    if (key === "name" || key === "cipherType") {
+      continue;
+    }
+    target[key] = source[key];
+  }
+  return payload;
+}
+
+/**
+ * Fills the open cipher form's password with a generated 16-character secret,
+ * the GUI's answer to the CLI's Enter-at-the-prompt generator.
+ */
+export function generateCipherPassword(): void {
+  const secret: GeneratedSecretView = OmawardenBridge.generatePassword({
+    length: 16,
+    uppercase: true,
+    lowercase: true,
+    numbers: true,
+    special: true,
+    avoidAmbiguous: false,
+    minNumbers: 1,
+    minSpecial: 1,
+  });
+  if (!secret.ok || !secret.value) {
+    notify(secret.error ?? "Could not generate a password.", "error");
+    return;
+  }
+  updateCipherDraft({ password: secret.value });
+}
+
+/** Cancels the create/edit form, discarding the draft. */
+export function cancelCipherForm(): void {
+  cipherForm.set(null);
+  cipherFormId.set(null);
+  cipherFormOutcome.set(null);
+  cipherCandidates.set(null);
+  activeModal.set("none");
+  clearActionFocus();
+}
+
+/** Opens the "go to item" resolver, which targets a cipher by name or id. */
+export function openCipherResolve(): void {
+  cipherResolveQuery.set("");
+  cipherResolveError.set(null);
+  cipherCandidates.set(null);
+  openModal("cipherResolve");
+}
+
+/** Updates the resolver's query. */
+export function updateCipherResolveQuery(value: string): void {
+  cipherResolveQuery.set(value);
+  cipherResolveError.set(null);
+}
+
+/**
+ * Selects the row with `id`, clearing the search, category, scope, and folder
+ * when one of them hides it. Returns false when no row has that id.
+ */
+export function selectCipherById(id: string): boolean {
+  const find = () => filteredItems().findIndex((row) => row.id === id);
+  let index = find();
+  if (index < 0) {
+    search.set("");
+    category.set("all");
+    scopeId.set("all");
+    folderId.set(null);
+    query();
+    index = find();
+  }
+  if (index < 0) {
+    return false;
+  }
+  selectCipher(index);
+  return true;
+}
+
+/**
+ * Resolves the typed target and selects it. An exact id or name selects the
+ * item directly; a name that matches several ciphers fills the candidate menu
+ * instead, so the wrong item is never picked by accident.
+ */
+export function submitCipherResolve(): void {
+  const target = cipherResolveQuery().trim();
+  if (!target) {
+    cipherResolveError.set("Enter an item name or id.");
+    return;
+  }
+  const resolved = OmawardenBridge.resolveCipherTarget(target);
+  if (resolved.ok && resolved.item) {
+    if (selectCipherById(resolved.item.id)) {
+      cipherCandidates.set(null);
+      activeModal.set("none");
+      clearActionFocus();
+      return;
+    }
+    cipherResolveError.set(`Cipher '${target}' is not in the current vault.`);
+    return;
+  }
+  if (resolved.candidates.length > 0) {
+    cipherCandidates.set(resolved.candidates);
+    cipherResolveError.set(resolved.error ?? "More than one item matched.");
+    return;
+  }
+  cipherCandidates.set(null);
+  cipherResolveError.set(resolved.error ?? `Cipher '${target}' not found.`);
+}
+
+/** Picks one candidate from the disambiguation menu and selects its row. */
+export function pickCipherCandidate(candidate: CipherTargetCandidateView): void {
+  if (!selectCipherById(candidate.id)) {
+    cipherResolveError.set(`Cipher '${candidate.name}' is not in the current vault.`);
+    return;
+  }
+  cipherCandidates.set(null);
+  cipherResolveError.set(null);
+  activeModal.set("none");
+  clearActionFocus();
+}
+
+/** Confirms a delete of the selected cipher. */
+export function confirmDeleteCipher(permanent: boolean): void {
+  const cipher = editableCipher();
+  if (!cipher) {
+    return;
+  }
+  const outcome: CipherMutationOutcomeView = OmawardenBridge.deleteCipher(cipher.id, permanent);
+  if (outcome.ok) {
+    notify(
+      outcome.outcome || (permanent ? "Item deleted." : "Item deleted; pending sync."),
+      "success",
+    );
+    inspector.set(null);
+    selectedIndex.set(0);
+    reloadVault();
+    activeModal.set("none");
+    clearActionFocus();
+  } else {
+    notify(outcome.error ?? "Could not delete the item.", "error");
+  }
+}
+
+/** Opens the delete confirmation dialog for the selected cipher. */
+export function openCipherDelete(permanent: boolean): void {
+  if (!editableCipher()) {
+    return;
+  }
+  cipherDeletePermanent.set(permanent);
+  openModal("cipherDelete");
 }

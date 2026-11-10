@@ -35,6 +35,8 @@ export type IconName =
   | "star"
   | "circle"
   | "upload"
+  | "pencil"
+  | "trash"
   | "chevron-down"
   | "chevron-right";
 
@@ -241,6 +243,17 @@ const glyphs: Record<IconName, Draw> = {
   },
   "chevron-down": (c) => line(c, [5, 7.5, 10, 12.5, 15, 7.5]),
   "chevron-right": (c) => line(c, [7.5, 5, 12.5, 10, 7.5, 15]),
+  pencil: (c) => {
+    line(c, [3.5, 16.5, 6, 16, 15, 7, 13, 5, 4, 14, 3.5, 16.5]);
+    line(c, [11.5, 6.5, 13.5, 8.5]);
+  },
+  trash: (c) => {
+    line(c, [4, 6, 16, 6]);
+    line(c, [6, 6, 6, 16.5, 7.5, 17, 12.5, 17, 14, 16.5, 14, 6]);
+    line(c, [8, 6, 8, 4, 12, 4, 12, 6]);
+    line(c, [8.5, 9, 8.5, 14]);
+    line(c, [11.5, 9, 11.5, 14]);
+  },
 };
 
 export interface IconProps {
