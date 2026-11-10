@@ -135,23 +135,25 @@ fn prepare(input: &SshKeySaveInput) -> Result<SshKeyPreviewView, SshKeySaveOutco
 }
 
 /// Probes the daemon for the vault's unlocked state without spawning
-/// anything. The ping reply carries `unlocked`; the status reply carries
-/// `is_unlocked`. Either field is authoritative, so read both.
-fn daemon_unlocked() -> bool {
+/// anything. Returns `None` when the daemon does not answer, so the caller
+/// can distinguish "vault is locked" from "the daemon is not running".
+///
+/// The ping reply carries `unlocked`; the status reply carries `is_unlocked`.
+/// Either field is authoritative, so read both.
+fn daemon_unlocked() -> Option<bool> {
     let ping = daemon(json!({ "action": "ping", "touch": false }));
     if let Some(unlocked) = ping
         .as_ref()
         .and_then(|value| value.get("unlocked"))
         .and_then(|value| value.as_bool())
     {
-        return unlocked;
+        return Some(unlocked);
     }
     let status = daemon(json!({ "action": "status", "touch": false }));
     status
         .as_ref()
         .and_then(|value| value.get("is_unlocked"))
         .and_then(|value| value.as_bool())
-        .unwrap_or(false)
 }
 
 /// Writes the key to the vault or to `~/.ssh`.
@@ -215,15 +217,28 @@ fn real_save_ssh_key(input: SshKeySaveInput) -> SshKeySaveOutcomeView {
     // The daemon only accepts `ssh_key_create_v2`; the legacy action is
     // rejected with "Update the CLI to create SSH keys safely." It also
     // refuses the write when the vault is locked, so probe first instead of
-    // sending a request the daemon will throw away.
-    if !daemon_unlocked() {
-        return SshKeySaveOutcomeView {
-            ok: false,
-            message: "Could not save the SSH key.".to_string(),
-            path: None,
-            item_id: None,
-            error: Some("Unlock the vault before saving an SSH key.".to_string()),
-        };
+    // sending a request the daemon will throw away. A probe that gets no
+    // answer at all is a missing daemon, not a locked vault, and must say so.
+    match daemon_unlocked() {
+        Some(true) => {}
+        Some(false) => {
+            return SshKeySaveOutcomeView {
+                ok: false,
+                message: "Could not save the SSH key.".to_string(),
+                path: None,
+                item_id: None,
+                error: Some("Unlock the vault before saving an SSH key.".to_string()),
+            };
+        }
+        None => {
+            return SshKeySaveOutcomeView {
+                ok: false,
+                message: "Could not save the SSH key.".to_string(),
+                path: None,
+                item_id: None,
+                error: Some("The Omawarden daemon is not running.".to_string()),
+            };
+        }
     }
     let response = daemon(json!({
         "action": "ssh_key_create_v2",
@@ -409,6 +424,21 @@ mod tests {
         assert_eq!(
             outcome.error.as_deref(),
             Some("Unlock the vault before saving an SSH key.")
+        );
+    }
+
+    /// Ticket 3: when the daemon answers neither probe, the outcome must say
+    /// the daemon is missing rather than blaming a locked vault.
+    #[test]
+    fn real_save_ssh_key_reports_missing_daemon() {
+        let _seam = test_seam::set(|_action: Value| None);
+
+        let outcome = real_save_ssh_key(vault_save_input());
+
+        assert!(!outcome.ok);
+        assert_eq!(
+            outcome.error.as_deref(),
+            Some("The Omawarden daemon is not running.")
         );
     }
 
