@@ -35,6 +35,7 @@ export function SshKeyModal() {
   const switchMode = (next: SshKeyMode) => {
     store.sshKeyMode.set(next);
     store.sshPreview.set(null);
+    store.sshSaveError.set(null);
     revealPrivate.set(false);
     if (next === "export" && sshItem()) {
       algorithm.set(sshItem()!.keyType.toLowerCase());
@@ -247,6 +248,21 @@ export function SshKeyModal() {
           </View>
         </Panel>
       )}
+
+      {store.sshSaveError() ? (
+        <View
+          testID="ssh-save-error"
+          style={{
+            backgroundColor: tint(palette().danger, palette().popups.background, 0.12),
+            borderRadius: 8,
+            padding: 10,
+          }}
+        >
+          <Text style={{ color: palette().danger, fontSize: store.type().base }}>
+            {store.sshSaveError()}
+          </Text>
+        </View>
+      ) : null}
 
       {preview() ? (
         <Panel testID="ssh-key-preview">

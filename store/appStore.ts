@@ -137,6 +137,8 @@ export const settings = signal<SettingsSnapshotView | null>(null);
 export const settingsDraft = signal<SettingsUpdateInput>({});
 export const updateStatus = signal<UpdateStatusView | null>(null);
 export const sshPreview = signal<SshKeyPreviewView | null>(null);
+/** The daemon's reason for a failed SSH save, shown inside the modal. */
+export const sshSaveError = signal<string | null>(null);
 export const generatedSecret = signal<GeneratedSecretView | null>(null);
 export const health = signal<HealthSnapshotView | null>(null);
 export const attachmentPreview = signal<{
@@ -1422,14 +1424,21 @@ export function previewSshKey(
 }
 
 export function saveSshKey(input: SshKeySaveInput): void {
+  sshSaveError.set(null);
   notify("Saving SSH key…", "info");
   defer(() => {
     const outcome = OmawardenBridge.saveSshKey(input, currentFilter());
     notify(outcome.message, outcome.ok ? "success" : "error");
     if (outcome.ok) {
+      sshSaveError.set(null);
       sshPreview.set(null);
       activeModal.set("none");
       clearActionFocus();
+    } else {
+      // The daemon's reason (a locked vault, a server without
+      // `ssh-key-vault-item`, a rejected key) is more useful than the generic
+      // "Could not save the SSH key." toast, so the modal carries it too.
+      sshSaveError.set(outcome.error ?? outcome.message);
     }
   });
 }
@@ -1563,6 +1572,7 @@ export function openSettings(): void {
 export function openSshKey(mode: SshKeyMode): void {
   sshKeyMode.set(mode);
   sshPreview.set(null);
+  sshSaveError.set(null);
   openModal("sshKey");
 }
 

@@ -22,12 +22,18 @@ Send `ssh_key_create_v2` instead of `ssh_key_create`, carrying the same payload 
 - The Rust bridge's SSH save path sends the daemon action `ssh_key_create_v2` with the existing payload fields (name, private_key, public_key, fingerprint, notes, touch).
 - The daemon reply shape stays the same: ok, message, item_id, error. The new action returns a receipt with `id` and `revisionDate` on success.
 - Save to vault is only offered when the daemon reports the vault unlocked; the UI already gates on `saveToVault`.
+- A failed save shows the daemon's own reason inside the modal, not just the
+  generic "Could not save the SSH key." toast. That keeps an actionable message
+  such as a server without `ssh-key-vault-item` visible even when the upstream
+  gating lives behind the daemon.
 - The export-to-~/.ssh path is unchanged.
 
 ## Testing Decisions
 
 - Unit test the bridge's SSH save path against a daemon stub that rejects `ssh_key_create` and accepts `ssh_key_create_v2`.
 - Headless UI test: create a key, save to vault, reopen the inspector, reveal the private key, assert it is non-empty and matches the preview.
+- Headless UI test: a rejected save leaves the modal open with the daemon's
+  reason in `ssh-save-error`, and switching modes clears it.
 
 ## Out of Scope
 

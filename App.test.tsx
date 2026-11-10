@@ -1527,11 +1527,14 @@ test("SSH key modal rejects an invalid imported key and blocks empty export", as
   await app.press("id:ssh-save");
   expect(app.shows("id:ssh-key-modal")).toBe(true);
   expect(app.texts()).toContain("Could not prepare the SSH key.");
+  expect(app.shows("id:ssh-save-error")).toBe(true);
+  expect(app.texts().join("\n")).toContain("Unable to parse OpenSSH private key");
 
   await app.press("id:ssh-mode-export");
   expect(app.shows("id:ssh-export-panel")).toBe(true);
   expect(app.shows("id:ssh-export-empty")).toBe(true);
   expect(app.enabled("id:ssh-export-save")).toBe(false);
+  expect(app.shows("id:ssh-save-error")).toBe(false);
 });
 
 test("SSH key modal imports a key file and picks an export directory", async () => {
