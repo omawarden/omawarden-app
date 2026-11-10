@@ -89,6 +89,21 @@ OUT=dist mise run package
 The app icon is declared in `nsh.json` (`"icon": "assets/icon.png"`), so packaging uses
 `assets/icon.png` by default; `--icon` overrides it for a one-off package.
 
+### Before pushing
+
+[`scripts/check_ci.sh`](scripts/check_ci.sh) runs every check from
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) locally, in the same order:
+version consistency, the privacy check, the AUR PKGBUILD check,
+`cargo fmt --all --check`, `nsh check`, then `nsh test`.
+
+```sh
+./scripts/check_ci.sh
+```
+
+It uses the `[patch]` in `.cargo/config.toml`, so it builds against the sibling
+`omawarden` checkout rather than the git dependency CI resolves. A green run
+means the push should pass CI.
+
 ### GPUI preview
 
 NSH 0.4.0 packages Linux with GTK 4 only. GPUI is a development and embedding
