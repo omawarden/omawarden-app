@@ -337,9 +337,10 @@ fn map_ssh_save_response(response: Option<Value>) -> SshKeySaveOutcomeView {
 
 /// Reports the outcome the UI tests assert on, without touching disk or vault.
 fn mock_save_ssh_key(input: SshKeySaveInput) -> SshKeySaveOutcomeView {
-    if let Err(outcome) = prepare(&input) {
-        return outcome;
-    }
+    let preview = match prepare(&input) {
+        Ok(preview) => preview,
+        Err(outcome) => return outcome,
+    };
     let filename = if input.filename.trim().is_empty() {
         "id_ed25519".to_string()
     } else {
@@ -351,25 +352,49 @@ fn mock_save_ssh_key(input: SshKeySaveInput) -> SshKeySaveOutcomeView {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("~/.ssh");
-    return SshKeySaveOutcomeView {
-        ok: true,
-        message: if input.export_to_ssh {
-            format!("Exported to {export_dir}/{filename}")
-        } else {
-            "Saved SSH key to the vault.".to_string()
-        },
-        path: if input.export_to_ssh {
-            Some(format!("{export_dir}/{filename}"))
-        } else {
-            None
-        },
-        item_id: if input.save_to_vault {
-            Some("mock-ssh-item".to_string())
-        } else {
-            None
-        },
-        error: None,
+    if input.export_to_ssh || !input.save_to_vault {
+        return SshKeySaveOutcomeView {
+            ok: true,
+            message: if input.export_to_ssh {
+                format!("Exported to {export_dir}/{filename}")
+            } else {
+                "Saved SSH key to the vault.".to_string()
+            },
+            path: if input.export_to_ssh {
+                Some(format!("{export_dir}/{filename}"))
+            } else {
+                None
+            },
+            item_id: None,
+            error: None,
+        };
+    }
+    // A vault save is visible in the list right away, so the mock has to add
+    // the item it reports saving; otherwise create → save → inspect would only
+    // work when a test pre-seeded the item.
+    let item_id = "mock-ssh-item".to_string();
+    let title = if input.name.trim().is_empty() {
+        input.comment.trim().to_string()
+    } else {
+        input.name.trim().to_string()
     };
+    crate::with_mock(|state| {
+        state.push_ssh_item(
+            &item_id,
+            &title,
+            &preview.algorithm,
+            &preview.fingerprint,
+            &preview.public_key,
+            &preview.private_key,
+        );
+    });
+    SshKeySaveOutcomeView {
+        ok: true,
+        message: "Saved SSH key to the vault.".to_string(),
+        path: None,
+        item_id: Some(item_id),
+        error: None,
+    }
 }
 
 /// Parses an SSH algorithm name.

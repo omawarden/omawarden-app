@@ -125,19 +125,6 @@ const IMPORTED_SSH_KEY_PEM =
   "/8aRB6y9wTGD9D1Thq+kAAAADm9tYXdhcmRlbi10ZXN0AQIDBAUGBw==\n" +
   "-----END OPENSSH PRIVATE KEY-----";
 
-const SAVED_SSH_ITEM: Record<string, unknown> = {
-  id: "ssh1",
-  title: "Imported Work Key",
-  category: "sshKey",
-  ssh: {
-    keyType: "ED25519",
-    fingerprint: "SHA256:LIissAvesxtwZfWiChMKqTskkdcAsgUAq0Yr1WdMBC8",
-    publicKey:
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINHthy4miuXjPQaO+UJEcWNp/8aRB6y9wTGD9D1Thq+k omawarden-test",
-    privateKey: IMPORTED_SSH_KEY_PEM,
-  },
-};
-
 const VAULT_ITEMS: Array<Record<string, unknown>> = [
   LOGIN_ITEM,
   MAIL_ITEM,
@@ -1762,9 +1749,9 @@ test("footer shows shortcut hints, theme, and engine version", async () => {
 // reopen its inspector, reveal the private key, and assert the revealed
 // private key is non-empty and matches the preview's private key.
 test("SSH key saves to the vault and its inspector reveals the saved private key", async () => {
-  // The mock save path returns a receipt but does not itself add the saved item
-  // to the seeded vault, so the post-save inspector reopen seeds that item.
-  const app = await openMock({ phase: "unlocked", items: [SAVED_SSH_ITEM] });
+  // Start with an empty SSH key category so the row can only come from the
+  // save path itself.
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
   await app.press("id:category-sshKey");
   await app.press("id:open-ssh-key");
@@ -1794,9 +1781,10 @@ test("SSH key saves to the vault and its inspector reveals the saved private key
   expect(app.shows("id:ssh-key-modal")).toBe(false);
   expect(app.texts()).toContain("Saved SSH key to the vault.");
 
-  // The saved key shows up in the SSH key category and opens its inspector.
+  // The saved key shows up in the SSH key category without another query and
+  // opens its inspector.
   expect(app.shows("id:category-sshKey")).toBe(true);
-  await app.press("id:cipher-row-ssh1");
+  await app.press("id:cipher-row-mock-ssh-item");
   expect(app.shows("id:inspector-ssh")).toBe(true);
 
   // Reveal the private key and assert it is non-empty and matches the preview.

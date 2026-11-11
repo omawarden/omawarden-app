@@ -546,6 +546,34 @@ impl MockItem {
 }
 
 impl MockState {
+    /// Adds a type-5 SSH item to the seeded vault, the way a real save does.
+    ///
+    /// The headless tests drive create/import → save → inspect, so the saved
+    /// item has to be readable back out of the mock vault; without this the
+    /// tests would have to seed the item themselves and the save path's effect
+    /// on the list would go untested.
+    pub(crate) fn push_ssh_item(
+        &mut self,
+        id: &str,
+        title: &str,
+        key_type: &str,
+        fingerprint: &str,
+        public_key: &str,
+        private_key: &str,
+    ) {
+        let mut item = MockItem::default();
+        item.id = id.to_string();
+        item.title = title.to_string();
+        item.category = ItemCategory::SshKey;
+        item.ssh = Some(MockSsh {
+            key_type: key_type.to_string(),
+            fingerprint: fingerprint.to_string(),
+            public_key: public_key.to_string(),
+            private_key: private_key.to_string(),
+        });
+        self.items.push(item);
+    }
+
     /// The current snapshot.
     fn snapshot(&self) -> VaultSnapshotView {
         projection::build_snapshot(

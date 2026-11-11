@@ -1434,6 +1434,11 @@ export function saveSshKey(input: SshKeySaveInput): void {
       sshPreview.set(null);
       activeModal.set("none");
       clearActionFocus();
+      // A vault save adds a row; an export only writes to disk. Without this
+      // the new key is missing from the SSH keys category until the next query.
+      if (!outcome.path) {
+        reloadVault();
+      }
     } else {
       // The daemon's reason (a locked vault, a server without
       // `ssh-key-vault-item`, a rejected key) is more useful than the generic
