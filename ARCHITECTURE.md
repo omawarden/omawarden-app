@@ -199,12 +199,14 @@ pub mod native {
    - Passphrase generator word count MUST be strictly validated in `3..=20`. Values outside this range must return `"Passphrase word count must be between 3 and 20 words."` and NEVER be silently clamped.
 2. **No Plaintext Secret Leakage**:
    - Clipboard copies of passwords, TOTPs, CVVs, private keys, and hidden custom fields MUST pass `sensitive = true` (`wl-copy --sensitive` + Clipboard Guard auto-clear after `clipboard_clear_seconds`).
-   - Diagnostic logs and server URLs in Diagnose tab must redact tokens, passwords, and private IPs (`sanitize_log` / `sanitize_server_url`).
+   - Diagnostic logs and server URLs in Diagnose tab must redact tokens, passwords, private IPs, **absolute paths, and local filenames** (`sanitize_log` / `sanitize_server_url`).
 3. **Strict URL Scheme Validation**:
    - `launch_url` must parse with `url::Url::parse` and only allow `http` or `https` schemes.
    - `server_url` / `identity_url` only allow `http://` on loopback (`localhost`, `127.0.0.1`, `[::1]`); remote hosts require `https://`.
 4. **Idle Auto-Lock Integrity**:
    - `poll_daemon_tick` MUST query the daemon with `"touch": false` so background polling never resets the idle inactivity timer.
+
+**Known Deviation (Resolved)**: `src/attachments.rs:379` previously pushed an absolute download path into the in-memory log ring. The line was changed to log only `"attachment saved"` and the destination path is no longer recorded. The logging boundary invariant (no absolute paths / local filenames in log lines) now holds without exception.
 
 ---
 

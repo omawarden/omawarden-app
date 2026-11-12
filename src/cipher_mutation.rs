@@ -10,6 +10,7 @@
 use serde_json::{Value, json};
 
 use crate::MockItem;
+use crate::diagnostics::{LogLevel, push_log};
 use crate::types::{
     CipherMutationInput, CipherMutationOutcomeView, CipherTargetCandidateView,
     CipherTargetResolvedView,
@@ -194,7 +195,29 @@ fn real_mutate(input: CipherMutationInput, id: Option<String>) -> CipherMutation
         }
     };
     let response = crate::daemon(payload);
-    map_mutation_response(response, id.as_deref())
+    let outcome = map_mutation_response(response, id.as_deref());
+    log_rejection(&outcome);
+    outcome
+}
+
+/// Records a rejected cipher write (HTTP 422, a locked vault, an offline
+/// daemon) as an `error` Log Pipeline event. The error text is sanitized by
+/// `push_log`, so a server response can never carry vault content into the
+/// Diagnostic Report.
+fn log_rejection(outcome: &CipherMutationOutcomeView) {
+    if outcome.ok {
+        return;
+    }
+    let reason = outcome
+        .error
+        .as_deref()
+        .filter(|text| !text.is_empty())
+        .unwrap_or(outcome.outcome.as_str());
+    push_log(
+        LogLevel::Error,
+        "app:vault",
+        &format!("cipher write rejected: {reason}"),
+    );
 }
 
 /// Dispatches a delete through the shared daemon.
@@ -205,7 +228,9 @@ fn real_delete(id: String, permanent: bool) -> CipherMutationOutcomeView {
         "permanent": permanent,
     });
     let response = crate::daemon(payload);
-    map_mutation_response(response, Some(id.as_str()))
+    let outcome = map_mutation_response(response, Some(id.as_str()));
+    log_rejection(&outcome);
+    outcome
 }
 
 /// Resolves a target by name or id through the daemon's `cipher_resolve`.

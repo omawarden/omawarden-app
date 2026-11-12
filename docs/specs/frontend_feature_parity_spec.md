@@ -17,6 +17,8 @@ All implementations must adhere to the project's architecture:
 
 The implementation is broken down into **three vertical phases (P0, P1, P2)** in strict execution order.
 
+**Parity Definition**: "100% functional, UX, and security parity" means the app behaves identically to the user, enforces the same security invariants, and surfaces the same actionable diagnostics — not that it captures the daemon's stderr logs. The plugin's dual-channel logging (CLI stderr + QML `StdioCollector`) is not replicated; the app's `Log Pipeline` / `Log Viewer` / `Diagnostic Report` (GLOSSARY, ADR 0001) are the in-process equivalents.
+
 ---
 
 ## 2. Phase P0: Core Reactive State & Form Lifecycles (Highest Priority)
@@ -169,14 +171,16 @@ The implementation is broken down into **three vertical phases (P0, P1, P2)** in
      - Upon valid password confirmation, grant access for the current inspection session.
 
 ### Ticket P2-4: Real Diagnostics & GitHub Releases Integration
-**User Story**: Checking updates should query the real GitHub Releases API, and diagnostics reports should include real system RSS memory and stderr ring-buffer logs.
+**User Story**: Checking updates should query the real GitHub Releases API, and diagnostics reports should include real system RSS memory and the app's in-memory log ring.
 
 **Technical Requirements**:
 1. In `src/lib.rs`:
    - `check_updates`: Query `https://api.github.com/repos/omawarden/omawarden-app/releases/latest` (or `omarchy-bitwarden`), compare version tags, return real update info.
-   - `diagnostics`: Populate `git_commit` and `build_date` from compile-time envs (`env!("GIT_HASH")`), query current process RSS memory from `/proc/self/statm`, and include recent daemon stderr log lines.
+   - `diagnostics`: Populate `git_commit` and `build_date` from compile-time envs (`env!("GIT_HASH")`), query current process RSS memory from `/proc/self/statm`, and include the **app's own** sanitized log ring (not daemon stderr).
 2. In `components/ReleaseNotesModal.tsx` & `components/SettingsModal.tsx`:
    - Display real version comparison and changelog link.
+
+**Parity Note**: The plugin's diagnostics captured daemon stderr via `StdioCollector` at 17 subprocess call sites. The app does not spawn the daemon and does not capture its stderr (ADR 0001). This ticket is intentionally narrowed to the app-process ring. Parity is defined as **behavioral and security-invariant parity** (the user can trigger a sanitized diagnostic report from the UI), not log-capture implementation parity.
 
 ---
 

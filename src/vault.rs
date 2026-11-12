@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 use crate::auth::auth_manager;
 use crate::daemon::parse_prompt;
-use crate::diagnostics::push_log;
+use crate::diagnostics::{LogLevel, push_log};
 use crate::projection::{build_snapshot, parse_items, row_from_item};
 use crate::{
     AppPhase, CipherRowView, MockState, VaultFilterInput, VaultSnapshotView, daemon,
@@ -65,7 +65,7 @@ fn real_query(filter: VaultFilterInput) -> VaultSnapshotView {
 
 /// Syncs through the daemon and keeps the cached view when it fails.
 fn real_sync(filter: VaultFilterInput) -> VaultSnapshotView {
-    push_log("vault sync requested");
+    push_log(LogLevel::Info, "app:vault", "vault sync requested");
     let start_error = ensure_app_daemon_running().err();
     let response = daemon(json!({ "action": "sync", "touch": true }));
     let failure = match response {
@@ -85,9 +85,15 @@ fn real_sync(filter: VaultFilterInput) -> VaultSnapshotView {
     };
     let Some(error) = failure else {
         // Only replace the cache once the daemon reports a successful sync.
+        push_log(LogLevel::Info, "app:vault", "vault sync completed");
         return real_snapshot(filter);
     };
     // Keep the unlocked view and surface the failure instead of locking.
+    push_log(
+        LogLevel::Error,
+        "app:vault",
+        &format!("vault sync failed: {error}"),
+    );
     if let Some(snapshot) = cached_snapshot(&filter, Some(error.clone())) {
         return snapshot;
     }
@@ -107,10 +113,19 @@ fn mock_query(state: &mut MockState, filter: VaultFilterInput) -> VaultSnapshotV
 fn mock_sync(state: &mut MockState, filter: VaultFilterInput) -> VaultSnapshotView {
     state.filter = filter;
     match state.sync_error.clone() {
-        Some(error) => state.error = Some(error),
+        Some(error) => {
+            state.error = Some(error.clone());
+            state.record_log(
+                LogLevel::Error,
+                "app:vault",
+                &format!("vault sync failed: {error}"),
+            );
+        }
         None => {
             state.last_sync = Some(chrono::Local::now().format("%Y-%m-%d %H:%M").to_string());
             state.error = None;
+            state.record_log(LogLevel::Info, "app:vault", "vault sync requested");
+            state.record_log(LogLevel::Info, "app:vault", "vault sync completed");
         }
     }
     state.snapshot()

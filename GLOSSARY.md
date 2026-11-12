@@ -167,3 +167,31 @@ The complete distribution package produced by `nsh package --target linux` and
 augmented with the Polkit authorization policy (`.policy`), install scriptlet,
 desktop entry, and application icon. Distributable via GitHub Releases and
 packaged for Arch Linux as `omawarden-app-git-bin`.
+
+## Log Pipeline
+
+The in-process event source that feeds the `Log Viewer`. It records
+state transitions and failures only — authentication success/failure,
+unlock/lock, vault sync start/end, cipher write rejections — not per-action
+INFO events. Levels are `error`, `warn`, `info` (no `debug` or `trace`).
+Entries are sanitized by the engine's `sanitize_log_message` before entering
+the bounded in-memory ring. The pipeline does **not** receive the daemon's
+structured stderr; that boundary is recorded in ADR 0001.
+
+## Log Viewer
+
+The bounded, in-memory log ring displayed in the Diagnose tab. It holds a
+fixed number of recent entries (implementation detail), each carrying a
+timestamp, a level badge, the sanitized source prefix, and the message.
+The viewer supports live filtering by level. It is not persisted to disk,
+not streamed to journald, and not sent over the network. A `Refresh` action
+re-reads the ring; `Copy Diagnostic Report` includes its current contents.
+
+## Diagnostic Report
+
+A user-triggered, one-shot snapshot copied to the clipboard. It contains:
+app version, engine version, git commit, build date, sanitized server URL,
+health check results, process RSS, and the current `Log Viewer` contents.
+It **explicitly excludes** the daemon's stderr logs and any absolute paths
+or local filenames. The report header states the collection scope so a
+GitHub issue reader knows what is and is not included.

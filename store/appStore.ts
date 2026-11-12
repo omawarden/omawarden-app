@@ -47,6 +47,7 @@ import {
 } from "../theme/palette";
 import { scaleType, type TypeScale } from "../theme/typeScale";
 import { clearAuthSecrets, clearTwoFactorCodes, serverPanelOpen } from "./authForm";
+import { buildDiagnosticReport } from "./diagnosticReport";
 
 export type ModalKind =
   | "none"
@@ -1495,11 +1496,11 @@ export function saveSettings(): void {
 
 export function refreshHealth(): void {
   const next = OmawardenBridge.refreshHealth();
+  // Re-read the whole snapshot so the Log Viewer picks up Log Pipeline events
+  // emitted since Settings was opened, without a close/reopen round trip.
+  const current = OmawardenBridge.getSettings();
   health.set(next);
-  const current = settings();
-  if (current) {
-    settings.set({ ...current, health: next });
-  }
+  settings.set({ ...current, health: next });
 }
 
 export function checkUpdates(force: boolean): void {
@@ -1521,13 +1522,13 @@ export function copyDiagnosticReport(): void {
   if (!current) {
     return;
   }
-  const lines = [
-    `Omawarden ${current.diagnostics.appVersion}`,
-    `Engine ${current.diagnostics.engineVersion}`,
-    `Server ${current.diagnostics.serverUrlSanitized}`,
-    ...current.diagnostics.logs,
-  ];
-  copyText(lines.join("\n"), "diagnostic report", false);
+  const snapshot = health();
+  const report = buildDiagnosticReport({
+    diagnostics: current.diagnostics,
+    health: { checks: snapshot?.checks ?? [] },
+    generatedAt: new Date().toISOString(),
+  });
+  copyText(report, "diagnostic report", false);
 }
 
 // ---------------------------------------------------------------------------

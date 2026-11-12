@@ -169,13 +169,7 @@ fn real_settings() -> SettingsSnapshotView {
         health,
         diagnostics: DiagnosticsView {
             server_url_sanitized: sanitize_server_url(&config.server_url),
-            logs: {
-                let mut logs = recent_logs();
-                if logs.is_empty() {
-                    logs.push("[app] omawarden diagnostics ready".to_string());
-                }
-                logs
-            },
+            logs: recent_logs(),
             app_version: env!("CARGO_PKG_VERSION").to_string(),
             engine_version,
             git_commit: option_env!("GIT_HASH").unwrap_or("unknown").to_string(),
@@ -252,10 +246,7 @@ fn mock_snapshot(state: &MockState) -> SettingsSnapshotView {
         health: crate::diagnostics::mock_health(&settings.server_url),
         diagnostics: DiagnosticsView {
             server_url_sanitized: sanitize_server_url(&settings.server_url),
-            logs: vec![
-                "[info] omawarden: mock mode is active".to_string(),
-                "[info] omawarden: daemon socket untouched".to_string(),
-            ],
+            logs: state.logs.clone(),
             app_version: env!("CARGO_PKG_VERSION").to_string(),
             engine_version: env!("CARGO_PKG_VERSION").to_string(),
             git_commit: "mock".to_string(),

@@ -279,6 +279,25 @@ pub(crate) struct MockState {
     filter: VaultFilterInput,
     selected_cipher_id: Option<String>,
     master_password: String,
+    /// The mock Log Viewer ring, fed by the same Log Pipeline events as the
+    /// real in-process ring so headless tests exercise the whole path.
+    logs: Vec<String>,
+}
+
+impl MockState {
+    /// Records a Log Pipeline line in the mock Log Viewer ring.
+    pub(crate) fn record_log(
+        &mut self,
+        level: crate::diagnostics::LogLevel,
+        source: &str,
+        message: &str,
+    ) {
+        self.logs
+            .push(crate::diagnostics::format_log_line(level, source, message));
+        while self.logs.len() > crate::diagnostics::LOG_RING_CAPACITY {
+            self.logs.remove(0);
+        }
+    }
 }
 
 impl Default for VaultFilterInput {
@@ -318,6 +337,7 @@ impl Default for MockState {
             filter: VaultFilterInput::default(),
             selected_cipher_id: None,
             master_password: "correct horse battery staple".to_string(),
+            logs: Vec::new(),
         }
     }
 }
@@ -638,6 +658,12 @@ fn configure_mock_from_json(state: &mut MockState, value: &Value) {
     state.last_sync = json_string(value, "lastSync").or(state.last_sync.clone());
     state.error = json_string(value, "error");
     state.sync_error = json_string(value, "syncError");
+    if let Some(logs) = value.get("logs").and_then(|v| v.as_array()) {
+        state.logs = logs
+            .iter()
+            .filter_map(|entry| entry.as_str().map(str::to_string))
+            .collect();
+    }
     if let Some(missing) = value.get("dependenciesMissing").and_then(|v| v.as_array()) {
         state.dependencies_missing = missing
             .iter()
@@ -1899,6 +1925,59 @@ mod tests {
         assert_eq!(
             if code.is_empty() { None } else { Some(code) },
             Some("123456")
+        );
+    }
+
+    #[test]
+    fn log_pipeline_records_state_transitions_and_failures() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "locked",
+            "logs": [],
+        })));
+
+        // An empty master password is a failed authentication state.
+        let failed = OmawardenBridge::authenticate(AuthActionInput {
+            kind: AuthKind::Unlock,
+            email: String::new(),
+            password: String::new(),
+            client_id: String::new(),
+            client_secret: String::new(),
+            code: String::new(),
+            provider: None,
+            remember_email: None,
+            new_device_otp: None,
+        });
+        assert_eq!(failed.phase, AppPhase::Locked);
+
+        OmawardenBridge::authenticate(AuthActionInput {
+            kind: AuthKind::Unlock,
+            email: String::new(),
+            password: "correct horse battery staple".to_string(),
+            client_id: String::new(),
+            client_secret: String::new(),
+            code: String::new(),
+            provider: None,
+            remember_email: None,
+            new_device_otp: None,
+        });
+        OmawardenBridge::lock_or_logout(false);
+
+        let logs = OmawardenBridge::get_settings().diagnostics.logs;
+        assert!(
+            logs.iter()
+                .any(|line| line.contains("[ERROR] [app:auth]") && line.contains("failed")),
+            "no error line for the failed authentication: {logs:?}"
+        );
+        assert!(
+            logs.iter()
+                .any(|line| line.contains("[INFO] [app:auth]") && line.contains("unlocked")),
+            "no info line for the unlock: {logs:?}"
+        );
+        assert!(
+            logs.iter()
+                .any(|line| line.contains("[INFO] [app:auth]") && line.contains("locked")),
+            "no info line for the lock: {logs:?}"
         );
     }
 }

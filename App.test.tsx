@@ -1,5 +1,6 @@
 import { expect, open, test } from "nsh/test";
 import { OmawardenBridge } from "omawarden-app/native";
+import { buildDiagnosticReport, DIAGNOSTIC_SCOPE } from "./store/diagnosticReport";
 
 type MockState = Record<string, unknown>;
 
@@ -1300,6 +1301,242 @@ test("settings modal exposes general, appearance, security, diagnose, and about 
   expect(app.texts()).toContain(
     "You are running the latest version. No newer release notes are available.",
   );
+});
+
+// Log Pipeline lines, in the format the app's `push_log` emits. Mock mode
+// seeds the same Log Viewer ring the real ring feeds.
+const DIAGNOSTIC_LINES = [
+  "[2026-01-01T10:00:00.000Z] [INFO] [app:auth] vault unlocked",
+  "[2026-01-01T10:00:01.000Z] [WARN] [app:diagnostics] update check: the release response had no tag",
+  "[2026-01-01T10:00:02.000Z] [ERROR] [app:vault] cipher write rejected: HTTP 422",
+];
+
+test("diagnose tab filters the log viewer by level", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+    logs: DIAGNOSTIC_LINES,
+  });
+
+  await app.press("id:open-settings");
+  await app.press("id:settings-tab-diagnose");
+
+  expect(app.texts()).toContain("All (3)");
+  expect(app.texts()).toContain("Errors & Warnings (2)");
+  expect(app.texts()).toContain("Info (1)");
+  expect(app.texts()).toContain("vault unlocked");
+  expect(app.texts()).toContain("cipher write rejected: HTTP 422");
+  // Stable testID for the ERROR line: [2026-01-01T10:00:02.000Z] [ERROR] [app:vault] ...
+  expect(app.shows("id:log-level-badge-log-2026-01-01T10-00-02-000Z-ERROR-app:vault")).toBe(true);
+
+  await app.press("id:log-filter-errors");
+  expect(app.texts()).not.toContain("vault unlocked");
+  expect(app.texts()).toContain("update check: the release response had no tag");
+  expect(app.texts()).toContain("cipher write rejected: HTTP 422");
+
+  await app.press("id:log-filter-info");
+  expect(app.texts()).toContain("vault unlocked");
+  expect(app.texts()).not.toContain("update check: the release response had no tag");
+  expect(app.texts()).not.toContain("cipher write rejected: HTTP 422");
+
+  await app.press("id:log-filter-all");
+  expect(app.texts()).toContain("cipher write rejected: HTTP 422");
+});
+
+test("diagnose tab shows an empty state when no logs were recorded", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM], logs: [] });
+
+  await app.press("id:open-settings");
+  await app.press("id:settings-tab-diagnose");
+
+  expect(app.shows("id:log-viewer-empty")).toBe(true);
+  expect(app.texts()).toContain("No logs recorded yet");
+  expect(app.texts()).toContain("All (0)");
+});
+
+test("log viewer badges use distinct semantic colors", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+    logs: DIAGNOSTIC_LINES,
+  });
+
+  await app.press("id:open-settings");
+  await app.press("id:settings-tab-diagnose");
+
+  const info = app.spanStyle("text:INFO").color;
+  const warn = app.spanStyle("text:WARN").color;
+  const error = app.spanStyle("text:ERROR").color;
+  expect(info).not.toBe(warn);
+  expect(warn).not.toBe(error);
+  expect(error).not.toBe(info);
+});
+
+test("refresh health also refreshes the log viewer", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM], logs: [] });
+
+  await app.press("id:open-settings");
+  await app.press("id:settings-tab-diagnose");
+  expect(app.texts()).toContain("No logs recorded yet");
+
+  // A new Log Pipeline event lands in the ring while Settings stays open.
+  OmawardenBridge.configureMockState(
+    JSON.stringify({
+      phase: "unlocked",
+      items: [LOGIN_ITEM],
+      logs: ["[2026-01-01T11:00:00.000Z] [INFO] [app:vault] vault sync completed"],
+    }),
+  );
+  await app.press("id:refresh-health");
+
+  expect(app.texts()).toContain("vault sync completed");
+  expect(app.texts()).toContain("All (1)");
+  expect(app.texts()).not.toContain("No logs recorded yet");
+});
+
+test("copy diagnostic report includes the scope declaration and sanitized fields", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+    logs: DIAGNOSTIC_LINES,
+  });
+
+  await app.press("id:open-settings");
+  await app.press("id:settings-tab-diagnose");
+  await app.press("id:copy-diagnostics");
+  expect(app.texts()).toContain("Copied diagnostic report to clipboard.");
+
+  expect(DIAGNOSTIC_SCOPE).toBe(
+    "This report contains the app's in-process diagnostic log ring only. " +
+      "The shared daemon's structured stderr logs are not collected.",
+  );
+
+  const report = buildDiagnosticReport({
+    diagnostics: {
+      serverUrlSanitized: "https://vault.example.com",
+      logs: DIAGNOSTIC_LINES,
+      appVersion: "0.4.0",
+      engineVersion: "0.12.0-dev",
+      gitCommit: "abcdef0",
+      buildDate: "2026-11-13",
+      memoryRssMb: 42.5,
+    },
+    health: {
+      checks: [
+        { name: "Engine Installed", ok: true, detail: "" },
+        { name: "Server Reachable", ok: true, detail: "" },
+        { name: "Secret Service Keyring", ok: true, detail: "" },
+        { name: "Wayland Clipboard", ok: true, detail: "" },
+        { name: "Memory Locked", ok: false, detail: "" },
+      ],
+    },
+    generatedAt: "2026-11-13T12:00:00.000Z",
+  });
+
+  expect(report).toContain("### Omawarden Diagnostic Report");
+  expect(report).toContain("- **Generated At**: 2026-11-13T12:00:00.000Z");
+  expect(report).toContain("- **App Version**: 0.4.0");
+  expect(report).toContain("- **Engine Version**: 0.12.0-dev");
+  expect(report).toContain("- **Git Commit**: abcdef0");
+  expect(report).toContain("- **Build Date**: 2026-11-13");
+  expect(report).toContain("- **Server URL**: https://vault.example.com");
+  expect(report).toContain("- **Memory (RSS)**: 42.5 MiB");
+  expect(report).toContain("Engine Installed: OK");
+  expect(report).toContain("Memory Locked: FAIL");
+  expect(report).toContain(DIAGNOSTIC_SCOPE);
+  expect(report).toContain("#### Recent Logs (3 entries):");
+  expect(report).toContain(DIAGNOSTIC_LINES[2]);
+  expect(report).not.toContain("/home/user/");
+  expect(report).not.toContain("[omawarden:daemon]");
+});
+
+test("diagnostic report excludes daemon log channels", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+    logs: [
+      "[2026-01-01T10:00:00.000Z] [INFO] [app:auth] vault unlocked",
+      "[2026-01-01T10:00:01.000Z] [ERROR] [omawarden:daemon] failed to bind socket",
+    ],
+  });
+
+  await app.press("id:open-settings");
+  await app.press("id:settings-tab-diagnose");
+  await app.press("id:copy-diagnostics");
+  expect(app.texts()).toContain("Copied diagnostic report to clipboard.");
+
+  const report = buildDiagnosticReport({
+    diagnostics: {
+      serverUrlSanitized: "https://vault.example.com",
+      logs: [
+        "[2026-01-01T10:00:00.000Z] [INFO] [app:auth] vault unlocked",
+        "[2026-01-01T10:00:01.000Z] [ERROR] [omawarden:daemon] failed to bind socket",
+      ],
+      appVersion: "0.4.0",
+      engineVersion: "0.12.0-dev",
+      gitCommit: "abcdef0",
+      buildDate: "2026-11-13",
+      memoryRssMb: 42.5,
+    },
+    health: { checks: [] },
+    generatedAt: "2026-11-13T12:00:00.000Z",
+  });
+
+  expect(report).toContain(DIAGNOSTIC_SCOPE);
+  expect(report).toContain("vault unlocked");
+  expect(report).not.toContain("failed to bind socket");
+  expect(report).not.toContain("[omawarden:daemon]");
+  expect(report).toContain("#### Recent Logs (1 entries):");
+});
+
+test("integration: unlock, auth failure, diagnose, filter, and copy report", async () => {
+  // 1. Unlock the vault (mock).
+  const app = await openMock({ phase: "login", items: [LOGIN_ITEM] });
+  await app.type("id:login-email", "user@example.com");
+  await app.type("id:login-password", "correct horse battery staple");
+  await app.press("id:login-submit");
+  expect(app.shows("id:vault-workspace")).toBe(true);
+
+  // 2. Trigger an authentication failure (empty master password), then recover.
+  await app.press("id:lock-vault");
+  expect(app.shows("id:auth-view-locked")).toBe(true);
+  await app.press("id:unlock-submit");
+  expect(app.shows("id:auth-view-locked")).toBe(true);
+  await app.type("id:unlock-password", "correct horse battery staple");
+  await app.press("id:unlock-submit");
+  expect(app.shows("id:vault-workspace")).toBe(true);
+
+  // 3. Open Settings -> Diagnose.
+  await app.press("id:open-settings");
+  await app.press("id:settings-tab-diagnose");
+
+  // 4. Verify the error log line appears with ERROR level and [app:auth] source.
+  expect(app.texts()).toContain("authentication failed: Master password is required.");
+  expect(app.texts()).toContain("[app:auth]");
+  expect(app.texts()).toContain("ERROR");
+
+  // 5. Errors & Warnings -> visible; Info -> hidden.
+  await app.press("id:log-filter-errors");
+  expect(app.texts()).toContain("authentication failed: Master password is required.");
+  await app.press("id:log-filter-info");
+  expect(app.texts()).not.toContain("authentication failed: Master password is required.");
+
+  // 6. Copy the Diagnostic Report.
+  await app.press("id:log-filter-all");
+  await app.press("id:copy-diagnostics");
+  expect(app.texts()).toContain("Copied diagnostic report to clipboard.");
+
+  // 7. Verify the report structure: event emission -> ring -> viewer -> report.
+  const snapshot = OmawardenBridge.getSettings();
+  const report = buildDiagnosticReport({
+    diagnostics: snapshot.diagnostics,
+    health: { checks: [] },
+    generatedAt: "2026-11-13T12:00:00.000Z",
+  });
+  expect(report).toContain("### Omawarden Diagnostic Report");
+  expect(report).toContain(DIAGNOSTIC_SCOPE);
+  expect(report).toContain("authentication failed");
+  expect(report).not.toContain("[omawarden:daemon]");
 });
 
 test("settings scrolls to the lower rows at the minimum window size", async () => {
