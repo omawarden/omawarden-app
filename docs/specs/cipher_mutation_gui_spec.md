@@ -137,14 +137,16 @@ replaces a terminal primitive rather than copying it.
   form the daemon would reject.
 - `Ctrl+E` edits the selected Login or Secure Note and keeps exporting an SSH
   key, which is what the key previously did on its own.
-- Favoriting is a badge toggle in the inspector header and the palette's
-  `Favorite` / `Unfavorite` row; neither goes through the form. `Ctrl+V` runs it
-  from the vault and from the open palette.
+- Favoriting is a star toggle in the inspector header, always visible: filled
+  when the item is a favorite, outlined when it is not, and pressable in both
+  states. The palette offers the same action as its `Favorite` / `Unfavorite`
+  row; neither goes through the form. `Ctrl+B` runs it from the vault and from
+  the open palette, and `Ctrl+V` stays paste in the search fields.
 - Custom fields are read-only. The daemon's create and update drafts carry no
   custom-field slot, so the inspector labels the section read-only instead of
   offering an editor that could not save.
 - Shortcuts: `Ctrl+N` creates a login, `Ctrl+D` opens the delete confirmation,
-  `Ctrl+P` opens the resolver, `Ctrl+V` toggles the favorite.
+  `Ctrl+P` opens the resolver, `Ctrl+B` toggles the favorite.
 
 ## Testing Decisions
 
@@ -161,7 +163,7 @@ replaces a terminal primitive rather than copying it.
   stores several website URLs, an edit that only replaces the first URL, the
   multi-field edit modal, an edit that renames an item without touching its
   password, the delete confirmation and its permanent warning, the palette rows,
-  `Ctrl+N` / `Ctrl+D` / `Ctrl+V`, the favorite badge toggle, the read-only
+  `Ctrl+N` / `Ctrl+D` / `Ctrl+B`, the favorite star toggle, the read-only
   custom-fields label, the resolver's exact-match, candidate-list, and not-found
   paths, and the category gate that keeps Cards and Identities read-only.
 

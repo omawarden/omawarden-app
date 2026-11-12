@@ -155,33 +155,32 @@ function FieldList(props: { fields: () => FieldSpec[] }) {
 }
 
 /**
- * A badge of the header: the plugin's 3pt rectangle, not a pill. A colored
- * badge tints its own hue; the favorite badge is the plugin's monochrome one,
- * a wash of the foreground with muted text.
+ * A badge of the header: the plugin's 3pt rectangle, not a pill, tinted with
+ * its own hue. The favorite control is no longer a badge: it is the pressable
+ * star toggle beside the name, which shows both states.
  */
-function Badge(props: { label: string; color?: string; icon?: IconName; neutral?: boolean }) {
+function Badge(props: { label: string; color?: string; icon?: IconName }) {
   const palette = store.palette;
-  const wash = () => (props.neutral ? palette().popups.text : (props.color ?? palette().muted));
-  const base = () => (props.neutral ? palette().menu.background : palette().popups.background);
-  const ink = () => (props.neutral ? palette().muted : (props.color ?? palette().muted));
+  const hue = () => props.color ?? palette().muted;
+  const base = () => palette().popups.background;
   return (
     <View
       style={{
         flexDirection: "row",
         alignItems: "center",
         gap: 3,
-        backgroundColor: tint(wash(), base(), props.neutral ? 0.08 : 0.2),
-        borderColor: props.neutral ? palette().popups.border : tint(wash(), base(), 0.5),
+        backgroundColor: tint(hue(), base(), 0.2),
+        borderColor: tint(hue(), base(), 0.5),
         borderWidth: 1,
         borderRadius: 3,
         paddingHorizontal: 4,
         paddingVertical: 1,
       }}
     >
-      {props.icon ? <Icon name={props.icon} size={8} color={ink()} /> : null}
+      {props.icon ? <Icon name={props.icon} size={8} color={hue()} /> : null}
       <Text
         style={{
-          color: ink(),
+          color: hue(),
           fontSize: store.type().xs,
           fontWeight: 500,
           numberOfLines: 1,
@@ -202,6 +201,10 @@ function InspectorHeader(props: { item: () => InspectorView }) {
   const palette = store.palette;
   const iconUrl = () => inspectorIcon(props.item);
   const box = () => scaleLength(24, store.totalScale());
+  // The daemon's favorite write covers logins and secure notes only, so the
+  // star is a toggle for those and a plain state indicator for the rest.
+  const canFavorite = () =>
+    props.item().category === "login" || props.item().category === "secureNote";
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
       <View style={{ width: box(), height: box(), alignItems: "center", justifyContent: "center" }}>
@@ -232,15 +235,18 @@ function InspectorHeader(props: { item: () => InspectorView }) {
           >
             {props.item().title || "Untitled"}
           </Text>
-          <If when={props.item().favorite}>
-            <View
-              style={{ cursor: "pointer" }}
-              onPress={() => store.toggleFavorite()}
-              testID="toggle-favorite"
-            >
-              <Badge label="Favorite" icon="star" neutral />
-            </View>
-          </If>
+          <View
+            testID="toggle-favorite"
+            accessibilityLabel={props.item().favorite ? "Unfavorite" : "Favorite"}
+            style={{ cursor: canFavorite() ? "pointer" : "default", padding: 1 }}
+            onPress={canFavorite() ? () => store.toggleFavorite() : undefined}
+          >
+            <Icon
+              name={props.item().favorite ? "star-filled" : "star"}
+              size={14}
+              color={props.item().favorite ? palette().warning : palette().muted}
+            />
+          </View>
           <If when={props.item().metadata.organization !== ""}>
             <Badge
               label={props.item().metadata.organization}
@@ -784,16 +790,16 @@ function loginFields(item: () => InspectorView): FieldSpec[] {
       value: uri.display || uri.uri,
       actions: [
         {
-          icon: "copy",
-          label: "Copy website URL",
-          testID: `copy-uri-${uri.host}`,
-          onPress: () => store.copyText(uri.uri, "website URL", false),
-        },
-        {
           icon: "external-link",
           label: "Open website",
           testID: `launch-uri-${uri.host}`,
           onPress: () => store.openUrl(uri.uri),
+        },
+        {
+          icon: "copy",
+          label: "Copy website URL",
+          testID: `copy-uri-${uri.host}`,
+          onPress: () => store.copyText(uri.uri, "website URL", false),
         },
       ],
     });

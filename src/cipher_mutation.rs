@@ -823,4 +823,32 @@ mod tests {
     fn candidate_without_id_is_ignored() {
         assert!(candidate_from_value(&json!({"name": "No id"})).is_none());
     }
+
+    /// A favorite toggle is the one mutation the GUI sends with only a name and
+    /// a flag, so it exercises the narrowest update path. Captured here so a
+    /// later change to the payload builder cannot silently drop `favorite`.
+    #[test]
+    fn favorite_toggle_sends_only_name_and_favorite() {
+        let input = CipherMutationInput {
+            cipher_type: "login".to_string(),
+            name: Some("GitHub".to_string()),
+            username: None,
+            password: None,
+            notes: None,
+            uris: None,
+            folder_id: None,
+            favorite: Some(true),
+        };
+        let payload = build_mutation_payload(&input, Some("id-1")).expect("valid");
+        assert_eq!(payload["action"], "cipher_update");
+        assert_eq!(payload["id"], "id-1");
+        assert_eq!(payload["name"], "GitHub");
+        assert_eq!(payload["favorite"], true);
+        assert!(payload.get("username").is_none());
+        assert!(payload.get("password").is_none());
+        assert!(payload.get("uri").is_none());
+        assert!(payload.get("login").is_none());
+        assert!(payload.get("notes").is_none());
+        assert!(payload.get("folder_id").is_none());
+    }
 }

@@ -146,8 +146,8 @@ export function contextActions(): PaletteAction[] {
         ? "Remove from the favorites"
         : "Add to the favorites",
       icon: "star",
-      shortcut: "Ctrl+V",
-      keystroke: "mod+v",
+      shortcut: "Ctrl+B",
+      keystroke: "mod+b",
       run: store.toggleFavorite,
     });
     actions.push({

@@ -197,7 +197,12 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
             {props.item().title}
           </Text>
           <If when={props.item().favorite}>
-            <Icon name="star" size={11} color={palette().warning} />
+            <Icon
+              testID={`cipher-favorite-${props.item().id}`}
+              name="star-filled"
+              size={11}
+              color={palette().warning}
+            />
           </If>
         </View>
         <Text

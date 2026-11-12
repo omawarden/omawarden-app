@@ -1932,24 +1932,48 @@ test("the action palette lists create, edit, and delete", async () => {
   expect(app.shows("id:action-delete-cipher")).toBe(true);
 });
 
-test("Ctrl+V toggles the selected item's favorite", async () => {
+test("Ctrl+B toggles the selected item's favorite", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
   await app.press("id:cipher-row-login1");
-  expect(app.shows("id:toggle-favorite")).toBe(true);
+  expect(app.shows("id:cipher-favorite-login1")).toBe(true);
 
-  await app.keyboard.press("mod+v");
-  expect(app.shows("id:toggle-favorite")).toBe(false);
+  await app.keyboard.press("mod+b");
+  expect(app.shows("id:cipher-favorite-login1")).toBe(false);
 
-  await app.keyboard.press("mod+v");
-  expect(app.shows("id:toggle-favorite")).toBe(true);
+  await app.keyboard.press("mod+b");
+  expect(app.shows("id:cipher-favorite-login1")).toBe(true);
 
   // The palette row carries the same shortcut, so it works while it is open.
   await app.keyboard.press("mod+k");
   expect(app.texts()).toContain("Unfavorite");
-  await app.keyboard.press("mod+v");
+  await app.keyboard.press("mod+b");
   expect(app.shows("id:action-palette-modal")).toBe(false);
-  expect(app.shows("id:toggle-favorite")).toBe(false);
+  expect(app.shows("id:cipher-favorite-login1")).toBe(false);
+});
+
+test("Ctrl+V stays paste in the search and does not toggle the favorite", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  // The vault search holds the keyboard on unlock. Ctrl+V must reach the field
+  // rather than fire the favorite shortcut, which rejected the mutation.
+  await app.type("id:vault-search", "git");
+  await app.keyboard.press("mod+v");
+  expect(app.shows("id:cipher-favorite-login1")).toBe(true);
+});
+
+test("the favorite star toggles from both of its states", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:cipher-row-login1");
+  // Favorited: the star is there and pressing it unfavorites.
+  expect(app.shows("id:toggle-favorite")).toBe(true);
+  await app.press("id:toggle-favorite");
+  expect(app.shows("id:cipher-favorite-login1")).toBe(false);
+  // Unfavorited: the control is still there and pressing it favorites again.
+  expect(app.shows("id:toggle-favorite")).toBe(true);
+  await app.press("id:toggle-favorite");
+  expect(app.shows("id:cipher-favorite-login1")).toBe(true);
 });
 
 test("Ctrl+N opens the create form and Ctrl+D opens delete", async () => {

@@ -304,7 +304,10 @@ effect(() => {
     {
       "mod+enter": () => store.copyField("totp"),
       "ctrl+enter": () => store.copyField("totp"),
-      "mod+v": () => store.toggleFavorite(),
+      // Favorite is Ctrl+B, not Ctrl+V: the latter has to stay paste inside
+      // the search field (and the palette's own search), or the shortcut steals
+      // the key and fires a mutation instead of pasting.
+      "mod+b": () => store.toggleFavorite(),
       up: () => {
         // The palette owns its own key bindings while it is open.
         if (paletteOpen()) {
