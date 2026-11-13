@@ -14,7 +14,7 @@ import {
   type ParsedLogLine,
 } from "../store/diagnosticReport";
 
-type SettingsTab = "general" | "appearance" | "security" | "diagnose" | "about";
+type SettingsTab = "general" | "appearance" | "security" | "diagnose" | "logs" | "about";
 type LogFilter = "all" | "errors" | "info";
 
 const tab = signal<SettingsTab>("general");
@@ -25,6 +25,7 @@ const TABS: Array<{ id: SettingsTab; label: string; testID: string }> = [
   { id: "appearance", label: "Appearance", testID: "settings-tab-appearance" },
   { id: "security", label: "Security", testID: "settings-tab-security" },
   { id: "diagnose", label: "Diagnose", testID: "settings-tab-diagnose" },
+  { id: "logs", label: "Logs", testID: "settings-tab-logs" },
   { id: "about", label: "About", testID: "settings-tab-about" },
 ];
 
@@ -396,10 +397,14 @@ export function SettingsModal() {
                     )}
                   </Each>
                 </Panel>
+              </View>
+            ) : null}
 
+            {tab() === "logs" ? (
+              <View style={{ gap: 12 }}>
                 <Panel testID="settings-diagnostic-logs">
                   <SectionTitle hint="Tokens, passwords, and private addresses are redacted.">
-                    Sanitized Server &amp; Logs
+                    Sanitized Server & Logs
                   </SectionTitle>
                   <Text
                     testID="diagnostic-server-url"
@@ -509,7 +514,6 @@ export function SettingsModal() {
                 </Panel>
               </View>
             ) : null}
-
             {tab() === "about" ? (
               <View style={{ gap: 12 }}>
                 <Panel testID="settings-about">

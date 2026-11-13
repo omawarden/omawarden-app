@@ -1242,7 +1242,7 @@ test("the minimum window gate takes the keyboard out of the vault search", async
 // Settings
 // ---------------------------------------------------------------------------
 
-test("settings modal exposes general, appearance, security, diagnose, and about tabs", async () => {
+test("settings modal exposes general, appearance, security, diagnose, logs, and about tabs", async () => {
   const app = await openMock({
     phase: "unlocked",
     items: [LOGIN_ITEM],
@@ -1280,7 +1280,13 @@ test("settings modal exposes general, appearance, security, diagnose, and about 
   await app.press("id:settings-tab-diagnose");
   expect(app.shows("id:settings-diagnose")).toBe(true);
   expect(app.shows("id:health-check-0")).toBe(true);
-  expect(app.texts()).toContain("https://vault.example.com");
+  // Diagnose tab should NOT show the server URL (that's in Logs tab)
+  expect(app.shows("id:diagnostic-server-url")).toBe(false);
+
+  await app.press("id:settings-tab-logs");
+  expect(app.shows("id:settings-diagnostic-logs")).toBe(true);
+  // Logs tab SHOULD show the server URL
+  expect(app.shows("id:diagnostic-server-url")).toBe(true);
   await app.press("id:refresh-health");
   await app.press("id:copy-diagnostics");
   expect(app.texts()).toContain("Copied diagnostic report to clipboard.");
@@ -1311,7 +1317,7 @@ const DIAGNOSTIC_LINES = [
   "[2026-01-01T10:00:02.000Z] [ERROR] [app:vault] cipher write rejected: HTTP 422",
 ];
 
-test("diagnose tab filters the log viewer by level", async () => {
+test("logs tab filters the log viewer by level", async () => {
   const app = await openMock({
     phase: "unlocked",
     items: [LOGIN_ITEM],
@@ -1319,7 +1325,7 @@ test("diagnose tab filters the log viewer by level", async () => {
   });
 
   await app.press("id:open-settings");
-  await app.press("id:settings-tab-diagnose");
+  await app.press("id:settings-tab-logs");
 
   expect(app.texts()).toContain("All (3)");
   expect(app.texts()).toContain("Errors & Warnings (2)");
@@ -1343,11 +1349,11 @@ test("diagnose tab filters the log viewer by level", async () => {
   expect(app.texts()).toContain("cipher write rejected: HTTP 422");
 });
 
-test("diagnose tab shows an empty state when no logs were recorded", async () => {
+test("logs tab shows an empty state when no logs were recorded", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM], logs: [] });
 
   await app.press("id:open-settings");
-  await app.press("id:settings-tab-diagnose");
+  await app.press("id:settings-tab-logs");
 
   expect(app.shows("id:log-viewer-empty")).toBe(true);
   expect(app.texts()).toContain("No logs recorded yet");
@@ -1362,7 +1368,7 @@ test("log viewer badges use distinct semantic colors", async () => {
   });
 
   await app.press("id:open-settings");
-  await app.press("id:settings-tab-diagnose");
+  await app.press("id:settings-tab-logs");
 
   const info = app.spanStyle("text:INFO").color;
   const warn = app.spanStyle("text:WARN").color;
@@ -1376,7 +1382,7 @@ test("refresh health also refreshes the log viewer", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM], logs: [] });
 
   await app.press("id:open-settings");
-  await app.press("id:settings-tab-diagnose");
+  await app.press("id:settings-tab-logs");
   expect(app.texts()).toContain("No logs recorded yet");
 
   // A new Log Pipeline event lands in the ring while Settings stays open.
@@ -1402,7 +1408,7 @@ test("copy diagnostic report includes the scope declaration and sanitized fields
   });
 
   await app.press("id:open-settings");
-  await app.press("id:settings-tab-diagnose");
+  await app.press("id:settings-tab-logs");
   await app.press("id:copy-diagnostics");
   expect(app.texts()).toContain("Copied diagnostic report to clipboard.");
 
@@ -1461,7 +1467,7 @@ test("diagnostic report excludes daemon log channels", async () => {
   });
 
   await app.press("id:open-settings");
-  await app.press("id:settings-tab-diagnose");
+  await app.press("id:settings-tab-logs");
   await app.press("id:copy-diagnostics");
   expect(app.texts()).toContain("Copied diagnostic report to clipboard.");
 
@@ -1506,9 +1512,9 @@ test("integration: unlock, auth failure, diagnose, filter, and copy report", asy
   await app.press("id:unlock-submit");
   expect(app.shows("id:vault-workspace")).toBe(true);
 
-  // 3. Open Settings -> Diagnose.
+  // 3. Open Settings -> Logs.
   await app.press("id:open-settings");
-  await app.press("id:settings-tab-diagnose");
+  await app.press("id:settings-tab-logs");
 
   // 4. Verify the error log line appears with ERROR level and [app:auth] source.
   expect(app.texts()).toContain("authentication failed: Master password is required.");
