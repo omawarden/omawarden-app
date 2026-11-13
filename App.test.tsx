@@ -599,6 +599,27 @@ test("filter changes preserve the mounted workspace and update rows instantly", 
   expect(app.texts()).toContain("6 of 6");
 });
 
+test("clearing the search keeps the viewed item selected and inspected", async () => {
+  const mail = { ...MAIL_ITEM, uris: ["https://mail.example.com"] };
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM, mail, CARD_ITEM] });
+
+  await app.type("id:vault-search", "personal");
+  expect(app.shows("id:cipher-row-login2")).toBe(true);
+  expect(app.shows("id:cipher-row-login1")).toBe(false);
+
+  await app.press("id:cipher-row-login2");
+  expect(app.texts()).toContain("https://mail.example.com");
+
+  await app.clear("id:vault-search");
+  // The list is whole again...
+  expect(app.shows("id:cipher-row-login1")).toBe(true);
+  expect(app.shows("id:cipher-row-card1")).toBe(true);
+  // ...but the inspector stays on the item that was being read instead of
+  // jumping to the first row of the restored list.
+  expect(app.texts()).toContain("https://mail.example.com");
+  expect(app.texts()).not.toContain("https://github.com");
+});
+
 test("empty search results show an empty hint", async () => {
   const app = await openMock({ phase: "unlocked", items: VAULT_ITEMS });
 

@@ -892,8 +892,18 @@ export function lockOrLogout(logout: boolean): void {
 // Vault
 // ---------------------------------------------------------------------------
 
-export function query(): void {
+export function query(keepId: string | null = null): void {
   resetVisibleLimit();
+  // A filter change normally re-picks the first row, but the caller can ask to
+  // keep a specific row selected — clearing the search should not move the
+  // viewer away from the item they were reading.
+  if (keepId !== null) {
+    const index = filteredItems().findIndex((row) => row.id === keepId);
+    if (index >= 0) {
+      selectCipher(index);
+      return;
+    }
+  }
   selectFirstIfNeeded();
   if (inspector() !== null) {
     refreshInspector();
@@ -930,8 +940,11 @@ export function sync(): void {
 
 export function setSearch(text: string): void {
   if (search() === text) return;
+  // Remember the row being inspected so the projection change keeps it — and
+  // the inspector — in place instead of jumping back to the first row.
+  const keepId = inspector()?.id ?? null;
   search.set(text);
-  query();
+  query(keepId);
 }
 
 export function setCategory(next: ItemCategory): void {
