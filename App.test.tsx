@@ -2080,6 +2080,25 @@ test("a new login appears in the list before the vault is synced", async () => {
   expect(app.texts()).toContain("GitLab");
 });
 
+test("creating a login selects it and shows it in the inspector", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:category-login");
+  await app.press("id:create-login");
+  await app.type("id:cipher-form-name", "GitLab");
+  await app.type("id:cipher-form-username", "dev");
+  await app.type("id:cipher-form-password", "hunter2");
+  await app.type("id:cipher-form-uri-0", "https://gitlab.example.com");
+  await app.press("id:cipher-form-submit");
+
+  // The new row is selected, so the inspector shows its website. A list row
+  // never shows a URL, so this only appears when the item is inspected.
+  expect(app.shows("id:item-inspector")).toBe(true);
+  expect(app.texts()).toContain("https://gitlab.example.com");
+  // The header's total comes from the cached rows, so it includes the new one.
+  expect(app.texts()).toContain("2 / 2");
+});
+
 test("creating a secure note from its tab adds a note", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
 

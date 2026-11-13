@@ -11,7 +11,6 @@ import { inputStyle } from "./AuthView";
 
 export function SearchHeader() {
   const palette = store.palette;
-  const snap = store.snapshot;
   const scopeID = actionID("scope-trigger");
   useAction(scopeID, store.toggleScope);
   const scopeFocused = () => store.focusedAction() === scopeID;
@@ -92,7 +91,7 @@ export function SearchHeader() {
           }}
         >
           <Text style={{ color: palette().menu.selectedText, fontSize: store.type().sm, fontWeight: "bold" }}>
-            {store.filteredItems().length} / {snap().totalCount}
+            {store.filteredItems().length} / {store.rawItems().length}
           </Text>
         </View>
       </View>

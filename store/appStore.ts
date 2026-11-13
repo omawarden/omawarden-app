@@ -1639,6 +1639,27 @@ function keepSelectionOn(id: string): void {
   }
 }
 
+/**
+ * Selects a row that was just added locally, clearing the filters that hide it.
+ *
+ * Unlike `selectCipherById`, this never queries the vault: the row exists only
+ * in `rawItems` until the next snapshot, so a query would drop it.
+ */
+function selectLocalRow(id: string): void {
+  const find = () => filteredItems().findIndex((row) => row.id === id);
+  let index = find();
+  if (index < 0) {
+    search.set("");
+    category.set("all");
+    scopeId.set("all");
+    folderId.set(null);
+    index = find();
+  }
+  if (index >= 0) {
+    selectCipher(index);
+  }
+}
+
 /** The folder name for a form's folder id, matching the snapshot's options. */
 function folderNameFor(folderId: string | null | undefined): string | null {
   if (!folderId) {
@@ -1782,6 +1803,9 @@ export function submitCipherForm(input: CipherMutationInput, id: string | null):
       if (id === null) {
         if (receiptId) {
           rawItems.update((rows) => [...rows, rowFromForm(receiptId, input)]);
+          // A new item should be the one the inspector shows, so the user sees
+          // what they just created without hunting for it.
+          selectLocalRow(receiptId);
         }
       } else {
         rawItems.update((rows) =>
