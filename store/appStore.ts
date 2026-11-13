@@ -1238,19 +1238,38 @@ export function toggleFavorite(): void {
   if (!cipher) {
     return;
   }
+  const previous = cipher.favorite;
+  const nextFavorite = !previous;
+  // Flip the row and inspector locally first: the press must show at once, even
+  // when the daemon's cached list still holds the old flag. The mutation runs in
+  // the background and only reports a toast when it fails.
+  patchRawItem(cipher.id, { favorite: nextFavorite });
+  patchInspectorFavorite(cipher.id, nextFavorite);
+  keepSelectionOn(cipher.id);
+
   const next: CipherMutationInput = {
     cipherType: cipher.category === "secureNote" ? "note" : "login",
     name: cipher.title,
-    favorite: !cipher.favorite,
+    favorite: nextFavorite,
   };
-  const outcome = OmawardenBridge.mutateCipher(next, cipher.id);
-  if (outcome.ok) {
-    notify(outcome.outcome || "Favorite toggled.", "success");
-    reloadVault();
-    refreshInspector();
-  } else {
+  defer(() => {
+    const outcome = OmawardenBridge.mutateCipher(next, cipher.id);
+    if (outcome.ok) {
+      return;
+    }
+    // Roll back only if this toggle is still the one on screen; a newer press
+    // owns the row now.
+    rawItems.update((rows) =>
+      rows.map((row) =>
+        row.id === cipher.id && row.favorite === nextFavorite
+          ? { ...row, favorite: previous }
+          : row,
+      ),
+    );
+    patchInspectorFavorite(cipher.id, previous);
+    keepSelectionOn(cipher.id);
     notify(outcome.error ?? "Could not toggle favorite.", "error");
-  }
+  });
 }
 
 /** Opens the selected item's first website URI. */
@@ -1598,6 +1617,96 @@ export function openActionPalette(): void {
 // Cipher mutation: create, edit, delete
 // ---------------------------------------------------------------------------
 
+/** Replaces one cached row in place, so the list updates without a query. */
+function patchRawItem(id: string, patch: Partial<CipherRowView>): void {
+  rawItems.update((rows) =>
+    rows.map((row) => (row.id === id ? { ...row, ...patch } : row)),
+  );
+}
+
+/** Mirrors a row's favorite flag into the open inspector, if it is showing. */
+function patchInspectorFavorite(id: string, favorite: boolean): void {
+  inspector.update((current) =>
+    current && current.id === id ? { ...current, favorite } : current,
+  );
+}
+
+/** Keeps `id` selected after a local patch reorders the filtered list. */
+function keepSelectionOn(id: string): void {
+  const index = filteredItems().findIndex((row) => row.id === id);
+  if (index >= 0) {
+    selectedIndex.set(index);
+  }
+}
+
+/** The folder name for a form's folder id, matching the snapshot's options. */
+function folderNameFor(folderId: string | null | undefined): string | null {
+  if (!folderId) {
+    return null;
+  }
+  const match = snapshot().folders.find((folder) => folder.id === folderId);
+  if (match) {
+    return match.name;
+  }
+  return folderId.startsWith("folder:") ? folderId.slice(7) : folderId;
+}
+
+/** Builds the list row a freshly created cipher shows, from the form input. */
+function rowFromForm(id: string, input: CipherMutationInput): CipherRowView {
+  const isNote = input.cipherType === "note" || input.cipherType === "secureNote";
+  const uris = (input.uris ?? [])
+    .map((uri) => uri.trim())
+    .filter((uri) => uri.length > 0);
+  return {
+    id,
+    title: (input.name ?? "").trim() || "Untitled",
+    subtitle: isNote ? "Secure Note" : input.username ?? "",
+    category: isNote ? "secureNote" : "login",
+    favorite: input.favorite ?? false,
+    attachmentCount: 0,
+    organization: null,
+    folder: folderNameFor(input.folderId),
+    hasTotp: false,
+    hasPasswordHistory: false,
+    uris,
+    reprompt: 0,
+    cardBrand: null,
+    cardMask: null,
+  };
+}
+
+/** Applies an edit's dirty fields to the cached row. */
+function patchRowFromMutation(
+  row: CipherRowView,
+  payload: CipherMutationInput,
+): CipherRowView {
+  const next: CipherRowView = { ...row };
+  if (typeof payload.name === "string" && payload.name.length > 0) {
+    next.title = payload.name;
+  }
+  if (typeof payload.favorite === "boolean") {
+    next.favorite = payload.favorite;
+  }
+  if ("folderId" in payload) {
+    next.folder = folderNameFor(payload.folderId);
+  }
+  if (row.category === "login" && "username" in payload) {
+    next.subtitle = payload.username ?? "";
+  }
+  if (Array.isArray(payload.uris)) {
+    // An update only replaces the stored first URL; the rest are kept.
+    const first = payload.uris[0] ?? "";
+    if (row.uris.length === 0) {
+      next.uris = first ? [first] : [];
+    } else {
+      const merged = [...row.uris];
+      merged[0] = first;
+      next.uris = merged;
+    }
+  }
+  return next;
+}
+
 /** Opens the create form for a login or secure note cipher. */
 export function openCipherForm(cipherType: "login" | "note" = "login"): void {
   cipherForm.set({
@@ -1666,8 +1775,23 @@ export function submitCipherForm(input: CipherMutationInput, id: string | null):
     const outcome: CipherMutationOutcomeView = OmawardenBridge.mutateCipher(payload, id);
     cipherFormOutcome.set(outcome);
     if (outcome.ok) {
+      // Apply the receipt to the cached list instead of re-reading the vault:
+      // the daemon's cached `list` may still hold the pre-save rows, so a query
+      // here would drop the change until the next sync.
+      const receiptId = outcome.id;
+      if (id === null) {
+        if (receiptId) {
+          rawItems.update((rows) => [...rows, rowFromForm(receiptId, input)]);
+        }
+      } else {
+        rawItems.update((rows) =>
+          rows.map((row) =>
+            row.id === id ? patchRowFromMutation(row, payload) : row,
+          ),
+        );
+        keepSelectionOn(id);
+      }
       notify(outcome.outcome || (id ? "Item saved." : "Item created."), "success");
-      reloadVault();
       refreshInspector();
       cipherForm.set(null);
       cipherFormId.set(null);

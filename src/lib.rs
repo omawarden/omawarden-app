@@ -282,6 +282,13 @@ pub(crate) struct MockState {
     /// The mock Log Viewer ring, fed by the same Log Pipeline events as the
     /// real in-process ring so headless tests exercise the whole path.
     logs: Vec<String>,
+    /// When set, `query` serves this frozen list instead of `items`, modelling
+    /// the daemon's `list` cache: a cipher mutation does not invalidate it, and
+    /// only a sync refreshes it. Tests that assert the UI updates without a
+    /// sync enable it via `staleListCache`.
+    list_cache: Option<Vec<MockItem>>,
+    /// Whether `configure_mock_state` should seed `list_cache` from the items.
+    stale_list_cache: bool,
 }
 
 impl MockState {
@@ -338,6 +345,8 @@ impl Default for MockState {
             selected_cipher_id: None,
             master_password: "correct horse battery staple".to_string(),
             logs: Vec::new(),
+            list_cache: None,
+            stale_list_cache: false,
         }
     }
 }
@@ -594,8 +603,22 @@ impl MockState {
         self.items.push(item);
     }
 
+    /// The snapshot `query` returns: the frozen list cache when the stale-list
+    /// seam is on, else the live items.
+    fn query_snapshot(&self) -> VaultSnapshotView {
+        match &self.list_cache {
+            Some(cache) => self.snapshot_with_rows(cache.iter().map(MockItem::row).collect()),
+            None => self.snapshot(),
+        }
+    }
+
     /// The current snapshot.
     fn snapshot(&self) -> VaultSnapshotView {
+        self.snapshot_with_rows(self.items.iter().map(MockItem::row).collect())
+    }
+
+    /// The snapshot for an arbitrary row set, used by the stale-list seam.
+    fn snapshot_with_rows(&self, rows: Vec<CipherRowView>) -> VaultSnapshotView {
         projection::build_snapshot(
             self.phase,
             self.email.clone(),
@@ -605,7 +628,7 @@ impl MockState {
             self.quick_unlock_usable,
             self.two_factor.clone(),
             self.error.clone(),
-            self.items.iter().map(MockItem::row).collect(),
+            rows,
             &self.filter,
             self.last_sync.clone(),
             self.selected_cipher_id.clone(),
@@ -652,6 +675,7 @@ fn configure_mock_from_json(state: &mut MockState, value: &Value) {
     state.two_factor_required = json_bool(value, "twoFactorRequired", state.two_factor_required);
     state.update_available = json_bool(value, "updateAvailable", state.update_available);
     state.daemon_online = json_bool(value, "daemonOnline", state.daemon_online);
+    state.stale_list_cache = json_bool(value, "staleListCache", state.stale_list_cache);
     if let Some(password) = json_string(value, "masterPassword") {
         state.master_password = password;
     }
@@ -866,6 +890,9 @@ impl OmawardenBridge {
                 Err(error) => fresh.error = Some(format!("Invalid mock state JSON: {error}")),
             }
             *state = fresh;
+            if state.stale_list_cache {
+                state.list_cache = Some(state.items.clone());
+            }
             state.snapshot()
         })
     }
@@ -1842,6 +1869,69 @@ mod tests {
         assert!(deleted.ok, "{:?}", deleted.error);
         let after_delete = OmawardenBridge::query_vault(VaultFilterInput::default());
         assert_eq!(after_delete.category_counts.logins, 1);
+    }
+
+    #[test]
+    fn mock_stale_list_cache_serves_the_pre_mutation_rows_until_sync() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "staleListCache": true,
+            "items": [
+                {"id": "1", "title": "GitHub", "category": "login", "favorite": true}
+            ]
+        })));
+
+        // A create lands in the live items, but `query` still serves the cache.
+        let created = OmawardenBridge::mutate_cipher(
+            CipherMutationInput {
+                cipher_type: "login".to_string(),
+                name: Some("GitLab".to_string()),
+                username: None,
+                password: None,
+                notes: None,
+                uris: None,
+                folder_id: None,
+                favorite: None,
+            },
+            None,
+        );
+        assert!(created.ok, "{:?}", created.error);
+        let stale = OmawardenBridge::query_vault(VaultFilterInput::default());
+        assert_eq!(stale.category_counts.logins, 1);
+        assert!(stale.items.iter().all(|row| row.title != "GitLab"));
+
+        // A favorite flip is hidden until a sync refreshes the cache too.
+        OmawardenBridge::mutate_cipher(
+            CipherMutationInput {
+                cipher_type: "login".to_string(),
+                name: Some("GitHub".to_string()),
+                username: None,
+                password: None,
+                notes: None,
+                uris: None,
+                folder_id: None,
+                favorite: Some(false),
+            },
+            Some("1".to_string()),
+        );
+        let still_stale = OmawardenBridge::query_vault(VaultFilterInput::default());
+        let github = still_stale
+            .items
+            .iter()
+            .find(|row| row.id == "1")
+            .expect("cached row");
+        assert!(github.favorite);
+
+        // A sync re-reads the vault, so both changes become visible.
+        let synced = OmawardenBridge::sync_vault(VaultFilterInput::default());
+        assert_eq!(synced.category_counts.logins, 2);
+        let github = synced
+            .items
+            .iter()
+            .find(|row| row.id == "1")
+            .expect("synced row");
+        assert!(!github.favorite);
     }
 
     #[test]

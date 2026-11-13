@@ -106,12 +106,17 @@ fn real_sync(filter: VaultFilterInput) -> VaultSnapshotView {
 fn mock_query(state: &mut MockState, filter: VaultFilterInput) -> VaultSnapshotView {
     state.filter = filter;
     state.error = None;
-    state.snapshot()
+    // When the stale-list seam is on, the daemon's `list` serves its cached
+    // rows: a cipher mutation does not invalidate them, so only a sync makes a
+    // new or changed item visible. This is what the GUI must not depend on.
+    state.query_snapshot()
 }
 
 /// Applies the mock sync and returns the mock snapshot.
 fn mock_sync(state: &mut MockState, filter: VaultFilterInput) -> VaultSnapshotView {
     state.filter = filter;
+    // A sync re-reads the vault, so the daemon's cached list is refreshed.
+    state.list_cache = None;
     match state.sync_error.clone() {
         Some(error) => {
             state.error = Some(error.clone());

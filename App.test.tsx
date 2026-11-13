@@ -2060,6 +2060,26 @@ test("creating a login from the Logins tab adds a row", async () => {
   expect(app.texts()).toContain("GitLab");
 });
 
+test("a new login appears in the list before the vault is synced", async () => {
+  // The daemon's `list` serves a cached list that a mutation does not
+  // invalidate; only a sync refreshes it. The row must still appear at once.
+  const app = await openMock({
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+    staleListCache: true,
+  });
+
+  await app.press("id:category-login");
+  await app.press("id:create-login");
+  await app.type("id:cipher-form-name", "GitLab");
+  await app.type("id:cipher-form-username", "dev");
+  await app.type("id:cipher-form-password", "hunter2");
+  await app.press("id:cipher-form-submit");
+
+  expect(app.shows("id:cipher-form-modal")).toBe(false);
+  expect(app.texts()).toContain("GitLab");
+});
+
 test("creating a secure note from its tab adds a note", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
@@ -2215,6 +2235,24 @@ test("the favorite star toggles from both of its states", async () => {
   expect(app.shows("id:cipher-favorite-login1")).toBe(false);
   // Unfavorited: the control is still there and pressing it favorites again.
   expect(app.shows("id:toggle-favorite")).toBe(true);
+  await app.press("id:toggle-favorite");
+  expect(app.shows("id:cipher-favorite-login1")).toBe(true);
+});
+
+test("toggling favorite updates the row before the vault is synced", async () => {
+  // Same stale-list seam: the star must flip locally without waiting for sync.
+  const app = await openMock({
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+    staleListCache: true,
+  });
+
+  await app.press("id:cipher-row-login1");
+  expect(app.shows("id:cipher-favorite-login1")).toBe(true);
+
+  await app.press("id:toggle-favorite");
+  expect(app.shows("id:cipher-favorite-login1")).toBe(false);
+
   await app.press("id:toggle-favorite");
   expect(app.shows("id:cipher-favorite-login1")).toBe(true);
 });
