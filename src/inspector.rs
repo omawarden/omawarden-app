@@ -204,10 +204,16 @@ fn mock_inspect(
     cipher_id: String,
     reveal: RevealStateInput,
 ) -> InspectorView {
-    match state.items.iter().find(|item| item.id == cipher_id) {
-        Some(item) => {
+    // Build the view while `state` is still only borrowed, then record the
+    // selection: assigning `selected_cipher_id` first would hold a mutable
+    // borrow across the inspector call.
+    match state
+        .active_item(&cipher_id)
+        .map(|item| mock_item_inspector(item, &reveal))
+    {
+        Some(view) => {
             state.selected_cipher_id = Some(cipher_id.clone());
-            mock_item_inspector(item, &reveal)
+            view
         }
         None => empty_inspector(&cipher_id, format!("Item '{cipher_id}' was not found.")),
     }
@@ -215,7 +221,7 @@ fn mock_inspect(
 
 /// Answers a TOTP refresh from the mock items.
 fn mock_totp(state: &mut MockState, cipher_id: String) -> TotpLiveView {
-    let Some(item) = state.items.iter().find(|item| item.id == cipher_id) else {
+    let Some(item) = state.active_item(&cipher_id) else {
         return TotpLiveView {
             valid: false,
             code: String::new(),

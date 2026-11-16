@@ -233,13 +233,10 @@ fn mock_tick(state: &mut MockState, active_cipher_id: Option<String>) -> DaemonT
             error: Some("The Omawarden daemon is not running.".to_string()),
         };
     }
-    let totp = active_cipher_id.as_ref().and_then(|id| {
-        state
-            .items
-            .iter()
-            .find(|item| &item.id == id)
-            .and_then(|item| totp_view(item.totp.as_deref()))
-    });
+    let totp = active_cipher_id
+        .as_ref()
+        .and_then(|id| state.active_item(id))
+        .and_then(|item| totp_view(item.totp.as_deref()));
     DaemonTickView {
         online: true,
         unlocked: state.phase == AppPhase::Unlocked,

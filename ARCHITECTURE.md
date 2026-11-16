@@ -101,6 +101,15 @@ pub mod native {
         /// Synchronize the vault with the Bitwarden server and return the updated snapshot.
         pub fn sync_vault(filter: VaultFilterInput) -> VaultSnapshotView;
 
+        /// Query the Trash: the soft-deleted ciphers, newest deletion first.
+        pub fn query_trash(filter: VaultFilterInput) -> VaultSnapshotView;
+
+        /// Restore a soft-deleted cipher from the Trash.
+        pub fn restore_cipher(id: String) -> CipherMutationOutcomeView;
+
+        /// Permanently delete a cipher that is in the Trash.
+        pub fn delete_trash_cipher(id: String) -> CipherMutationOutcomeView;
+
         /// Inspect a specific cipher item, computing masked/revealed fields, TOTP state, and available actions.
         pub fn inspect_cipher(cipher_id: String, reveal: RevealStateInput) -> InspectorView;
 

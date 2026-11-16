@@ -25,6 +25,35 @@ Filtering a `FilterProjection` performs **zero IPC**, **zero keyring lookups**,
 and **zero `snapshot.set()`** calls, so switching tabs or typing in the search
 box only re-renders the list rows.
 
+## Trash
+
+The server-side state of soft-deleted ciphers: still stored, still encrypted,
+but hidden from the active vault. A cipher is in the Trash exactly when its
+`deleted_at` timestamp is set; the daemon's active `list` excludes those items,
+and a `list` sent with `{"trash": true}` returns only them.
+`CipherRowView.deletedAt` carries the timestamp on a trashed row and is absent
+on an active one.
+
+Trash is a vault state, not an `ItemCategory`: the category tabs keep meaning
+login, card, identity, note and SSH key inside it. The app models it as a
+separate view rather than a filter, so no active-vault path can reach a trashed
+cipher by accident: a trashed cipher is not inspectable, not copyable and has
+no live TOTP.
+
+## Soft Delete
+
+The reversible delete. Deleting an item from the active vault stamps
+`deleted_at` on the server and moves the cipher into the Trash; it stays
+restorable and the write syncs like any other mutation. Soft delete is the
+only delete the active vault offers.
+
+## Permanent Delete
+
+The irreversible delete: the cipher leaves the Trash and the server. It is not
+a stronger Soft Delete that the active vault can reach — the active vault never
+offers it. It applies only to a cipher already in the Trash, behind a
+confirmation that says it cannot be undone.
+
 ## In-Process Engine
 
 The `omawarden` Rust crate linked directly into the `nsh` host binary and

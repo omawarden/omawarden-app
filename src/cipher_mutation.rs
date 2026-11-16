@@ -16,6 +16,9 @@ use crate::types::{
     CipherTargetResolvedView,
 };
 
+/// The deletion time a mock soft delete stamps, so tests see a stable value.
+const MOCK_DELETED_AT: &str = "2026-11-10T00:00:00Z";
+
 /// The mutation capabilities the bridge exposes.
 pub(crate) trait CipherEngine {
     /// Create or update a cipher.
@@ -478,6 +481,29 @@ fn mock_mutate(input: CipherMutationInput, id: Option<String>) -> CipherMutation
         _ => "saved",
     };
 
+    // A trashed cipher is read-only. The daemon refuses the edit until the item
+    // is restored, so the mock must refuse it too; otherwise a UI path that
+    // edits a trashed row would pass headless tests and fail in the app.
+    if action == "cipher_update"
+        && crate::with_mock(|state| {
+            state
+                .items
+                .iter()
+                .any(|item| item.id == item_id && !item.is_active())
+        })
+    {
+        return CipherMutationOutcomeView {
+            ok: false,
+            outcome: String::new(),
+            id: Some(item_id),
+            name: None,
+            revision_date: None,
+            error: Some(format!(
+                "Cipher '{name}' is in the trash and cannot be edited. Restore it first with 'omawarden vault restore'."
+            )),
+        };
+    }
+
     let item_id_for_state = item_id.clone();
     let name_for_state = name.clone();
     let applied = crate::with_mock(|state| {
@@ -549,7 +575,14 @@ fn mock_mutate(input: CipherMutationInput, id: Option<String>) -> CipherMutation
 fn mock_delete(id: String, permanent: bool) -> CipherMutationOutcomeView {
     let id_owned = id.clone();
     crate::with_mock(|state| {
-        state.items.retain(|item| item.id != id_owned);
+        if permanent {
+            state.items.retain(|item| item.id != id_owned);
+        } else if let Some(item) = state.items.iter_mut().find(|item| item.id == id_owned) {
+            // A soft delete keeps the cipher and stamps the deletion time, the
+            // way the daemon does: the row leaves the active list and becomes
+            // restorable from the Trash.
+            item.deleted_at = Some(MOCK_DELETED_AT.to_string());
+        }
     });
     let receipt = json!({
         "ok": true,
@@ -576,9 +609,10 @@ fn mock_resolve_target(target: String) -> CipherTargetResolvedView {
     crate::with_mock(|state| {
         // An exact id or name always wins, matching the CLI's resolution: only
         // when nothing matches exactly does a partial name open the menu.
+        // Resolution is active-only, like the daemon's: a trashed cipher is
+        // restorable from the Trash, not reachable by name from the vault.
         let exact: Vec<&MockItem> = state
-            .items
-            .iter()
+            .active_items()
             .filter(|item| {
                 item.id.eq_ignore_ascii_case(trimmed) || item.title.eq_ignore_ascii_case(trimmed)
             })
@@ -586,8 +620,7 @@ fn mock_resolve_target(target: String) -> CipherTargetResolvedView {
         let matches: Vec<&MockItem> = if exact.is_empty() {
             let needle = trimmed.to_lowercase();
             state
-                .items
-                .iter()
+                .active_items()
                 .filter(|item| item.title.to_lowercase().contains(&needle))
                 .collect()
         } else {

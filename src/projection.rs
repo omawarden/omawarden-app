@@ -130,6 +130,7 @@ pub(crate) fn row_from_item(item: &VaultItem, reprompt: u32) -> CipherRowView {
         reprompt,
         card_brand,
         card_mask,
+        deleted_at: item.deleted_at.clone(),
     }
 }
 
@@ -315,5 +316,46 @@ pub(crate) fn build_snapshot(
         selected_cipher_id,
         ssh_prompt,
         engine_version,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Builds a `VaultItem` the way `parse_items` does: from daemon JSON.
+    fn item(value: Value) -> VaultItem {
+        serde_json::from_value(value).expect("a vault item")
+    }
+
+    fn login(deleted_at: Option<&str>) -> VaultItem {
+        let mut value = json!({
+            "id": "1",
+            "name": "Old login",
+            "type": 1,
+            "type_name": "Login",
+            "sub_title": "user@example.com",
+            "favorite": false,
+            "search_text": "old login",
+        });
+        if let Some(deleted_at) = deleted_at {
+            value["deleted_at"] = json!(deleted_at);
+        }
+        item(value)
+    }
+
+    #[test]
+    fn a_trashed_row_carries_its_deletion_time() {
+        let row = row_from_item(&login(Some("2026-01-02T03:04:05Z")), 0);
+        assert_eq!(row.deleted_at.as_deref(), Some("2026-01-02T03:04:05Z"));
+    }
+
+    #[test]
+    fn an_active_row_has_no_deletion_time() {
+        let row = row_from_item(&login(None), 0);
+        assert!(row.deleted_at.is_none());
+        assert_eq!(row.title, "Old login");
+        assert_eq!(row.category, ItemCategory::Login);
     }
 }

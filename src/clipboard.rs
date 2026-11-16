@@ -279,7 +279,7 @@ fn mock_copy_cipher_field(
     field: String,
     custom_index: Option<u32>,
 ) -> CopyOutcomeView {
-    let Some(item) = state.items.iter().find(|item| item.id == cipher_id) else {
+    let Some(item) = state.active_item(&cipher_id) else {
         return CopyOutcomeView {
             ok: false,
             label: field.clone(),

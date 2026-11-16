@@ -189,6 +189,8 @@ pub(crate) struct MockItem {
     pub(crate) favorite: bool,
     pub(crate) folder: Option<String>,
     pub(crate) organization: Option<String>,
+    /// When the cipher was moved to the Trash; `None` while it is active.
+    pub(crate) deleted_at: Option<String>,
     card: Option<MockCard>,
     identity: Option<MockIdentity>,
     ssh: Option<MockSsh>,
@@ -404,6 +406,15 @@ fn parse_category(raw: &str) -> ItemCategory {
 }
 
 impl MockItem {
+    /// Whether the cipher is still in the active vault.
+    ///
+    /// A trashed item is hidden exactly as the daemon's active `list` hides
+    /// it: not in the snapshot, not inspectable, not copyable, no TOTP. Only
+    /// the Trash view reads `items` directly.
+    pub(crate) fn is_active(&self) -> bool {
+        self.deleted_at.is_none()
+    }
+
     /// Builds a mock cipher from a JSON object.
     fn from_json(value: &Value) -> Self {
         let category = parse_category(
@@ -440,6 +451,7 @@ impl MockItem {
             favorite: json_bool(value, "favorite", false),
             folder: json_string(value, "folder"),
             organization: json_string(value, "organization"),
+            deleted_at: json_string(value, "deletedAt"),
             reprompt: value.get("reprompt").and_then(Value::as_u64).unwrap_or(0) as u32,
             totp_remaining: value
                 .get("totpRemaining")
@@ -570,11 +582,22 @@ impl MockItem {
                 .card
                 .as_ref()
                 .map(|card| mask_card_number_for(&card.number, &card.brand)),
+            deleted_at: self.deleted_at.clone(),
         }
     }
 }
 
 impl MockState {
+    /// The items the active vault can see.
+    pub(crate) fn active_items(&self) -> impl Iterator<Item = &MockItem> {
+        self.items.iter().filter(|item| item.is_active())
+    }
+
+    /// The active item with `id`.
+    pub(crate) fn active_item(&self, id: &str) -> Option<&MockItem> {
+        self.active_items().find(|item| item.id == id)
+    }
+
     /// Adds a type-5 SSH item to the seeded vault, the way a real save does.
     ///
     /// The headless tests drive create/import → save → inspect, so the saved
@@ -607,14 +630,20 @@ impl MockState {
     /// seam is on, else the live items.
     fn query_snapshot(&self) -> VaultSnapshotView {
         match &self.list_cache {
-            Some(cache) => self.snapshot_with_rows(cache.iter().map(MockItem::row).collect()),
+            Some(cache) => self.snapshot_with_rows(
+                cache
+                    .iter()
+                    .filter(|item| item.is_active())
+                    .map(MockItem::row)
+                    .collect(),
+            ),
             None => self.snapshot(),
         }
     }
 
     /// The current snapshot.
     fn snapshot(&self) -> VaultSnapshotView {
-        self.snapshot_with_rows(self.items.iter().map(MockItem::row).collect())
+        self.snapshot_with_rows(self.active_items().map(MockItem::row).collect())
     }
 
     /// The snapshot for an arbitrary row set, used by the stale-list seam.
@@ -1872,6 +1901,86 @@ mod tests {
     }
 
     #[test]
+    fn mock_soft_delete_moves_the_cipher_to_the_trash() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {"id": "1", "title": "GitHub", "category": "login", "username": "octocat"}
+            ]
+        })));
+
+        let deleted = OmawardenBridge::delete_cipher("1".to_string(), false);
+        assert!(deleted.ok, "{:?}", deleted.error);
+
+        // The soft delete hides the row from the active vault...
+        let active = OmawardenBridge::query_vault(VaultFilterInput::default());
+        assert_eq!(active.total_count, 0);
+        assert!(
+            OmawardenBridge::inspect_cipher("1".to_string(), reveal_none())
+                .error
+                .is_some()
+        );
+
+        // ...but keeps the cipher, stamped with a deletion time, so the Trash
+        // can list and restore it.
+        let stamped = with_mock(|state| {
+            state
+                .items
+                .iter()
+                .find(|item| item.id == "1")
+                .map(|item| item.deleted_at.clone())
+        });
+        assert!(
+            stamped.flatten().is_some(),
+            "a soft delete must stamp deleted_at"
+        );
+
+        // A permanent delete is what removes the cipher for good.
+        let purged = OmawardenBridge::delete_cipher("1".to_string(), true);
+        assert!(purged.ok, "{:?}", purged.error);
+        assert!(with_mock(|state| !state
+            .items
+            .iter()
+            .any(|item| item.id == "1")));
+    }
+
+    #[test]
+    fn mock_trashed_cipher_cannot_be_edited() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {"id": "1", "title": "Old GitHub", "category": "login", "deletedAt": "2026-01-02T03:04:05Z"}
+            ]
+        })));
+
+        let edit = OmawardenBridge::mutate_cipher(
+            CipherMutationInput {
+                cipher_type: "login".to_string(),
+                name: Some("Renamed".to_string()),
+                username: None,
+                password: None,
+                notes: None,
+                uris: None,
+                folder_id: None,
+                favorite: None,
+            },
+            Some("1".to_string()),
+        );
+        assert!(!edit.ok, "a trashed cipher is read-only");
+        assert!(
+            edit.error
+                .unwrap_or_default()
+                .contains("in the trash and cannot be edited")
+        );
+        assert!(with_mock(|state| state
+            .items
+            .iter()
+            .any(|item| item.id == "1" && item.title == "Old GitHub")));
+    }
+
+    #[test]
     fn mock_stale_list_cache_serves_the_pre_mutation_rows_until_sync() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
@@ -2001,6 +2110,83 @@ mod tests {
         assert!(!ambiguous.ok);
         assert_eq!(ambiguous.candidates.len(), 2);
         assert!(ambiguous.error.is_some());
+    }
+
+    #[test]
+    fn mock_trashed_items_stay_out_of_the_active_vault() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let snapshot = OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {
+                    "id": "1",
+                    "title": "GitHub",
+                    "category": "login",
+                    "username": "octocat",
+                    "password": "s3cret",
+                    "totp": "JBSWY3DPEHPK3PXP"
+                },
+                {
+                    "id": "2",
+                    "title": "Old GitHub",
+                    "category": "login",
+                    "username": "octocat",
+                    "password": "hunter2",
+                    "totp": "JBSWY3DPEHPK3PXP",
+                    "deletedAt": "2026-01-02T03:04:05Z"
+                }
+            ]
+        })));
+
+        // The active snapshot is the daemon's active `list`: the trashed item
+        // is not in it, in the filtered rows or in `allItems`.
+        assert_eq!(snapshot.total_count, 1);
+        assert_eq!(snapshot.items.len(), 1);
+        assert_eq!(snapshot.items[0].id, "1");
+        assert_eq!(snapshot.all_items.len(), 1);
+        assert!(snapshot.items.iter().all(|row| row.deleted_at.is_none()));
+
+        // Nor is it reachable through any of the per-item read paths.
+        let inspected = OmawardenBridge::inspect_cipher("2".to_string(), reveal_none());
+        assert!(inspected.password.is_none());
+        assert!(
+            inspected.error.is_some(),
+            "a trashed item is not inspectable"
+        );
+
+        let totp = OmawardenBridge::refresh_totp("2".to_string());
+        assert!(!totp.valid);
+        assert!(totp.error.is_some());
+
+        let copied =
+            OmawardenBridge::copy_cipher_field("2".to_string(), "password".to_string(), None);
+        assert!(!copied.ok);
+        assert_eq!(copied.error.as_deref(), Some("Item not found."));
+
+        let tick = OmawardenBridge::poll_daemon_tick(Some("2".to_string()));
+        assert!(tick.totp.is_none(), "a trashed item has no live TOTP");
+
+        // And active target resolution does not offer it either.
+        let resolved = OmawardenBridge::resolve_cipher_target("Old GitHub".to_string());
+        assert!(!resolved.ok);
+
+        // The active item still answers on every one of those paths.
+        assert!(
+            OmawardenBridge::inspect_cipher("1".to_string(), reveal_none())
+                .error
+                .is_none()
+        );
+        assert!(OmawardenBridge::refresh_totp("1".to_string()).valid);
+        assert!(
+            OmawardenBridge::poll_daemon_tick(Some("1".to_string()))
+                .totp
+                .is_some()
+        );
+        assert!(
+            OmawardenBridge::resolve_cipher_target("GitHub".to_string())
+                .item
+                .is_some()
+        );
     }
 
     #[test]
