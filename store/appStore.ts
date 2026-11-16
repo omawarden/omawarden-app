@@ -2266,11 +2266,49 @@ export function confirmDeleteCipher(permanent: boolean): void {
   }
 }
 
+/** Opens the permanent-delete confirmation for the selected Trash row. */
+export function openTrashDelete(): void {
+  if (vaultView() !== "trash") {
+    return;
+  }
+  const row = selectedCipher();
+  if (!row) {
+    return;
+  }
+  cipherDeletePermanent.set(true);
+  openModal("cipherDelete");
+}
+
+/** Confirms a permanent delete of the selected Trash row. */
+export function confirmDeleteTrashCipher(): void {
+  if (vaultView() !== "trash") {
+    return;
+  }
+  const row = selectedCipher();
+  if (!row) {
+    return;
+  }
+  const outcome: CipherMutationOutcomeView = OmawardenBridge.deleteTrashCipher(row.id);
+  if (outcome.ok) {
+    notify(outcome.outcome || "Item permanently deleted.", "success");
+    reloadTrash();
+    activeModal.set("none");
+    clearActionFocus();
+  } else {
+    notify(outcome.error ?? "Could not permanently delete the item.", "error");
+  }
+}
+
 /** Opens the delete confirmation dialog for the selected cipher. */
 export function openCipherDelete(permanent: boolean): void {
+  if (permanent) {
+    // Permanent delete is only reachable from the Trash via openTrashDelete().
+    // The active vault's delete is always soft.
+    return;
+  }
   if (!editableCipher()) {
     return;
   }
-  cipherDeletePermanent.set(permanent);
+  cipherDeletePermanent.set(false);
   openModal("cipherDelete");
 }

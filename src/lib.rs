@@ -1094,6 +1094,14 @@ impl OmawardenBridge {
         engine::cipher().restore(id)
     }
 
+    /// Permanently delete a cipher from the Trash.
+    ///
+    /// The daemon answers with `outcome: "deleted"` and `permanent: true`; the
+    /// store keeps the user in the Trash and re-reads its rows on success.
+    pub fn delete_trash_cipher(id: String) -> CipherMutationOutcomeView {
+        engine::cipher().delete_trash(id)
+    }
+
     /// Compute live TOTP code and remaining TTL for a cipher item.
     pub fn refresh_totp(cipher_id: String) -> TotpLiveView {
         engine::inspector().totp(cipher_id)
@@ -1266,6 +1274,7 @@ fn expand_home(path: &str) -> PathBuf {
 mod tests {
     use super::*;
     use crate::auth::{normalize_optional_code, two_factor_provider_view};
+    use crate::cipher_mutation::CipherEngine;
     use crate::format::{MASK, format_card_number, mask_card_number};
     use crate::platform::validate_launch_url;
     use crate::projection::fuzzy_score;
@@ -2044,6 +2053,119 @@ mod tests {
             Some("Server rejected restore (HTTP 403): denied")
         );
         // A failed restore leaves the row in the Trash.
+        assert_eq!(
+            OmawardenBridge::query_trash(VaultFilterInput::default())
+                .all_items
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn real_delete_trash_sends_the_daemon_action_and_maps_the_receipt() {
+        let _seam = crate::daemon::test_seam::set(|action: Value| {
+            assert_eq!(
+                action.get("action").and_then(Value::as_str),
+                Some("cipher_delete_trash"),
+                "a permanent trash delete is its own daemon action"
+            );
+            assert_eq!(action.get("id").and_then(Value::as_str), Some("id-1"));
+            assert!(action.get("permanent").is_none());
+            Some(json!({
+                "ok": true,
+                "outcome": "deleted",
+                "permanent": true,
+                "item": {"id": "id-1", "name": "Old GitHub", "permanent": true}
+            }))
+        });
+        let outcome = crate::cipher_mutation::InProcess.delete_trash("id-1".to_string());
+        assert!(outcome.ok);
+        assert_eq!(outcome.outcome, "deleted");
+        assert_eq!(outcome.id.as_deref(), Some("id-1"));
+        assert_eq!(outcome.name.as_deref(), Some("Old GitHub"));
+    }
+
+    #[test]
+    fn real_delete_trash_surfaces_the_daemon_error() {
+        let _seam = crate::daemon::test_seam::set(|_action: Value| {
+            Some(json!({
+                "ok": false,
+                "outcome": "rejected",
+                "error": "Unlock the vault before permanently deleting a cipher from trash."
+            }))
+        });
+        let outcome = crate::cipher_mutation::InProcess.delete_trash("id-1".to_string());
+        assert!(!outcome.ok);
+        assert_eq!(
+            outcome.error.as_deref(),
+            Some("Unlock the vault before permanently deleting a cipher from trash.")
+        );
+    }
+
+    #[test]
+    fn mock_delete_trash_removes_the_cipher_permanently() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {"id": "1", "title": "Old GitHub", "category": "login", "deletedAt": "2026-01-02T03:04:05Z"}
+            ]
+        })));
+
+        let purged = OmawardenBridge::delete_trash_cipher("1".to_string());
+        assert!(purged.ok, "{:?}", purged.error);
+        assert_eq!(purged.outcome, "deleted");
+        assert_eq!(purged.name.as_deref(), Some("Old GitHub"));
+
+        // The cipher is gone entirely.
+        let active = OmawardenBridge::query_vault(VaultFilterInput::default());
+        assert_eq!(active.total_count, 0);
+        let trash = OmawardenBridge::query_trash(VaultFilterInput::default());
+        assert!(trash.all_items.is_empty());
+    }
+
+    #[test]
+    fn mock_delete_trash_rejects_an_id_that_is_not_trashed() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {"id": "1", "title": "GitHub", "category": "login"}
+            ]
+        })));
+
+        let missing = OmawardenBridge::delete_trash_cipher("unknown".to_string());
+        assert!(!missing.ok, "an unknown id must not silently succeed");
+        let active = OmawardenBridge::delete_trash_cipher("1".to_string());
+        assert!(!active.ok, "an active id must not be purged");
+        assert_eq!(
+            active.error.as_deref(),
+            Some("Cipher '1' not found in trash.")
+        );
+        assert_eq!(
+            OmawardenBridge::query_vault(VaultFilterInput::default()).total_count,
+            1
+        );
+    }
+
+    #[test]
+    fn mock_delete_trash_surfaces_the_daemon_error() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "trashMutationError": "Server rejected purge (HTTP 403): denied",
+            "items": [
+                {"id": "1", "title": "Old GitHub", "category": "login", "deletedAt": "2026-01-02T03:04:05Z"}
+            ]
+        })));
+
+        let purged = OmawardenBridge::delete_trash_cipher("1".to_string());
+        assert!(!purged.ok);
+        assert_eq!(
+            purged.error.as_deref(),
+            Some("Server rejected purge (HTTP 403): denied")
+        );
+        // A failed purge leaves the row in the Trash.
         assert_eq!(
             OmawardenBridge::query_trash(VaultFilterInput::default())
                 .all_items

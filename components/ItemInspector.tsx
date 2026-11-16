@@ -98,6 +98,12 @@ function TrashInspector(props: { row: () => CipherRowView }) {
                 disabled={store.isRestoring()}
                 onPress={() => store.restoreCipher(row().id)}
               />
+              <ActionButton
+                label="Delete Permanently"
+                testID="trash-delete-permanent"
+                tone="danger"
+                onPress={store.openTrashDelete}
+              />
             </View>
           </Section>
         </View>

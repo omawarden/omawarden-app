@@ -950,6 +950,95 @@ test("restore is not reachable from the active vault", async () => {
   expect(app.shows("id:delete-cipher")).toBe(true);
 });
 
+test("Trash inspector shows Delete Permanently and opens permanent modal", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashed1");
+  expect(app.shows("id:trash-delete-permanent")).toBe(true);
+
+  await app.press("id:trash-delete-permanent");
+  expect(app.shows("id:cipher-delete-modal")).toBe(true);
+  // Permanent modal title and body strings (issue #41 acceptance).
+  expect(app.texts()).toContain("Permanently Delete?");
+  expect(app.texts()).toContain("This cannot be undone.");
+  expect(app.texts()).toContain("Delete Permanently");
+  // Cancel keeps the row and sends no request.
+  await app.press("id:cipher-delete-cancel");
+  expect(app.shows("id:cipher-row-trashed1")).toBe(true);
+  expect(app.shows("id:cipher-delete-modal")).toBe(false);
+});
+
+test("confirming permanent delete purges the row and keeps the Trash open", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM, OLDER_TRASHED_ITEM],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashed1");
+  await app.press("id:trash-delete-permanent");
+
+  // Confirm the permanent delete.
+  await app.press("id:cipher-delete-confirm");
+  expect(app.shows("id:cipher-delete-modal")).toBe(false);
+  expect(app.shows("id:cipher-row-trashed1")).toBe(false);
+  // Newest deletion first, so trashed2 is still there and becomes the first row.
+  expect(app.shows("id:cipher-row-trashed2")).toBe(true);
+  expect(app.texts()).toContain("Scope: Trash");
+  // The purge re-reads the Trash list.
+  expect(OmawardenBridge.mockTrashQueries()).toBe(2);
+});
+
+test("a failed permanent delete shows the daemon error and leaves the row in place", async () => {
+  const error = "Server rejected purge (HTTP 403): denied";
+  const app = await openMock({
+    phase: "unlocked",
+    trashMutationError: error,
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashed1");
+  await app.press("id:trash-delete-permanent");
+  await app.press("id:cipher-delete-confirm");
+
+  expect(app.texts()).toContain(error);
+  expect(app.shows("id:cipher-row-trashed1")).toBe(true);
+  expect(app.texts()).toContain("Scope: Trash");
+  // A failure does not invalidate or re-read the loaded Trash list.
+  expect(OmawardenBridge.mockTrashQueries()).toBe(1);
+});
+
+test("active vault delete stays soft and never reaches permanent mode", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM, MAIL_ITEM] });
+
+  await app.press("id:cipher-row-login1");
+  await app.press("id:delete-cipher");
+  expect(app.shows("id:cipher-delete-modal")).toBe(true);
+  // Soft-delete copy.
+  expect(app.texts()).toContain("The item can be restored from the trash.");
+  expect(app.texts()).toContain("Delete");
+  expect(app.texts()).not.toContain("Permanently Delete?");
+  expect(app.texts()).not.toContain("This cannot be undone.");
+  expect(app.texts()).not.toContain("Delete Permanently");
+
+  // Confirm soft delete.
+  await app.press("id:cipher-delete-confirm");
+  expect(app.shows("id:cipher-delete-modal")).toBe(false);
+  expect(app.shows("id:cipher-row-login1")).toBe(false);
+  // The item is in the Trash now.
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  expect(app.shows("id:cipher-row-login1")).toBe(true);
+});
+
 test("clearing the search keeps the viewed item selected and inspected", async () => {
   const mail = { ...MAIL_ITEM, uris: ["https://mail.example.com"] };
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM, mail, CARD_ITEM] });

@@ -2,10 +2,9 @@
 
 ## Status
 
-The browse view and Restore are built (#38, #39, #40). Permanent delete is the
-remaining ticket under the parent spec (#37); until it lands, the Trash
-inspector's action row holds only `Restore`. The Trash still exposes no secrets
-and offers no edit, copy or favourite action.
+The browse view, Restore, and Permanent Delete are built (#38–#41). The Trash
+inspector's action row holds `Restore` and `Delete Permanently`. The Trash still
+exposes no secrets and offers no edit, copy or favourite action.
 
 ## Problem Statement
 
@@ -133,14 +132,15 @@ Trash and toasts `Restored "name".`; the active vault is refreshed only when
 the user returns to it. On failure the daemon's error is shown as-is and the
 list is untouched. The action is reachable only from this view.
 
-## Remaining Ticket
+## Permanent Delete
 
-The parent spec (#37) also covers permanent delete, still to be built (#41).
-It reuses `CipherDeleteModal` in a third mode reachable only from the Trash.
-The active vault's delete stays soft only, and `openCipherDelete(true)` remains
-unreachable from it. Like Restore, it invalidates the loaded list, so
-`reloadTrash()` is the refresh path it uses, and daemon errors are surfaced
-as-is.
+`Delete Permanently` in the Trash inspector opens `CipherDeleteModal` in its
+third mode (title `Permanently Delete?`, body `This cannot be undone.`,
+confirm `Delete Permanently`), reachable only from the Trash. The active
+vault's delete stays soft only; `openCipherDelete(true)` is guarded and
+unreachable from it. Confirming calls `deleteTrashCipher`, re-reads the Trash
+with `reloadTrash()`, clamps the selection, and stays in the Trash. Cancelling
+leaves the row in place and sends no request. Daemon errors surface as-is.
 
 ## Tests
 
@@ -153,11 +153,16 @@ count, and the reload on sync. The Restore tests cover the row disappearing,
 the `Restored "name".` toast, the view and the clamped selection staying in the
 Trash, the restored cipher reappearing in the active list on the way back, a
 seeded daemon rejection leaving the row in place, and the action being absent
-from the active inspector. Rust tests in `src/lib.rs` and `src/projection.rs`
-cover the adapters and the sort; `src/cipher_mutation.rs` covers the
-`cipher_restore` payload, its receipt and its error, and `src/lib.rs` covers
-the mock adapter's success, its rejection of an id that is not trashed, and the
-seeded error.
+from the active inspector. The Permanent Delete tests cover the `Delete
+Permanently` button opening the modal with `Permanently Delete?`, `This cannot
+be undone.`, `Delete Permanently`; confirming purges the row and keeps the Trash
+open; cancelling leaves the row and sends no request; the active vault's delete
+stays soft with `The item can be restored from the trash.` copy; a seeded
+daemon rejection leaves the row in place. Rust tests in `src/lib.rs` and
+`src/projection.rs` cover the adapters and the sort; `src/cipher_mutation.rs`
+covers the `cipher_restore` and `cipher_delete_trash` payloads, their receipts
+and errors, and `src/lib.rs` covers the mock adapters' success, their rejection
+of an id that is not trashed, and the seeded error.
 
 ## Out of Scope
 

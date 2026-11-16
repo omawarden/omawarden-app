@@ -32,6 +32,9 @@ pub(crate) trait CipherEngine {
 
     /// Restores a trashed cipher.
     fn restore(&self, id: String) -> CipherMutationOutcomeView;
+
+    /// Permanently deletes a trashed cipher.
+    fn delete_trash(&self, id: String) -> CipherMutationOutcomeView;
 }
 
 /// The real adapter: the shared daemon socket.
@@ -53,6 +56,10 @@ impl CipherEngine for InProcess {
     fn restore(&self, id: String) -> CipherMutationOutcomeView {
         real_restore(id)
     }
+
+    fn delete_trash(&self, id: String) -> CipherMutationOutcomeView {
+        real_delete_trash(id)
+    }
 }
 
 /// The mock adapter: the seeded mock state.
@@ -73,6 +80,10 @@ impl CipherEngine for Mock {
 
     fn restore(&self, id: String) -> CipherMutationOutcomeView {
         mock_restore(id)
+    }
+
+    fn delete_trash(&self, id: String) -> CipherMutationOutcomeView {
+        mock_delete_trash(id)
     }
 }
 
@@ -254,6 +265,21 @@ fn real_delete(id: String, permanent: bool) -> CipherMutationOutcomeView {
 fn real_restore(id: String) -> CipherMutationOutcomeView {
     let payload = json!({
         "action": "cipher_restore",
+        "id": id,
+    });
+    let response = crate::daemon(payload);
+    let outcome = map_mutation_response(response, Some(id.as_str()));
+    log_rejection(&outcome);
+    outcome
+}
+
+/// Dispatches a permanent delete through the shared daemon and maps the receipt.
+///
+/// The daemon answers `{"ok": true, "outcome": "deleted", "permanent": true, "item": {...}}`;
+/// a non-ok reply carries its own `error`, which the store shows verbatim.
+fn real_delete_trash(id: String) -> CipherMutationOutcomeView {
+    let payload = json!({
+        "action": "cipher_delete_trash",
         "id": id,
     });
     let response = crate::daemon(payload);
@@ -651,6 +677,49 @@ fn mock_restore(id: String) -> CipherMutationOutcomeView {
                 "ok": true,
                 "outcome": "restored",
                 "item": {"id": id, "name": name},
+            })),
+            Some(id.as_str()),
+        ),
+        Err(error) => CipherMutationOutcomeView {
+            ok: false,
+            outcome: String::new(),
+            id: Some(id),
+            name: None,
+            revision_date: None,
+            error: Some(error),
+        },
+    }
+}
+
+/// Permanently deletes a trashed cipher in the seeded mock state.
+///
+/// The daemon refuses an id that is not trashed, so the mock must refuse it
+/// too. `trash_mutation_error` stands in for a daemon rejection.
+fn mock_delete_trash(id: String) -> CipherMutationOutcomeView {
+    let applied = crate::with_mock(|state| {
+        if let Some(error) = state.trash_mutation_error.clone() {
+            return Err(error);
+        }
+        match state
+            .items
+            .iter()
+            .position(|item| item.id == id && !item.is_active())
+        {
+            Some(idx) => {
+                let name = state.items[idx].title.clone();
+                state.items.remove(idx);
+                Ok(name)
+            }
+            None => Err(format!("Cipher '{id}' not found in trash.")),
+        }
+    });
+    match applied {
+        Ok(name) => map_mutation_response(
+            Some(json!({
+                "ok": true,
+                "outcome": "deleted",
+                "permanent": true,
+                "item": {"id": id, "name": name, "permanent": true},
             })),
             Some(id.as_str()),
         ),
