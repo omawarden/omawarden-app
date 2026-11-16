@@ -54,6 +54,14 @@ a stronger Soft Delete that the active vault can reach — the active vault neve
 offers it. It applies only to a cipher already in the Trash, behind a
 confirmation that says it cannot be undone.
 
+## Restore
+
+Bringing a cipher back from the Trash: the daemon clears `deleted_at` and the
+active vault sees the cipher again. In the GUI it is one press from the Trash
+inspector, with no confirmation, and it leaves the user in the Trash. A failed
+restore reports the daemon's error and changes nothing. Restore is the inverse
+of a Soft Delete, not a third kind of delete; the active vault never offers it.
+
 ## In-Process Engine
 
 The `omawarden` Rust crate linked directly into the `nsh` host binary and

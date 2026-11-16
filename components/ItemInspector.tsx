@@ -90,6 +90,15 @@ function TrashInspector(props: { row: () => CipherRowView }) {
               This item is in the Trash. Restore it to use it again, or delete it permanently.
             </SectionLabel>
             <FieldList fields={details} />
+            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+              <ActionButton
+                label="Restore"
+                testID="trash-restore"
+                tone="primary"
+                disabled={store.isRestoring()}
+                onPress={() => store.restoreCipher(row().id)}
+              />
+            </View>
           </Section>
         </View>
       </Scroll>

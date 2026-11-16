@@ -2,9 +2,10 @@
 
 ## Status
 
-The browse view is built. Restore and permanent delete are separate tickets
-under the parent spec (#37); until they land, the Trash inspector's action row
-has no buttons and the Trash is read-only.
+The browse view and Restore are built (#38, #39, #40). Permanent delete is the
+remaining ticket under the parent spec (#37); until it lands, the Trash
+inspector's action row holds only `Restore`. The Trash still exposes no secrets
+and offers no edit, copy or favourite action.
 
 ## Problem Statement
 
@@ -40,6 +41,13 @@ first open of the session. `closeTrash()`, `setScope()` and `setFolder()` return
 to the active view. Lock and logout clear `trashItems` and reset the view, so a
 new session starts with a fresh lazy load.
 
+A restore changes both views: the Trash row disappears at once through
+`reloadTrash()`, while the active rows are only marked stale with
+`activeRowsStale`. `leaveTrash()` — shared by every way back to the active vault,
+including the name resolver — re-reads them once on the return, so the restored
+cipher is there without a second request from inside the Trash. Lock and logout
+clear the flag along with the loaded rows.
+
 ## Entry Point and Loading
 
 `components/ScopeDropdown.tsx` adds a `Trash` row below the organization rows,
@@ -74,6 +82,15 @@ sort the rows with `projection::sort_trash`: newest deletion first, then title.
 `CipherRowView.deletedAt` carries the timestamp on a Trashed row and is absent
 (not `null`) on an active one.
 
+`OmawardenBridge.restoreCipher(id)` delegates to `CipherEngine::restore`.
+`InProcess` sends `{"action": "cipher_restore", "id": id}` through the shared
+daemon socket and maps the reply with the same `map_mutation_response` /
+`log_rejection` pair as create, edit and delete, so the daemon's `name` reaches
+the toast and its `error` reaches the user verbatim. `Mock` clears
+`MockItem.deleted_at` for a trashed id and refuses an id that is not trashed;
+the seeded `trashMutationError` stands in for a daemon rejection in the
+headless tests.
+
 ## List
 
 `components/VaultItemList.tsx` renders `store.filteredItems()` in either view.
@@ -101,24 +118,29 @@ instead of an `InspectorView` from the engine. It shows the title, category,
 deletion time, and folder and organization when present. It exposes no secrets:
 no password, TOTP, notes, custom fields, attachments or URIs. The store's
 `refreshInspector()` short-circuits in the Trash, so no per-item read or TOTP
-ticker runs for a deleted cipher. Secret and mutation entry points (copy,
-reveal, edit, favorite, delete, password history, open URL, SSH export) are
-guarded by `trashBlocksItemActions()`, and the action palette returns no
-context actions in the Trash. Global actions such as sync, lock and settings
-remain available.
+ticker runs for a deleted cipher. Secret entry points (copy, reveal, edit,
+favorite, delete, password history, open URL, SSH export) are guarded by
+`trashBlocksItemActions()`, and the action palette returns no context actions in
+the Trash. `Restore` is a Trash-specific mutation reachable only from this view
+and guarded by `vaultView() === "trash"`. Global actions such as sync, lock and
+settings remain available.
 
-## Follow-up Tickets
+`Restore` in the action row calls `restoreCipher()` with the selected row's id,
+with no confirmation. It stays disabled while a restore is in flight
+(`isRestoring`), so a double press cannot fire twice. On success the store
+re-reads the Trash, clamps the selection to the rows that remain, stays in the
+Trash and toasts `Restored "name".`; the active vault is refreshed only when
+the user returns to it. On failure the daemon's error is shown as-is and the
+list is untouched. The action is reachable only from this view.
 
-The parent spec (#37) also covers restore and permanent delete:
+## Remaining Ticket
 
-- Restore is immediate, shows `Restored "name".`, and leaves the user in the
-  Trash.
-- Permanent delete reuses `CipherDeleteModal` in a third mode reachable only
-  from the Trash. The active vault's delete stays soft only, and
-  `openCipherDelete(true)` remains unreachable from it.
-
-Both invalidate the loaded list, so `reloadTrash()` is the refresh path they
-use. Daemon errors are surfaced as-is.
+The parent spec (#37) also covers permanent delete, still to be built (#41).
+It reuses `CipherDeleteModal` in a third mode reachable only from the Trash.
+The active vault's delete stays soft only, and `openCipherDelete(true)` remains
+unreachable from it. Like Restore, it invalidates the loaded list, so
+`reloadTrash()` is the refresh path it uses, and daemon errors are surfaced
+as-is.
 
 ## Tests
 
@@ -127,8 +149,15 @@ the dropdown entry and its divider, the count after load, the newest-first
 order, the absence of trashed rows from the active list, the read-only
 inspector, local search and category filtering, the hidden folder controls,
 the `deletedAt` key on the row DTO, the two empty states, the cold-path request
-count, and the reload on sync. Rust tests in `src/lib.rs` and
-`src/projection.rs` cover the adapters and the sort.
+count, and the reload on sync. The Restore tests cover the row disappearing,
+the `Restored "name".` toast, the view and the clamped selection staying in the
+Trash, the restored cipher reappearing in the active list on the way back, a
+seeded daemon rejection leaving the row in place, and the action being absent
+from the active inspector. Rust tests in `src/lib.rs` and `src/projection.rs`
+cover the adapters and the sort; `src/cipher_mutation.rs` covers the
+`cipher_restore` payload, its receipt and its error, and `src/lib.rs` covers
+the mock adapter's success, its rejection of an id that is not trashed, and the
+seeded error.
 
 ## Out of Scope
 

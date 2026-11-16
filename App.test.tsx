@@ -871,6 +871,85 @@ test("Trash empty states distinguish empty from no matches", async () => {
   expect(searchApp.texts()).toContain("No trashed items match this search.");
 });
 
+test("restoring from the Trash removes the row, keeps the view, and toasts", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashed1");
+  expect(app.shows("id:trash-restore")).toBe(true);
+
+  // One press, no confirmation dialog.
+  await app.press("id:trash-restore");
+  expect(app.shows("id:cipher-delete-modal")).toBe(false);
+  expect(app.texts()).toContain('Restored "Old GitHub".');
+  expect(app.shows("id:cipher-row-trashed1")).toBe(false);
+
+  // The user stays in the Trash; its rows were re-read after the mutation.
+  expect(app.texts()).toContain("Scope: Trash");
+  expect(app.texts()).toContain("The Trash is empty.");
+  expect(OmawardenBridge.mockTrashQueries()).toBe(2);
+
+  // The restored cipher is in the active list on the way back.
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-all");
+  expect(app.shows("id:cipher-row-trashed1")).toBe(true);
+  expect(app.shows("id:cipher-row-login1")).toBe(true);
+});
+
+test("restoring keeps the selection inside the remaining Trash rows", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM, OLDER_TRASHED_ITEM],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  // Newest deletion first, so trashed2 is the second row.
+  await app.press("id:cipher-row-trashed2");
+  expect(app.shows("id:trash-inspector")).toBe(true);
+
+  await app.press("id:trash-restore");
+  expect(app.shows("id:cipher-row-trashed1")).toBe(true);
+  expect(app.shows("id:cipher-row-trashed2")).toBe(false);
+  // The clamped selection still inspects a Trash row, not the empty state.
+  expect(app.shows("id:trash-inspector")).toBe(true);
+  expect(app.texts()).toContain("Scope: Trash");
+});
+
+test("a failed restore shows the daemon error and leaves the row in place", async () => {
+  const error = "Server rejected restore (HTTP 403): denied";
+  const app = await openMock({
+    phase: "unlocked",
+    trashMutationError: error,
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashed1");
+  await app.press("id:trash-restore");
+
+  expect(app.texts()).toContain(error);
+  expect(app.shows("id:cipher-row-trashed1")).toBe(true);
+  expect(app.texts()).toContain("Scope: Trash");
+  // A failure does not invalidate or re-read the loaded Trash list.
+  expect(OmawardenBridge.mockTrashQueries()).toBe(1);
+});
+
+test("restore is not reachable from the active vault", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+  await app.press("id:cipher-row-login1");
+
+  expect(app.shows("id:trash-restore")).toBe(false);
+  // The active inspector still offers its own edit and soft-delete actions.
+  expect(app.shows("id:edit-cipher")).toBe(true);
+  expect(app.shows("id:delete-cipher")).toBe(true);
+});
+
 test("clearing the search keeps the viewed item selected and inspected", async () => {
   const mail = { ...MAIL_ITEM, uris: ["https://mail.example.com"] };
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM, mail, CARD_ITEM] });

@@ -191,9 +191,20 @@ pub mod native {
   `folderId`, and `search` signals, and derives `filteredItems()` with the same
   pure-TS subsequence scorer as the Rust engine. `query()`, `setSearch()`,
   `setCategory()`, `setScope()`, and `setFolder()` never call
-  `OmawardenBridge.queryVault` and never call `snapshot.set()`. The loaded
+  `OmawardenBridge.queryVault` and never call `snapshot.set()` — except for the
+  single `leaveTrash()` path, which re-reads the active vault once when the user
+  returns from the Trash after a restore or purge. The loaded
   Trash rows live in their own `trashItems` signal; `viewRows()` picks the
   rows of the current view, and `filterTrashRows()` narrows them locally.
+- **Trash mutations refresh one view at a time.** `restore_cipher` goes through
+  `CipherEngine` to the daemon's `cipher_restore` action. On success the store
+  stays in the Trash, calls `reloadTrash()` so the row disappears, and sets
+  `activeRowsStale` instead of re-reading the active vault from inside the
+  Trash; `leaveTrash()` — the single way back used by `closeTrash()`,
+  `setScope()`, `setFolder()` and `selectCipherById()` — applies that one
+  `queryVault` when the user returns, so no cold path gains a second request.
+  A failure only toasts the daemon's error. Lock and logout clear the loaded
+  Trash rows, the pending refresh and the in-flight restore flag.
 - **`<If>` preserves mounted views.** Top-level phase and modal switches use
   `<If when={…}>` instead of bare JSX ternaries, which compile to unmemoized
   reactive effects that destroy and recreate their subtree. With `<If>`, the

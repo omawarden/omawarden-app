@@ -29,6 +29,9 @@ pub(crate) trait CipherEngine {
 
     /// Delete a cipher, soft or permanent.
     fn delete(&self, id: String, permanent: bool) -> CipherMutationOutcomeView;
+
+    /// Restores a trashed cipher.
+    fn restore(&self, id: String) -> CipherMutationOutcomeView;
 }
 
 /// The real adapter: the shared daemon socket.
@@ -46,6 +49,10 @@ impl CipherEngine for InProcess {
     fn delete(&self, id: String, permanent: bool) -> CipherMutationOutcomeView {
         real_delete(id, permanent)
     }
+
+    fn restore(&self, id: String) -> CipherMutationOutcomeView {
+        real_restore(id)
+    }
 }
 
 /// The mock adapter: the seeded mock state.
@@ -62,6 +69,10 @@ impl CipherEngine for Mock {
 
     fn delete(&self, id: String, permanent: bool) -> CipherMutationOutcomeView {
         mock_delete(id, permanent)
+    }
+
+    fn restore(&self, id: String) -> CipherMutationOutcomeView {
+        mock_restore(id)
     }
 }
 
@@ -229,6 +240,21 @@ fn real_delete(id: String, permanent: bool) -> CipherMutationOutcomeView {
         "action": "cipher_delete",
         "id": id,
         "permanent": permanent,
+    });
+    let response = crate::daemon(payload);
+    let outcome = map_mutation_response(response, Some(id.as_str()));
+    log_rejection(&outcome);
+    outcome
+}
+
+/// Dispatches a restore through the shared daemon and maps the receipt.
+///
+/// The daemon answers `{"ok": true, "outcome": "restored", "item": {...}}`;
+/// a non-ok reply carries its own `error`, which the store shows verbatim.
+fn real_restore(id: String) -> CipherMutationOutcomeView {
+    let payload = json!({
+        "action": "cipher_restore",
+        "id": id,
     });
     let response = crate::daemon(payload);
     let outcome = map_mutation_response(response, Some(id.as_str()));
@@ -596,6 +622,49 @@ fn mock_delete(id: String, permanent: bool) -> CipherMutationOutcomeView {
     map_mutation_response(Some(receipt), Some(id.as_str()))
 }
 
+/// Restores a trashed cipher in the seeded mock state.
+///
+/// The daemon refuses an id that is not trashed, so the mock must refuse it
+/// too: a UI path that restores an active row would otherwise pass headless
+/// tests and fail in the app. `trash_mutation_error` stands in for a daemon
+/// rejection, and is surfaced verbatim.
+fn mock_restore(id: String) -> CipherMutationOutcomeView {
+    let applied = crate::with_mock(|state| {
+        if let Some(error) = state.trash_mutation_error.clone() {
+            return Err(error);
+        }
+        match state
+            .items
+            .iter_mut()
+            .find(|item| item.id == id && !item.is_active())
+        {
+            Some(item) => {
+                item.deleted_at = None;
+                Ok(item.title.clone())
+            }
+            None => Err(format!("Cipher '{id}' not found in trash.")),
+        }
+    });
+    match applied {
+        Ok(name) => map_mutation_response(
+            Some(json!({
+                "ok": true,
+                "outcome": "restored",
+                "item": {"id": id, "name": name},
+            })),
+            Some(id.as_str()),
+        ),
+        Err(error) => CipherMutationOutcomeView {
+            ok: false,
+            outcome: String::new(),
+            id: Some(id),
+            name: None,
+            revision_date: None,
+            error: Some(error),
+        },
+    }
+}
+
 fn mock_resolve_target(target: String) -> CipherTargetResolvedView {
     let trimmed = target.trim();
     if trimmed.is_empty() {
@@ -908,5 +977,45 @@ mod tests {
         assert!(payload.get("login").is_none());
         assert!(payload.get("notes").is_none());
         assert!(payload.get("folder_id").is_none());
+    }
+
+    #[test]
+    fn real_restore_sends_the_daemon_action_and_maps_the_receipt() {
+        let _seam = crate::daemon::test_seam::set(|action: Value| {
+            assert_eq!(
+                action.get("action").and_then(Value::as_str),
+                Some("cipher_restore"),
+                "a restore is its own daemon action, not a permanent flag"
+            );
+            assert_eq!(action.get("id").and_then(Value::as_str), Some("id-1"));
+            assert!(action.get("permanent").is_none());
+            Some(json!({
+                "ok": true,
+                "outcome": "restored",
+                "item": {"id": "id-1", "name": "Old GitHub"}
+            }))
+        });
+        let outcome = InProcess.restore("id-1".to_string());
+        assert!(outcome.ok);
+        assert_eq!(outcome.outcome, "restored");
+        assert_eq!(outcome.id.as_deref(), Some("id-1"));
+        assert_eq!(outcome.name.as_deref(), Some("Old GitHub"));
+    }
+
+    #[test]
+    fn real_restore_surfaces_the_daemon_error() {
+        let _seam = crate::daemon::test_seam::set(|_action: Value| {
+            Some(json!({
+                "ok": false,
+                "outcome": "rejected",
+                "error": "Unlock the vault before restoring a cipher."
+            }))
+        });
+        let outcome = InProcess.restore("id-1".to_string());
+        assert!(!outcome.ok);
+        assert_eq!(
+            outcome.error.as_deref(),
+            Some("Unlock the vault before restoring a cipher.")
+        );
     }
 }

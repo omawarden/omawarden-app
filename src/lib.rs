@@ -280,6 +280,9 @@ pub(crate) struct MockState {
     daemon_ticks: u32,
     /// How many Trash reads the mock has served, so a test can see the lazy load.
     trash_queries: u32,
+    /// A daemon rejection for a Trash mutation, surfaced verbatim. Tests seed
+    /// it through `trashMutationError` to exercise the failure path in the UI.
+    trash_mutation_error: Option<String>,
     filter: VaultFilterInput,
     selected_cipher_id: Option<String>,
     master_password: String,
@@ -346,6 +349,7 @@ impl Default for MockState {
             daemon_online: true,
             daemon_ticks: 0,
             trash_queries: 0,
+            trash_mutation_error: None,
             filter: VaultFilterInput::default(),
             selected_cipher_id: None,
             master_password: "correct horse battery staple".to_string(),
@@ -714,6 +718,7 @@ fn configure_mock_from_json(state: &mut MockState, value: &Value) {
     state.last_sync = json_string(value, "lastSync").or(state.last_sync.clone());
     state.error = json_string(value, "error");
     state.sync_error = json_string(value, "syncError");
+    state.trash_mutation_error = json_string(value, "trashMutationError");
     if let Some(logs) = value.get("logs").and_then(|v| v.as_array()) {
         state.logs = logs
             .iter()
@@ -1041,6 +1046,13 @@ impl OmawardenBridge {
         engine::vault().sync(filter)
     }
 
+    /// Clears the in-process active-vault cache so the next read re-fetches from
+    /// the daemon. Called after a Trash restore or purge so the restored item is
+    /// visible without a full sync.
+    pub fn clear_vault_cache() {
+        vault::clear_cached_vault();
+    }
+
     /// Inspect a specific cipher item, computing masked/revealed fields, TOTP state, and actions.
     pub fn inspect_cipher(cipher_id: String, reveal: RevealStateInput) -> InspectorView {
         engine::inspector().inspect(cipher_id, reveal)
@@ -1072,6 +1084,14 @@ impl OmawardenBridge {
     /// removes it from the vault and the server. The caller confirms both.
     pub fn delete_cipher(id: String, permanent: bool) -> CipherMutationOutcomeView {
         engine::cipher().delete(id, permanent)
+    }
+
+    /// Restore a soft-deleted cipher from the Trash.
+    ///
+    /// The daemon answers with `outcome: "restored"` and the cipher's name; the
+    /// store keeps the user in the Trash and re-reads its rows on success.
+    pub fn restore_cipher(id: String) -> CipherMutationOutcomeView {
+        engine::cipher().restore(id)
     }
 
     /// Compute live TOTP code and remaining TTL for a cipher item.
@@ -1956,6 +1976,80 @@ mod tests {
             .items
             .iter()
             .any(|item| item.id == "1")));
+    }
+
+    #[test]
+    fn mock_restore_returns_the_cipher_to_the_active_vault() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {"id": "1", "title": "Old GitHub", "category": "login", "deletedAt": "2026-01-02T03:04:05Z"}
+            ]
+        })));
+
+        let restored = OmawardenBridge::restore_cipher("1".to_string());
+        assert!(restored.ok, "{:?}", restored.error);
+        assert_eq!(restored.outcome, "restored");
+        assert_eq!(restored.name.as_deref(), Some("Old GitHub"));
+
+        // The cipher is active again, so the Trash is empty.
+        let active = OmawardenBridge::query_vault(VaultFilterInput::default());
+        assert_eq!(active.total_count, 1);
+        assert_eq!(active.all_items[0].title, "Old GitHub");
+        assert!(active.all_items[0].deleted_at.is_none());
+        let trash = OmawardenBridge::query_trash(VaultFilterInput::default());
+        assert!(trash.all_items.is_empty());
+    }
+
+    #[test]
+    fn mock_restore_rejects_an_id_that_is_not_trashed() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {"id": "1", "title": "GitHub", "category": "login"}
+            ]
+        })));
+
+        let missing = OmawardenBridge::restore_cipher("unknown".to_string());
+        assert!(!missing.ok, "an unknown id must not silently succeed");
+        let active = OmawardenBridge::restore_cipher("1".to_string());
+        assert!(!active.ok, "an active id must not be restorable");
+        assert_eq!(
+            active.error.as_deref(),
+            Some("Cipher '1' not found in trash.")
+        );
+        assert_eq!(
+            OmawardenBridge::query_vault(VaultFilterInput::default()).total_count,
+            1
+        );
+    }
+
+    #[test]
+    fn mock_restore_surfaces_the_daemon_error() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "trashMutationError": "Server rejected restore (HTTP 403): denied",
+            "items": [
+                {"id": "1", "title": "Old GitHub", "category": "login", "deletedAt": "2026-01-02T03:04:05Z"}
+            ]
+        })));
+
+        let restored = OmawardenBridge::restore_cipher("1".to_string());
+        assert!(!restored.ok);
+        assert_eq!(
+            restored.error.as_deref(),
+            Some("Server rejected restore (HTTP 403): denied")
+        );
+        // A failed restore leaves the row in the Trash.
+        assert_eq!(
+            OmawardenBridge::query_trash(VaultFilterInput::default())
+                .all_items
+                .len(),
+            1
+        );
     }
 
     #[test]

@@ -143,6 +143,14 @@ export const vaultView = signal<VaultView>("active");
  * vault's cache stays active-only, and a cold path cannot reach a trashed row.
  */
 export const trashItems = signal<CipherRowView[] | null>(null);
+/**
+ * Whether a Trash mutation changed the active rows while the Trash was open.
+ *
+ * A restore or purge does not re-read the active vault from inside the Trash:
+ * the refresh happens once on the way back, so the view keeps its own row
+ * source and no cold path gains an extra request.
+ */
+let activeRowsStale = false;
 export const phase = computed<AppPhase>(() => snapshot().phase);
 export const sshPrompt = computed(() => snapshot().sshPrompt);
 export const dependencies = signal<DependencyStatusView | null>(null);
@@ -185,6 +193,8 @@ export const focusedAction = signal<string | null>(null);
 export const isSubmitting = signal(false);
 /** Whether a vault sync is in flight (kept separate from auth submission). */
 export const isSyncing = signal(false);
+/** Whether a Trash restore is in flight, so a double press cannot fire twice. */
+export const isRestoring = signal(false);
 /** The cipher whose master-password re-prompt grant is active. */
 export const repromptCipherId = signal<string | null>(null);
 export const repromptError = signal<string | null>(null);
@@ -614,6 +624,10 @@ function applySnapshot(next: VaultSnapshotView): void {
     repromptError.set(null);
     vaultView.set("active");
     trashItems.set(null);
+    // A new session re-reads the active rows on unlock, so neither a pending
+    // Trash refresh nor an in-flight restore flag survives the lock.
+    activeRowsStale = false;
+    isRestoring.set(false);
   }
   if (next.twoFactor) {
     selectedProvider.set(next.twoFactor.selectedProvider);
@@ -1058,16 +1072,14 @@ export function setScope(next: string): void {
   scopeId.set(next);
   scopeOpen.set(false);
   // A scope belongs to the active vault: picking one leaves the Trash.
-  vaultView.set("active");
-  selectedIndex.set(0);
+  leaveTrash();
   query();
 }
 
 export function setFolder(next: string | null): void {
   folderId.set(next);
   scopeOpen.set(false);
-  vaultView.set("active");
-  selectedIndex.set(0);
+  leaveTrash();
   query();
 }
 
@@ -1094,13 +1106,34 @@ export function openTrash(): void {
   refreshInspector();
 }
 
+/**
+ * Leaves the Trash for the active vault, applying a pending active-row refresh.
+ *
+ * Every way back (a scope row, the folder picker, the name resolver) goes
+ * through here, so a restore or purge cannot leave the active list a mutation
+ * behind.
+ */
+function leaveTrash(): void {
+  if (vaultView() !== "trash") {
+    return;
+  }
+  vaultView.set("active");
+  selectedIndex.set(0);
+  if (activeRowsStale) {
+    activeRowsStale = false;
+    // The active-vault cache doesn't know about the Trash mutation; clear it
+    // so the next query_vault picks up the restored/purged cipher.
+    OmawardenBridge.clearVaultCache();
+    reloadVault();
+  }
+}
+
 /** Leaves the Trash for the active vault, keeping the loaded Trash rows. */
 export function closeTrash(): void {
   if (vaultView() === "active") {
     return;
   }
-  vaultView.set("active");
-  selectedIndex.set(0);
+  leaveTrash();
   query();
 }
 
@@ -1124,6 +1157,41 @@ function reloadTrash(): void {
     selectedIndex.set(0);
   }
   refreshInspector();
+}
+
+/**
+ * Restores the selected Trash row in one action, with no confirmation.
+ *
+ * On success the Trash is re-read so the row disappears and the selection is
+ * clamped to the rows that remain. The user stays in the Trash; the active rows
+ * are marked stale so the cipher is there when they go back. A failure only
+ * toasts the daemon's error and leaves the list untouched.
+ */
+export function restoreCipher(id: string): void {
+  if (vaultView() !== "trash" || isRestoring()) {
+    return;
+  }
+  const row = (trashItems() ?? []).find((item) => item.id === id);
+  if (!row) {
+    return;
+  }
+  isRestoring.set(true);
+  defer(() => {
+    try {
+      const outcome: CipherMutationOutcomeView = OmawardenBridge.restoreCipher(id);
+      if (!outcome.ok) {
+        notify(outcome.error ?? "Could not restore the item.", "error");
+        return;
+      }
+      notify(`Restored "${outcome.name ?? row.title}".`, "success");
+      activeRowsStale = true;
+      reloadTrash();
+    } catch (error) {
+      notify(`Restore failed: ${String(error)}`, "error");
+    } finally {
+      isRestoring.set(false);
+    }
+  });
 }
 
 export function selectCipher(index: number): void {
@@ -2114,8 +2182,7 @@ export function selectCipherById(id: string): boolean {
   // The resolver targets the active vault, so a hit there has to leave the
   // Trash first; otherwise the row is never in the list being searched.
   if (vaultView() === "trash") {
-    vaultView.set("active");
-    selectedIndex.set(0);
+    leaveTrash();
   }
   const find = () => filteredItems().findIndex((row) => row.id === id);
   let index = find();
