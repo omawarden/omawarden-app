@@ -183,12 +183,17 @@ pub mod native {
   `refresh_totp`, and `copy_cipher_field` serve cache hits directly and fall
   back to the daemon only on a miss. `lock_or_logout`, `sync_vault`,
   `save_ssh_key`, and a locked `poll_daemon_tick` clear the cache.
+  `query_trash` reads the daemon's `list` with `{"trash": true}` and borrows
+  the cache for its account context only: the deleted rows never enter
+  `CachedVault`, which stays active-only.
 - **`FilterProjection` is the TSX hot path.** `store/appStore.ts` keeps
   `rawItems` (from `snapshot.allItems`), fine-grained `category`, `scopeId`,
   `folderId`, and `search` signals, and derives `filteredItems()` with the same
   pure-TS subsequence scorer as the Rust engine. `query()`, `setSearch()`,
   `setCategory()`, `setScope()`, and `setFolder()` never call
-  `OmawardenBridge.queryVault` and never call `snapshot.set()`.
+  `OmawardenBridge.queryVault` and never call `snapshot.set()`. The loaded
+  Trash rows live in their own `trashItems` signal; `viewRows()` picks the
+  rows of the current view, and `filterTrashRows()` narrows them locally.
 - **`<If>` preserves mounted views.** Top-level phase and modal switches use
   `<If when={…}>` instead of bare JSX ternaries, which compile to unmemoized
   reactive effects that destroy and recreate their subtree. With `<If>`, the

@@ -278,6 +278,8 @@ pub(crate) struct MockState {
     daemon_online: bool,
     /// How many mock ticks have been answered, so a test can see the timer stop.
     daemon_ticks: u32,
+    /// How many Trash reads the mock has served, so a test can see the lazy load.
+    trash_queries: u32,
     filter: VaultFilterInput,
     selected_cipher_id: Option<String>,
     master_password: String,
@@ -343,6 +345,7 @@ impl Default for MockState {
             sync_error: None,
             daemon_online: true,
             daemon_ticks: 0,
+            trash_queries: 0,
             filter: VaultFilterInput::default(),
             selected_cipher_id: None,
             master_password: "correct horse battery staple".to_string(),
@@ -931,6 +934,11 @@ impl OmawardenBridge {
         with_mock(|state| state.daemon_ticks)
     }
 
+    /// Counts the mock Trash reads, so a test can see the lazy-load rule.
+    pub fn mock_trash_queries() -> u32 {
+        with_mock(|state| state.trash_queries)
+    }
+
     /// Initialize the app or handle an external summon payload (e.g. `{"view":"ssh-approval","id":1}`).
     pub fn boot(payload_json: Option<String>) -> VaultSnapshotView {
         #[cfg(target_os = "linux")]
@@ -1021,6 +1029,11 @@ impl OmawardenBridge {
     /// Query, fuzzy-score, and filter the unlocked vault by search text, scope, folder, and category.
     pub fn query_vault(filter: VaultFilterInput) -> VaultSnapshotView {
         engine::vault().query(filter)
+    }
+
+    /// Query the Trash: the soft-deleted ciphers, newest deletion first.
+    pub fn query_trash(filter: VaultFilterInput) -> VaultSnapshotView {
+        engine::vault().query_trash(filter)
     }
 
     /// Synchronize the vault with the Bitwarden server and return the updated snapshot.
@@ -2186,6 +2199,69 @@ mod tests {
             OmawardenBridge::resolve_cipher_target("GitHub".to_string())
                 .item
                 .is_some()
+        );
+    }
+
+    #[test]
+    fn mock_trash_lists_deleted_items_newest_first() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {"id": "1", "title": "Active", "category": "login"},
+                {"id": "2", "title": "Older", "category": "login", "deletedAt": "2026-01-01T00:00:00Z"},
+                {"id": "3", "title": "Newer", "category": "login", "deletedAt": "2026-02-01T00:00:00Z"}
+            ]
+        })));
+
+        assert_eq!(OmawardenBridge::mock_trash_queries(), 0);
+        let trash = OmawardenBridge::query_trash(VaultFilterInput::default());
+        assert_eq!(OmawardenBridge::mock_trash_queries(), 1);
+
+        let ids: Vec<&str> = trash.all_items.iter().map(|row| row.id.as_str()).collect();
+        assert_eq!(ids, vec!["3", "2"]);
+        assert!(trash.all_items.iter().all(|row| row.deleted_at.is_some()));
+        assert!(
+            trash
+                .all_items
+                .iter()
+                .all(|row| row.category == ItemCategory::Login)
+        );
+
+        // The active snapshot still holds only the active item, so reading the
+        // Trash did not leak into the cache.
+        let active = OmawardenBridge::query_vault(VaultFilterInput::default());
+        assert_eq!(active.all_items.len(), 1);
+        assert_eq!(active.all_items[0].id, "1");
+    }
+
+    #[test]
+    fn mock_trash_ignores_the_active_scope_and_folder() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {
+                    "id": "1",
+                    "title": "Old Work Login",
+                    "category": "login",
+                    "organization": "Acme",
+                    "folder": "Work",
+                    "deletedAt": "2026-02-01T00:00:00Z"
+                }
+            ]
+        })));
+
+        let trash = OmawardenBridge::query_trash(VaultFilterInput {
+            search: String::new(),
+            category: ItemCategory::All,
+            scope_id: Some("personal".to_string()),
+            folder_id: Some("folder:Work".to_string()),
+        });
+        assert_eq!(
+            trash.all_items.len(),
+            1,
+            "the Trash is server-wide, so a stale scope or folder cannot narrow it"
         );
     }
 

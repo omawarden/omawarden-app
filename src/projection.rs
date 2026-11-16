@@ -134,6 +134,19 @@ pub(crate) fn row_from_item(item: &VaultItem, reprompt: u32) -> CipherRowView {
     }
 }
 
+/// Orders Trash rows by deletion time, newest first.
+///
+/// The daemon's Trash `list` does not promise an order, and the active list's
+/// fuzzy-score sort is meaningless in the Trash: the user is looking for what
+/// was deleted most recently, so that is the primary key.
+pub(crate) fn sort_trash(rows: &mut [CipherRowView]) {
+    rows.sort_by(|a, b| {
+        b.deleted_at
+            .cmp(&a.deleted_at)
+            .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
+    });
+}
+
 /// Whether a row belongs to the active scope.
 fn row_in_scope(row: &CipherRowView, active_scope: &str) -> bool {
     match active_scope {
@@ -357,5 +370,21 @@ mod tests {
         assert!(row.deleted_at.is_none());
         assert_eq!(row.title, "Old login");
         assert_eq!(row.category, ItemCategory::Login);
+    }
+
+    #[test]
+    fn trash_rows_sort_newest_deletion_first() {
+        let mut older = row_from_item(&login(Some("2026-01-01T00:00:00Z")), 0);
+        older.title = "Older".to_string();
+        let mut newer = row_from_item(&login(Some("2026-02-01T00:00:00Z")), 0);
+        newer.title = "Newer".to_string();
+        let mut rows = vec![older, newer];
+        sort_trash(&mut rows);
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Newer", "Older"]
+        );
     }
 }

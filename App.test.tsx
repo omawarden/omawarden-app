@@ -1,6 +1,7 @@
 import { expect, open, test } from "nsh/test";
 import { OmawardenBridge } from "omawarden-app/native";
 import { buildDiagnosticReport, DIAGNOSTIC_SCOPE } from "./store/diagnosticReport";
+import { formatLocalDateTime } from "./store/DateTime";
 
 type MockState = Record<string, unknown>;
 
@@ -125,6 +126,41 @@ const IMPORTED_SSH_KEY_PEM =
   "AAAECK8QucQD6uVKWOM8q8h5etLaPHPAQe/Oqkb2ChGWF5UtHthy4miuXjPQaO+UJEcWNp\n" +
   "/8aRB6y9wTGD9D1Thq+kAAAADm9tYXdhcmRlbi10ZXN0AQIDBAUGBw==\n" +
   "-----END OPENSSH PRIVATE KEY-----";
+
+// A trashed login with a deletion date.
+const TRASHED_ITEM: Record<string, unknown> = {
+  id: "trashed1",
+  title: "Old GitHub",
+  category: "login",
+  username: "octocat",
+  password: "hunter2",
+  deletedAt: "2026-01-15T10:30:00Z",
+  organization: "Acme",
+  folder: "Work",
+};
+
+// An older trashed item, to verify newest-deleted-first sort.
+const OLDER_TRASHED_ITEM: Record<string, unknown> = {
+  id: "trashed2",
+  title: "Ancient Login",
+  category: "login",
+  deletedAt: "2026-01-01T00:00:00Z",
+};
+
+// A trashed secure note, for category tab filtering in Trash.
+const TRASHED_NOTE: Record<string, unknown> = {
+  id: "trashed3",
+  title: "Old Notes",
+  category: "secureNote",
+  notes: "some notes",
+  deletedAt: "2026-02-01T12:00:00Z",
+};
+
+const TRASH_ITEMS: Array<Record<string, unknown>> = [
+  TRASHED_ITEM,
+  OLDER_TRASHED_ITEM,
+  TRASHED_NOTE,
+];
 
 const VAULT_ITEMS: Array<Record<string, unknown>> = [
   LOGIN_ITEM,
@@ -597,6 +633,242 @@ test("filter changes preserve the mounted workspace and update rows instantly", 
   await app.clear("id:vault-search");
   expect(app.shows("id:vault-workspace")).toBe(true);
   expect(app.texts()).toContain("6 of 6");
+});
+
+test("the Trash entry appears in the Scope dropdown and lists only trashed items", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, ...TRASH_ITEMS],
+  });
+
+  // The workspace mounts with the active vault.
+  expect(app.shows("id:vault-workspace")).toBe(true);
+  expect(app.shows("id:cipher-row-login1")).toBe(true);
+  expect(app.shows("id:cipher-row-trashed1")).toBe(false);
+  expect(app.shows("id:cipher-row-trashed2")).toBe(false);
+
+  // Open the scope dropdown; the Trash row is below the org rows, after a divider.
+  await app.press("id:scope-trigger");
+  expect(app.shows("id:scope-dropdown")).toBe(true);
+  expect(app.shows("id:scope-trash")).toBe(true);
+  expect(app.shows("id:scope-divider")).toBe(true);
+
+  // The Trash row shows no count before the first load: the next text belongs
+  // to the folder column, not to the row.
+  const textsBefore = app.texts();
+  const trashIdx = textsBefore.findIndex((t) => t.trim() === "Trash");
+  expect(trashIdx).toBeGreaterThanOrEqual(0);
+  expect(/^\d+$/.test((textsBefore[trashIdx + 1] ?? "").trim())).toBe(false);
+
+  // Open the Trash — it loads once.
+  await app.press("id:scope-trash");
+  expect(app.shows("id:scope-dropdown")).toBe(false);
+  expect(app.texts()).toContain("Trash");
+
+  // Only trashed items are listed; active ones are absent.
+  expect(app.shows("id:cipher-row-trashed1")).toBe(true);
+  expect(app.shows("id:cipher-row-trashed2")).toBe(true);
+  expect(app.shows("id:cipher-row-trashed3")).toBe(true);
+  expect(app.shows("id:cipher-row-login1")).toBe(false);
+  expect(app.shows("id:cipher-row-card1")).toBe(false);
+
+  // Newest deletion first: trashed3 (Feb 1) then trashed1 (Jan 15) then trashed2 (Jan 1).
+  const afterOpen = app.texts();
+  const idx3 = afterOpen.findIndex((t) => t === "Old Notes");
+  const idx1 = afterOpen.findIndex((t) => t === "Old GitHub");
+  const idx2 = afterOpen.findIndex((t) => t === "Ancient Login");
+  expect(idx3).toBeLessThan(idx1);
+  expect(idx1).toBeLessThan(idx2);
+
+  // The Trash row reports its count after the first load.
+  await app.press("id:scope-trigger");
+  expect(app.shows("id:scope-dropdown")).toBe(true);
+  const textsLoaded = app.texts();
+  const loadedIdx = textsLoaded.findIndex((t) => t.trim() === "Trash");
+  expect(textsLoaded[loadedIdx + 1]).toBe("3");
+  await app.press("id:scope-trigger");
+
+  // Category tabs filter the Trash locally.
+  await app.press("id:category-secureNote");
+  expect(app.shows("id:cipher-row-trashed3")).toBe(true);
+  expect(app.shows("id:cipher-row-trashed1")).toBe(false);
+  expect(app.shows("id:cipher-row-trashed2")).toBe(false);
+
+  await app.press("id:category-all");
+
+  // Search filters the Trash locally.
+  await app.type("id:vault-search", "github");
+  expect(app.shows("id:cipher-row-trashed1")).toBe(true);
+  expect(app.shows("id:cipher-row-trashed2")).toBe(false);
+
+  await app.clear("id:vault-search");
+  expect(app.shows("id:cipher-row-trashed2")).toBe(true);
+});
+
+test("the Trash inspector is read-only and shows no secrets", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashed1");
+
+  // Inspector shows title, category, deletion time, folder, organization.
+  expect(app.texts()).toContain("Old GitHub");
+  expect(app.texts()).toContain("Login");
+  expect(app.texts()).toContain("Work");
+  expect(app.texts()).toContain("Acme");
+
+  // No secrets: password, TOTP, notes, URIs, custom fields, attachments.
+  expect(app.texts().join(" ")).not.toContain("hunter2");
+  expect(app.shows("id:inspector-totp")).toBe(false);
+  expect(app.shows("id:inspector-uris")).toBe(false);
+  expect(app.shows("id:inspector-fields")).toBe(false);
+  expect(app.shows("id:inspector-attachments")).toBe(false);
+
+  // The inspector header shows the Trash notice.
+  expect(app.texts().join(" ")).toContain("This item is in the Trash");
+});
+
+test("an active row has no deletedAt and a trashed row has it", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+
+  // The bridge's row DTO omits the key outright on active rows (skip_none),
+  // while every Trash row carries it.
+  const emptyFilter = { search: "", category: "all" as const, scopeId: null, folderId: null };
+  const active = OmawardenBridge.queryVault(emptyFilter);
+  expect(active.allItems.some((row) => "deletedAt" in row)).toBe(false);
+  const trash = OmawardenBridge.queryTrash(emptyFilter);
+  expect(trash.allItems.length).toBe(1);
+  expect("deletedAt" in trash.allItems[0]).toBe(true);
+  expect(trash.allItems[0].deletedAt).toBe("2026-01-15T10:30:00Z");
+
+  // The list badge and the inspector both format the deletion time.
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashed1");
+  expect(app.texts()).toContain(formatLocalDateTime("2026-01-15T10:30:00Z"));
+  expect(app.shows("id:trash-deleted-at")).toBe(true);
+});
+
+test("no Trash request on boot, unlock, tick, or active-vault search", async () => {
+  const app = await openMockWithClock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+
+  // Boot + unlock happened via openMockWithClock; no Trash request yet.
+  expect(OmawardenBridge.mockTrashQueries()).toBe(0);
+
+  // Active-vault search does not trigger Trash.
+  await app.type("id:vault-search", "git");
+  expect(OmawardenBridge.mockTrashQueries()).toBe(0);
+
+  await app.clear("id:vault-search");
+  expect(OmawardenBridge.mockTrashQueries()).toBe(0);
+
+  // Category change does not trigger Trash.
+  await app.press("id:category-card");
+  expect(OmawardenBridge.mockTrashQueries()).toBe(0);
+  await app.press("id:category-all");
+  expect(OmawardenBridge.mockTrashQueries()).toBe(0);
+
+  // Daemon tick does not trigger Trash.
+  await app.wait(2500);
+  expect(OmawardenBridge.mockTrashQueries()).toBe(0);
+
+  // Only opening the Trash triggers the request.
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  expect(OmawardenBridge.mockTrashQueries()).toBe(1);
+
+  // Re-opening reuses the loaded list: no new request.
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-all");
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  expect(OmawardenBridge.mockTrashQueries()).toBe(1);
+});
+
+test("sync while the Trash is open reloads the Trash", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  expect(app.shows("id:cipher-row-trashed1")).toBe(true);
+  expect(OmawardenBridge.mockTrashQueries()).toBe(1);
+
+  // Trigger a sync via the action palette.
+  await app.keyboard.press("mod+k");
+  expect(app.shows("id:action-palette-modal")).toBe(true);
+  await app.press("id:action-sync");
+  expect(app.shows("id:action-palette-modal")).toBe(false);
+  expect(app.texts()).toContain("Vault synchronized.");
+
+  // Trash was re-read on sync.
+  expect(OmawardenBridge.mockTrashQueries()).toBe(2);
+  expect(app.shows("id:cipher-row-trashed1")).toBe(true);
+});
+
+test("scope and folder controls are hidden in the Trash", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+
+  // In the active view the dropdown shows both the scope and folder columns.
+  await app.press("id:scope-trigger");
+  expect(app.shows("id:scope-dropdown")).toBe(true);
+  expect(app.shows("id:scope-personal")).toBe(true);
+  expect(app.shows("id:scope-folder-all")).toBe(true);
+
+  await app.press("id:scope-trash");
+
+  // In the Trash the folder column and the filter hint are gone. The scope
+  // rows stay: they are the way back to the active vault.
+  await app.press("id:scope-trigger");
+  expect(app.shows("id:scope-dropdown")).toBe(true);
+  expect(app.shows("id:scope-trash")).toBe(true);
+  expect(app.shows("id:scope-personal")).toBe(true);
+  expect(app.shows("id:scope-folder-all")).toBe(false);
+  expect(app.texts()).not.toContain("Folders");
+  expect(app.texts()).not.toContain(
+    "Scope filters apply together with the category tabs and the search text.",
+  );
+
+  // The scope trigger labels the view as Trash.
+  expect(app.texts()).toContain("Scope: Trash");
+
+  // Picking a scope leaves the Trash instead of narrowing it.
+  await app.press("id:scope-all");
+  expect(app.shows("id:cipher-row-login1")).toBe(true);
+  expect(app.shows("id:cipher-row-trashed1")).toBe(false);
+});
+
+test("Trash empty states distinguish empty from no matches", async () => {
+  // No trashed items at all.
+  const emptyApp = await openMock({ phase: "unlocked", items: VAULT_ITEMS });
+  await emptyApp.press("id:scope-trigger");
+  await emptyApp.press("id:scope-trash");
+  expect(emptyApp.texts()).toContain("The Trash is empty.");
+
+  // Some trashed items, but search matches none.
+  const searchApp = await openMock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+  await searchApp.press("id:scope-trigger");
+  await searchApp.press("id:scope-trash");
+  await searchApp.type("id:vault-search", "nomatch");
+  expect(searchApp.texts()).toContain("No trashed items match this search.");
 });
 
 test("clearing the search keeps the viewed item selected and inspected", async () => {

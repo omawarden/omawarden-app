@@ -130,6 +130,19 @@ function defaultReveal(): RevealStateInput {
 
 export const snapshot = signal<VaultSnapshotView>(emptySnapshot("login"));
 export const rawItems = signal<CipherRowView[]>([]);
+/**
+ * Which vault the list shows. The Trash is a view, not an `ItemCategory`, so
+ * the category tabs keep their meaning inside it.
+ */
+export type VaultView = "active" | "trash";
+export const vaultView = signal<VaultView>("active");
+/**
+ * The loaded Trash rows, or null until the first open of the session.
+ *
+ * The Trash is read on demand and kept here, never in `rawItems`: the active
+ * vault's cache stays active-only, and a cold path cannot reach a trashed row.
+ */
+export const trashItems = signal<CipherRowView[] | null>(null);
 export const phase = computed<AppPhase>(() => snapshot().phase);
 export const sshPrompt = computed(() => snapshot().sshPrompt);
 export const dependencies = signal<DependencyStatusView | null>(null);
@@ -304,9 +317,41 @@ function filterRows(
   return scored.map((entry) => entry.row);
 }
 
+/**
+ * Filters the loaded Trash rows.
+ *
+ * The Trash is server-wide, so scope and folder do not narrow it. The rows
+ * arrive newest-deletion-first and keep that order: a search must not re-sort
+ * them by fuzzy score the way the active list does.
+ */
+function filterTrashRows(
+  rows: CipherRowView[],
+  cat: ItemCategory,
+  queryText: string,
+): CipherRowView[] {
+  const kept: CipherRowView[] = [];
+  for (const row of rows) {
+    if (cat !== "all" && row.category !== cat) continue;
+    const haystack = `${row.title} ${row.subtitle} ${row.organization ?? ""} ${row.folder ?? ""}`;
+    if (fuzzyScore(queryText, haystack) === null) continue;
+    kept.push(row);
+  }
+  return kept;
+}
+
 export const filteredItems = computed<CipherRowView[]>(() =>
-  filterRows(rawItems(), category(), scopeId(), folderId(), search()),
+  vaultView() === "trash"
+    ? filterTrashRows(trashItems() ?? [], category(), search())
+    : filterRows(rawItems(), category(), scopeId(), folderId(), search()),
 );
+
+/** Every row the current view can list, before filtering. */
+export const viewRows = computed<CipherRowView[]>(() =>
+  vaultView() === "trash" ? trashItems() ?? [] : rawItems(),
+);
+
+/** The Trash's row count, or null before the first load. */
+export const trashCount = computed<number | null>(() => trashItems()?.length ?? null);
 
 /** Category badges for the current search, scope, and folder. */
 export const categoryCounts = computed<CategoryCountsView>(() => {
@@ -318,7 +363,10 @@ export const categoryCounts = computed<CategoryCountsView>(() => {
     secureNotes: 0,
     sshKeys: 0,
   };
-  const rows = filterRows(rawItems(), "all", scopeId(), folderId(), search());
+  const rows =
+    vaultView() === "trash"
+      ? filterTrashRows(trashItems() ?? [], "all", search())
+      : filterRows(rawItems(), "all", scopeId(), folderId(), search());
   for (const row of rows) {
     counts.all += 1;
     switch (row.category) {
@@ -365,11 +413,40 @@ export const selectedCipher = computed<CipherRowView | null>(() => {
   return items[index] ?? null;
 });
 
+/**
+ * Whether the current view has an item for the inspector to show.
+ *
+ * The active view needs an engine inspector; the Trash renders the selected row
+ * itself, because the daemon's per-item reads are active-only.
+ */
+export const selectionActive = computed<boolean>(() =>
+  vaultView() === "trash" ? selectedCipher() !== null : inspector() !== null,
+);
+
+/**
+ * Refuses an item action while the Trash is the current view.
+ *
+ * Trashed ciphers are read-only: the daemon's item reads and mutations are
+ * active-only, so a secret or an edit there would fail anyway.
+ */
+function trashBlocksItemActions(): boolean {
+  if (vaultView() !== "trash") {
+    return false;
+  }
+  notify("This item is in the Trash.", "info");
+  return true;
+}
+
 export const activeScopeName = computed(() => {
   const active = scopeId();
   const match = snapshot().scopes.find((scope) => scope.id === active);
   return match ? match.name : "All Vaults";
 });
+
+/** The scope trigger's label: the Trash is a view, not a scope. */
+export const scopeLabel = computed(() =>
+  vaultView() === "trash" ? "Scope: Trash" : `Scope: ${activeScopeName()}`,
+);
 
 export const activeFolderName = computed(() => {
   const active = folderId();
@@ -535,6 +612,8 @@ function applySnapshot(next: VaultSnapshotView): void {
     inspector.set(null);
     repromptCipherId.set(null);
     repromptError.set(null);
+    vaultView.set("active");
+    trashItems.set(null);
   }
   if (next.twoFactor) {
     selectedProvider.set(next.twoFactor.selectedProvider);
@@ -572,6 +651,21 @@ function currentFilter(): VaultFilterInput {
     category: category(),
     scopeId: scopeId(),
     folderId: folderId(),
+  };
+}
+
+/**
+ * The filter a Trash read sends: the whole list, filtered locally.
+ *
+ * The Trash is server-wide, so the request carries no scope or folder, and the
+ * store applies the search and category tabs to the loaded rows itself.
+ */
+function trashFilter(): VaultFilterInput {
+  return {
+    search: "",
+    category: "all",
+    scopeId: null,
+    folderId: null,
   };
 }
 
@@ -926,6 +1020,11 @@ export function sync(): void {
     try {
       const next = OmawardenBridge.syncVault(currentFilter());
       applySnapshot(next);
+      // The Trash is a separate read, so an explicit sync is the one moment it
+      // has to be refreshed while the user is looking at it.
+      if (vaultView() === "trash" && phase() === "unlocked") {
+        reloadTrash();
+      }
       // applySnapshot already surfaces `next.error`; only announce success.
       if (!next.error) {
         notify("Vault synchronized.", "success");
@@ -941,8 +1040,10 @@ export function sync(): void {
 export function setSearch(text: string): void {
   if (search() === text) return;
   // Remember the row being inspected so the projection change keeps it — and
-  // the inspector — in place instead of jumping back to the first row.
-  const keepId = inspector()?.id ?? null;
+  // the inspector — in place instead of jumping back to the first row. The
+  // Trash has no engine inspector, so its selection is the row itself.
+  const keepId =
+    vaultView() === "trash" ? (selectedCipher()?.id ?? null) : (inspector()?.id ?? null);
   search.set(text);
   query(keepId);
 }
@@ -956,17 +1057,73 @@ export function setCategory(next: ItemCategory): void {
 export function setScope(next: string): void {
   scopeId.set(next);
   scopeOpen.set(false);
+  // A scope belongs to the active vault: picking one leaves the Trash.
+  vaultView.set("active");
+  selectedIndex.set(0);
   query();
 }
 
 export function setFolder(next: string | null): void {
   folderId.set(next);
   scopeOpen.set(false);
+  vaultView.set("active");
+  selectedIndex.set(0);
   query();
 }
 
 export function toggleScope(): void {
   scopeOpen.update((open) => !open);
+}
+
+/**
+ * Switches the list to the Trash, loading it on first open.
+ *
+ * The Trash is read on demand: boot, unlock, the daemon tick, and active-vault
+ * filtering never touch it. Once loaded it stays for the session, so re-opening
+ * it is instant.
+ */
+export function openTrash(): void {
+  scopeOpen.set(false);
+  vaultView.set("trash");
+  resetVisibleLimit();
+  selectedIndex.set(0);
+  reveal.set(defaultReveal());
+  repromptCipherId.set(null);
+  repromptError.set(null);
+  loadTrash();
+  refreshInspector();
+}
+
+/** Leaves the Trash for the active vault, keeping the loaded Trash rows. */
+export function closeTrash(): void {
+  if (vaultView() === "active") {
+    return;
+  }
+  vaultView.set("active");
+  selectedIndex.set(0);
+  query();
+}
+
+/** Reads the Trash once per session, unless a mutation invalidates it. */
+export function loadTrash(): void {
+  if (trashItems() !== null) {
+    return;
+  }
+  const next = OmawardenBridge.queryTrash(trashFilter());
+  trashItems.set(next.allItems);
+  if (next.error) {
+    notify(next.error, "error");
+  }
+}
+
+/** Re-reads the Trash after a restore, a purge, or an explicit sync. */
+function reloadTrash(): void {
+  trashItems.set(null);
+  loadTrash();
+  if (selectedIndex() >= (trashItems()?.length ?? 0)) {
+    selectedIndex.set(0);
+  }
+  refreshInspector();
 }
 
 export function selectCipher(index: number): void {
@@ -983,7 +1140,7 @@ export function moveSelection(delta: number): void {
   if (items.length === 0) {
     return;
   }
-  if (!inspector()) {
+  if (!selectionActive()) {
     selectCipher(0);
     return;
   }
@@ -994,6 +1151,13 @@ export function moveSelection(delta: number): void {
 }
 
 export function refreshInspector(): void {
+  // The Trash renders its inspector from the selected row: the daemon's
+  // per-item read is active-only, so there is nothing to ask it for.
+  if (vaultView() === "trash") {
+    stopTotpTicker();
+    inspector.set(null);
+    return;
+  }
   const cipher = selectedCipher();
   if (!cipher) {
     stopTotpTicker();
@@ -1095,6 +1259,9 @@ export function tickTotp(): void {
 }
 
 export function toggleReveal(field: "password" | "cardNumber" | "cvv" | "privateKey"): void {
+  if (trashBlocksItemActions()) {
+    return;
+  }
   if (!ensureReprompt(() => applyReveal(field))) {
     return;
   }
@@ -1127,6 +1294,9 @@ function applyRevealField(index: number): void {
 }
 
 export function copyField(field: string, customIndex?: number): void {
+  if (trashBlocksItemActions()) {
+    return;
+  }
   const cipher = selectedCipher();
   if (!cipher) {
     notify("Select an item first.", "error");
@@ -1287,6 +1457,9 @@ export function toggleFavorite(): void {
 
 /** Opens the selected item's first website URI. */
 export function openFirstUrl(): void {
+  if (trashBlocksItemActions()) {
+    return;
+  }
   const uris = inspector()?.uris ?? [];
   if (uris.length === 0) {
     notify("This item has no website URL.", "error");
@@ -1608,6 +1781,11 @@ export function openSettings(): void {
 }
 
 export function openSshKey(mode: SshKeyMode): void {
+  // Creating a key is a vault-wide action; exporting the selected one is not,
+  // because the Trash never shows secrets.
+  if (mode === "export" && trashBlocksItemActions()) {
+    return;
+  }
   sshKeyMode.set(mode);
   sshPreview.set(null);
   sshSaveError.set(null);
@@ -1615,6 +1793,9 @@ export function openSshKey(mode: SshKeyMode): void {
 }
 
 export function openPasswordHistory(): void {
+  if (trashBlocksItemActions()) {
+    return;
+  }
   openModal("passwordHistory");
 }
 
@@ -1762,6 +1943,9 @@ export function openCipherForm(cipherType: "login" | "note" = "login"): void {
 
 /** The selected cipher when it is a login or a secure note, else null. */
 function editableCipher(): CipherRowView | null {
+  if (trashBlocksItemActions()) {
+    return null;
+  }
   const cipher = selectedCipher();
   if (!cipher) {
     notify("Select an item first.", "error");
@@ -1927,6 +2111,12 @@ export function updateCipherResolveQuery(value: string): void {
  * when one of them hides it. Returns false when no row has that id.
  */
 export function selectCipherById(id: string): boolean {
+  // The resolver targets the active vault, so a hit there has to leave the
+  // Trash first; otherwise the row is never in the list being searched.
+  if (vaultView() === "trash") {
+    vaultView.set("active");
+    selectedIndex.set(0);
+  }
   const find = () => filteredItems().findIndex((row) => row.id === id);
   let index = find();
   if (index < 0) {

@@ -14,9 +14,9 @@ use serde_json::{Value, json};
 use crate::auth::auth_manager;
 use crate::daemon::parse_prompt;
 use crate::diagnostics::{LogLevel, push_log};
-use crate::projection::{build_snapshot, parse_items, row_from_item};
+use crate::projection::{build_snapshot, parse_items, row_from_item, sort_trash};
 use crate::{
-    AppPhase, CipherRowView, MockState, VaultFilterInput, VaultSnapshotView, daemon,
+    AppPhase, CipherRowView, MockItem, MockState, VaultFilterInput, VaultSnapshotView, daemon,
     ensure_app_daemon_running, load_config, sanitize_server_url, with_mock,
 };
 
@@ -24,6 +24,9 @@ use crate::{
 pub(crate) trait VaultEngine {
     /// Projects the cached or freshly read vault through `filter`.
     fn query(&self, filter: VaultFilterInput) -> VaultSnapshotView;
+
+    /// Reads the Trash, newest deletion first.
+    fn query_trash(&self, filter: VaultFilterInput) -> VaultSnapshotView;
 
     /// Syncs with the server, keeping the cached view when the sync fails.
     fn sync(&self, filter: VaultFilterInput) -> VaultSnapshotView;
@@ -37,6 +40,10 @@ impl VaultEngine for InProcess {
         real_query(filter)
     }
 
+    fn query_trash(&self, filter: VaultFilterInput) -> VaultSnapshotView {
+        real_trash(filter)
+    }
+
     fn sync(&self, filter: VaultFilterInput) -> VaultSnapshotView {
         real_sync(filter)
     }
@@ -48,6 +55,10 @@ pub(crate) struct Mock;
 impl VaultEngine for Mock {
     fn query(&self, filter: VaultFilterInput) -> VaultSnapshotView {
         with_mock(|state| mock_query(state, filter))
+    }
+
+    fn query_trash(&self, filter: VaultFilterInput) -> VaultSnapshotView {
+        with_mock(|state| mock_trash(state, filter))
     }
 
     fn sync(&self, filter: VaultFilterInput) -> VaultSnapshotView {
@@ -102,6 +113,77 @@ fn real_sync(filter: VaultFilterInput) -> VaultSnapshotView {
     snapshot
 }
 
+/// Reads the daemon's Trash list and builds a snapshot from it.
+///
+/// The Trash is a user-initiated read, so it is never cached: `CachedVault`
+/// stays the active vault. The account context comes from that cache, which
+/// boot or unlock has already filled before the Trash can be opened.
+fn real_trash(filter: VaultFilterInput) -> VaultSnapshotView {
+    let response = daemon(json!({ "action": "list", "trash": true, "touch": false }));
+    // A `list` replies with a bare array. Anything else is the daemon's error
+    // envelope, whose message the UI shows as-is.
+    let (mut rows, error) = match response {
+        Some(value) if value.is_array() => {
+            let rows = parse_items(&value)
+                .0
+                .iter()
+                .map(|item| row_from_item(item, 0))
+                .collect();
+            (rows, None)
+        }
+        Some(value) => (
+            Vec::new(),
+            Some(
+                value
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| "Could not read the Trash.".to_string()),
+            ),
+        ),
+        None => (
+            Vec::new(),
+            Some("The Omawarden daemon is not running.".to_string()),
+        ),
+    };
+    sort_trash(&mut rows);
+    let filter = trash_filter(&filter);
+    let cached = cached_vault().lock().ok().and_then(|guard| {
+        guard
+            .as_ref()
+            .map(|vault| vault.snapshot_with_rows(rows.clone(), &filter, error.clone()))
+    });
+    cached.unwrap_or_else(|| {
+        build_snapshot(
+            AppPhase::Unlocked,
+            String::new(),
+            String::new(),
+            None,
+            false,
+            false,
+            None,
+            error.or_else(|| Some("The vault is locked.".to_string())),
+            rows,
+            &filter,
+            None,
+            None,
+            None,
+            None,
+        )
+    })
+}
+
+/// The filter a Trash read uses: the Trash is server-wide, so a stale scope or
+/// folder from the active view cannot narrow it.
+fn trash_filter(filter: &VaultFilterInput) -> VaultFilterInput {
+    VaultFilterInput {
+        search: filter.search.clone(),
+        category: filter.category,
+        scope_id: None,
+        folder_id: None,
+    }
+}
+
 /// Applies the mock filter and returns the mock snapshot.
 fn mock_query(state: &mut MockState, filter: VaultFilterInput) -> VaultSnapshotView {
     state.filter = filter;
@@ -110,6 +192,21 @@ fn mock_query(state: &mut MockState, filter: VaultFilterInput) -> VaultSnapshotV
     // rows: a cipher mutation does not invalidate them, so only a sync makes a
     // new or changed item visible. This is what the GUI must not depend on.
     state.query_snapshot()
+}
+
+/// Reads the mock Trash: the soft-deleted items, newest deletion first.
+fn mock_trash(state: &mut MockState, filter: VaultFilterInput) -> VaultSnapshotView {
+    state.trash_queries = state.trash_queries.saturating_add(1);
+    state.filter = trash_filter(&filter);
+    state.error = None;
+    let mut rows: Vec<CipherRowView> = state
+        .items
+        .iter()
+        .filter(|item| !item.is_active())
+        .map(MockItem::row)
+        .collect();
+    sort_trash(&mut rows);
+    state.snapshot_with_rows(rows)
 }
 
 /// Applies the mock sync and returns the mock snapshot.
@@ -171,6 +268,35 @@ impl CachedVault {
     pub(crate) fn reprompt(&self, id: &str) -> u32 {
         self.reprompts.get(id).copied().unwrap_or(0)
     }
+
+    /// Builds a snapshot with `rows` and the cached account context.
+    ///
+    /// The active cache normally supplies its own rows; the Trash read passes
+    /// the daemon's deleted rows instead, which keeps the Trash out of the
+    /// cache while still carrying the unlocked account's identity.
+    fn snapshot_with_rows(
+        &self,
+        rows: Vec<CipherRowView>,
+        filter: &VaultFilterInput,
+        error: Option<String>,
+    ) -> VaultSnapshotView {
+        build_snapshot(
+            AppPhase::Unlocked,
+            self.email.clone(),
+            self.server_url.clone(),
+            self.identity_url.clone(),
+            self.quick_unlock_ready,
+            self.quick_unlock_usable,
+            None,
+            error,
+            rows,
+            filter,
+            self.last_sync.clone(),
+            None,
+            None,
+            self.engine_version.clone(),
+        )
+    }
 }
 
 pub(crate) fn cached_vault() -> &'static Mutex<Option<CachedVault>> {
@@ -193,22 +319,7 @@ pub(crate) fn clear_cached_vault() {
 fn cached_snapshot(filter: &VaultFilterInput, error: Option<String>) -> Option<VaultSnapshotView> {
     let guard = cached_vault().lock().ok()?;
     let cached = guard.as_ref()?;
-    Some(build_snapshot(
-        AppPhase::Unlocked,
-        cached.email.clone(),
-        cached.server_url.clone(),
-        cached.identity_url.clone(),
-        cached.quick_unlock_ready,
-        cached.quick_unlock_usable,
-        None,
-        error,
-        cached.rows.clone(),
-        filter,
-        cached.last_sync.clone(),
-        None,
-        None,
-        cached.engine_version.clone(),
-    ))
+    Some(cached.snapshot_with_rows(cached.rows.clone(), filter, error))
 }
 
 /// Reads the daemon status and builds a real snapshot.
@@ -333,4 +444,49 @@ pub(crate) fn real_snapshot(filter: VaultFilterInput) -> VaultSnapshotView {
         ssh_prompt,
         engine_version,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::daemon::test_seam;
+
+    #[test]
+    fn real_trash_sends_the_trash_flag_and_surfaces_the_daemon_error() {
+        let _seam = test_seam::set(|action: Value| {
+            assert_eq!(
+                action.get("action").and_then(Value::as_str),
+                Some("list"),
+                "the Trash read is the daemon's list action"
+            );
+            assert_eq!(
+                action.get("trash").and_then(Value::as_bool),
+                Some(true),
+                "the daemon must return only deleted ciphers"
+            );
+            assert_eq!(
+                action.get("touch").and_then(Value::as_bool),
+                Some(false),
+                "browsing the Trash must not postpone the daemon's lock"
+            );
+            Some(json!({ "ok": false, "error": "vault is locked" }))
+        });
+
+        let snapshot = InProcess.query_trash(VaultFilterInput::default());
+        assert_eq!(snapshot.error.as_deref(), Some("vault is locked"));
+        assert!(snapshot.all_items.is_empty());
+
+        // The failed read wrote nothing into the active cache: it stays
+        // active-only even when the daemon refuses the Trash list.
+        let cache_is_active_only = cached_vault()
+            .lock()
+            .ok()
+            .and_then(|guard| {
+                guard
+                    .as_ref()
+                    .map(|vault| vault.rows.iter().all(|row| row.deleted_at.is_none()))
+            })
+            .unwrap_or(true);
+        assert!(cache_is_active_only);
+    }
 }

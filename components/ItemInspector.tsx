@@ -1,7 +1,7 @@
 import type { JSX } from "nsh";
 import { Image, Scroll, Text, View } from "nsh";
 import { Progress } from "nsh/base";
-import type { InspectorView, ItemCategory } from "omawarden-app/native";
+import type { CipherRowView, InspectorView, ItemCategory } from "omawarden-app/native";
 import * as store from "../store/appStore";
 import { formatMaskedCardNumber, formatRevealedCardNumber } from "../store/CardFormatter";
 import { formatLocalDateTime } from "../store/DateTime";
@@ -17,9 +17,83 @@ import { Icon, type IconName } from "./Icon";
 
 export function ItemInspector() {
   return (
-    <If when={store.inspector()} else={<EmptyInspector />}>
-      {(item) => <InspectorBody item={item} />}
-    </If>
+    <>
+      <If when={store.vaultView() === "trash"}>
+        <If when={store.selectedCipher()} else={<EmptyInspector />}>
+          {(row) => <TrashInspector row={row} />}
+        </If>
+      </If>
+      <If when={store.vaultView() === "active"}>
+        <If when={store.inspector()} else={<EmptyInspector />}>
+          {(item) => <InspectorBody item={item} />}
+        </If>
+      </If>
+    </>
+  );
+}
+
+/**
+ * The Trash's inspector: the deleted item's identity and where it came from.
+ *
+ * It renders the selected row instead of a per-item read, because the daemon's
+ * item reads are active-only, and it exposes no secrets at all.
+ */
+function TrashInspector(props: { row: () => CipherRowView }) {
+  const palette = store.palette;
+  const row = props.row;
+  const details = () =>
+    fields([
+      optional({
+        label: "Deleted",
+        value: formatLocalDateTime(row().deletedAt),
+        testID: "trash-deleted-at",
+      }),
+      optional({
+        label: "Folder",
+        value: row().folder ?? "",
+        testID: "trash-folder",
+      }),
+      optional({
+        label: "Organization",
+        value: row().organization ?? "",
+        testID: "trash-organization",
+      }),
+    ]);
+  return (
+    <View testID="trash-inspector" style={{ flex: 1, overflow: "hidden" }}>
+      <Scroll style={{ flex: 1 }} contentStyle={{ padding: 12 }}>
+        <View style={{ gap: 12 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <View style={{ width: scaleLength(24, store.totalScale()), alignItems: "center" }}>
+              <Icon name={categoryIcon(row().category)} size={14} color={palette().muted} />
+            </View>
+            <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+              <Text
+                style={{
+                  color: palette().popups.text,
+                  fontSize: store.type().base,
+                  fontWeight: 600,
+                  flexShrink: 1,
+                  numberOfLines: 1,
+                }}
+              >
+                {row().title || "Untitled"}
+              </Text>
+              <Text style={{ color: palette().muted, fontSize: store.type().sm, numberOfLines: 1 }}>
+                {categoryLabel(row().category)}
+              </Text>
+            </View>
+          </View>
+
+          <Section testID="inspector-trash">
+            <SectionLabel>
+              This item is in the Trash. Restore it to use it again, or delete it permanently.
+            </SectionLabel>
+            <FieldList fields={details} />
+          </Section>
+        </View>
+      </Scroll>
+    </View>
   );
 }
 
