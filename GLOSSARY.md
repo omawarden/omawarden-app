@@ -217,12 +217,14 @@ structured stderr; that boundary is recorded in ADR 0001.
 
 ## Log Viewer
 
-The bounded, in-memory log ring displayed in the Diagnose tab. It holds a
+The bounded, in-memory log ring displayed in the Logs tab. It holds a
 fixed number of recent entries (implementation detail), each carrying a
 timestamp, a level badge, the sanitized source prefix, and the message.
 The viewer supports live filtering by level. It is not persisted to disk,
 not streamed to journald, and not sent over the network. A `Refresh` action
 re-reads the ring; `Copy Diagnostic Report` includes its current contents.
+The Diagnose tab holds the engine health checks only; the viewer moved to
+its own Logs tab.
 
 ## Diagnostic Report
 

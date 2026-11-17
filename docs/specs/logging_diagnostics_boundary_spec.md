@@ -37,7 +37,7 @@ Define three distinct, in-process observability capabilities with clear boundari
 
 ## User Stories
 
-1. As a user, I want to open Settings → Diagnose and see a log viewer showing recent app events with level badges, so that I can understand what the app just did.
+1. As a user, I want to open Settings → Logs and see a log viewer showing recent app events with level badges, so that I can understand what the app just did.
 
 2. As a user, I want to filter the log viewer by level (error / warn / info), so that I can focus on failures without noise.
 
@@ -71,9 +71,12 @@ Define three distinct, in-process observability capabilities with clear boundari
   - Update check results (`src/diagnostics.rs:336,347,383`)
 - **Capacity**: Bounded ring (implementation detail, not in spec). Current 40 lines is acceptable; adjustable without spec change.
 
-### 2. Log Viewer (Diagnose Tab)
+### 2. Log Viewer (Logs Tab)
 
-- **Seam**: `components/SettingsModal.tsx` Diagnose tab (`:325-410`) reads `diagnostics().logs` from `getSettings()` snapshot (`src/lib.rs:1068-1071` → `src/settings.rs:170-184`).
+The `393f8d4` split gave the viewer its own **Logs** tab; the **Diagnose** tab now
+holds only the engine health check cards and their refresh.
+
+- **Seam**: `components/SettingsModal.tsx` Logs tab reads `diagnostics().logs` from `getSettings()` snapshot (`src/lib.rs:1068-1071` → `src/settings.rs:170-184`).
 - **Display**: Monospace, selectable lines; each line shows timestamp, level badge (semantic color from `theme/palette.ts`), source, message.
 - **Filtering**: Three pills (All / Errors & Warnings / Info) with live counters. Default: All.
 - **Refresh**: "Refresh Health" button MUST also refresh the log viewer (currently it only refreshes health; this is a bug to fix).
@@ -124,7 +127,7 @@ Define three distinct, in-process observability capabilities with clear boundari
 
 ### What makes a good test
 
-- Test **external behavior only**: the Diagnose tab renders, filters, copies; the report contains expected fields and exclusions; log lines have timestamps/levels/source; sanitization works.
+- Test **external behavior only**: the Logs tab renders, filters, copies; the report contains expected fields and exclusions; log lines have timestamps/levels/source; sanitization works.
 - Do NOT test internal ring capacity, `VecDeque` mechanics, or `OnceLock` initialization.
 - Use the existing headless test infrastructure (`App.test.tsx`, `nsh test`).
 
@@ -133,14 +136,14 @@ Define three distinct, in-process observability capabilities with clear boundari
 | Module | Test Focus |
 |--------|------------|
 | `src/diagnostics.rs` (Rust) | `push_log` sanitizes correctly; `recent_logs` returns oldest-first; level tokens present; timestamp format; ring bound respected |
-| `components/SettingsModal.tsx` (TSX) | Diagnose tab renders log lines; filter pills work; "Copy Diagnostic Report" produces expected Markdown structure; scope declaration present; "Refresh Health" also refreshes logs |
+| `components/SettingsModal.tsx` (TSX) | Logs tab renders log lines; filter pills work; "Copy Diagnostic Report" produces expected Markdown structure; scope declaration present; "Refresh Health" also refreshes logs |
 | `store/appStore.ts` | `copyDiagnosticReport` builds correct header lines; `refreshHealth` also refreshes logs snapshot |
 | `src/settings.rs` | `getSettings()` includes current log ring snapshot |
-| Integration (`App.test.tsx`) | End-to-end: unlock → trigger auth failure → open Diagnose → verify error line appears → filter → copy report → verify structure |
+| Integration (`App.test.tsx`) | End-to-end: unlock → trigger auth failure → open Logs → verify error line appears → filter → copy report → verify structure |
 
 ### Prior art
 
-- `App.test.tsx:1244-1291` — existing Diagnose tab tests (health cards, refresh, copy)
+- `App.test.tsx` — existing Settings tab tests (health cards, log viewer, refresh, copy)
 - `App.test.tsx:1420-1470` (approx) — favorite toggle tests showing pattern for keyboard + UI assertions
 - `src/diagnostics.rs:116-148` — engine crate's logging unit tests (sanitization regexes)
 - `src/tests.rs` (engine) — daemon ping/health tests showing `send_daemon_request` patterns
@@ -149,7 +152,7 @@ Define three distinct, in-process observability capabilities with clear boundari
 
 1. **Rust unit** (`src/diagnostics.rs`): `push_log` redacts bearer token / password / private IP / absolute path; timestamp + level + source prefix present.
 2. **Headless** (`App.test.tsx`):
-   - "Diagnose tab shows timestamped, leveled log lines from auth failure"
+   - "Logs tab shows timestamped, leveled log lines from auth failure"
    - "Filter pills hide/show lines by level"
    - "Copy Diagnostic Report includes scope declaration and excludes daemon logs"
    - "Refresh Health updates both health cards and log viewer"

@@ -233,7 +233,7 @@ pub mod native {
    - Passphrase generator word count MUST be strictly validated in `3..=20`. Values outside this range must return `"Passphrase word count must be between 3 and 20 words."` and NEVER be silently clamped.
 2. **No Plaintext Secret Leakage**:
    - Clipboard copies of passwords, TOTPs, CVVs, private keys, and hidden custom fields MUST pass `sensitive = true` (`wl-copy --sensitive` + Clipboard Guard auto-clear after `clipboard_clear_seconds`).
-   - Diagnostic logs and server URLs in Diagnose tab must redact tokens, passwords, private IPs, **absolute paths, and local filenames** (`sanitize_log` / `sanitize_server_url`).
+   - Diagnostic logs and server URLs in the Logs tab must redact tokens, passwords, private IPs, **absolute paths, and local filenames** (`sanitize_log` / `sanitize_server_url`).
 3. **Strict URL Scheme Validation**:
    - `launch_url` must parse with `url::Url::parse` and only allow `http` or `https` schemes.
    - `server_url` / `identity_url` only allow `http://` on loopback (`localhost`, `127.0.0.1`, `[::1]`); remote hosts require `https://`.
@@ -396,11 +396,12 @@ The card keeps the width it asks for, and the header wraps to fit it: the title 
 5. **`components/PasswordHistoryModal.tsx`**:
    - Lists previous passwords and change timestamps for the active Login item with individual copy buttons.
 6. **`components/SettingsModal.tsx` (`Ctrl+,`)**:
-   - 5 Tabs:
+   - 6 Tabs:
      - **General**: Server URL, Identity URL, Remember Email toggle, Show Website Icons toggle, Remember Last Search toggle, Check for Updates toggle, Download Directory, Max Attachment Size (MB).
      - **Appearance**: Theme Appearance (Dark Tokyo Night / Light Catppuccin Latte, persisted through the UI preferences bridge rather than the engine config) and Text size (a slider from 100% to 400% in 10% steps with a live percentage readout, persisted through the same preferences bridge). The display preferences live on their own tab so the connection form stays a form.
      - **Security**: Auto-Lock Timeout (minutes), Clipboard Clear Timeout (seconds), Polkit Quick Unlock toggle (`quick_unlock`), SSH Agent toggle (`ssh_agent_enabled`), SSH Agent Confirmation Policy (`first-use`, `always`, `never`), Client mTLS Certificate & Key paths, Lock Now & Log Out actions.
-     - **Diagnose**: Engine Health check cards (Engine Installed, Server Reachable, Secret Service Keyring, Wayland Clipboard, Memory Locked `mlock`), Sanitized Server URL, Sanitized Log Viewer with `"Copy Diagnostic Report"` button (`Refresh` button).
+     - **Diagnose**: Engine Health check cards (Engine Installed, Server Reachable, Secret Service Keyring, Wayland Clipboard, Memory Locked `mlock`) with a `Refresh` button.
+     - **Logs**: Sanitized Server URL, Sanitized Log Viewer with All / Errors & Warnings / Info level filters and `"Copy Diagnostic Report"` and `"Refresh Health"` buttons.
      - **About**: App & Engine version, Git commit hash, Build date, Update check button (`checkUpdates(true)`), View Release Notes button, GitHub repository links.
 7. **`components/ReleaseNotesModal.tsx`**:
    - Displays latest release version, title, publication time on the reader's clock, markdown release notes (`<TextView markdown={...} />`), and link to release page.
