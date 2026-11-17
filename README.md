@@ -50,8 +50,8 @@ omawarden Rust crate ── Unix socket ── omawarden daemon (separate proces
 ## Prerequisites
 
 - **Linux** (primary target) with GTK 4 and WebKitGTK 6.0.
-- **Rust** `1.98.0` — pinned by [`rust-toolchain.toml`](rust-toolchain.toml).
-- **`nsh`** `0.4.0` — the Native Shell CLI.
+- **Rust** `1.99.1` — pinned by [`rust-toolchain.toml`](rust-toolchain.toml).
+- **`nsh`** `0.5.1` — the Native Shell CLI.
 - **`mise`** — recommended for running the project tasks.
 - A sibling checkout of the engine at `../omarchy-bitwarden/omawarden`, because `Cargo.toml` links it by path.
 - Runtime tools used by engine features: `secret-tool` (libsecret) for the keyring, `wl-copy` (wl-clipboard) for the Wayland clipboard, and optionally `fido2-token` (libfido2) for security keys.
@@ -106,10 +106,12 @@ means the push should pass CI.
 
 ### GPUI preview
 
-NSH 0.4.0 packages Linux with GTK 4 only. GPUI is a development and embedding
+NSH 0.5.1 packages Linux with GTK 4 only. GPUI is a development and embedding
 backend (`nsh run --target gpui`), not a package target: `nsh package` has no
 GPUI runner, so `mise run gpui` opens the app as GPUI apps that embed it draw
-it but does not produce a release artifact. A GPUI preview needs Vulkan, GTK 3,
+it but does not produce a release artifact. NSH ships only the host platform's
+runtime, so it fetches the GPUI component on first use — add it ahead of time
+with `nsh component add gpui`. A GPUI preview needs Vulkan, GTK 3,
 WebKitGTK 4.1 and GStreamer, besides the GTK 4 packages above.
 
 ### Direct `nsh` and Cargo commands

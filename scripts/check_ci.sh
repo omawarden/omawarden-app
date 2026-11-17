@@ -9,7 +9,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 if ! command -v nsh >/dev/null 2>&1; then
-  echo "nsh is not on PATH. Install NSH v0.4.0 first." >&2
+  echo "nsh is not on PATH. Install NSH v0.5.1 first." >&2
   exit 1
 fi
 
@@ -39,6 +39,11 @@ step "TypeScript type-check"
 nsh check
 
 step "Headless tests"
-nsh test
+# The Rust suite shares process-wide state — the diagnostic log ring, and the
+# daemon's XDG_RUNTIME_DIR — so libtest's default parallelism makes it flaky:
+# a random test panics roughly one run in three. `nsh test` passes the
+# environment through to `cargo test`, and the Rust suite runs in well under a
+# second, so one thread costs nothing.
+RUST_TEST_THREADS=1 nsh test
 
 printf '\nAll CI checks passed.\n'

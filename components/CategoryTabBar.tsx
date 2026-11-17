@@ -104,7 +104,7 @@ function CategoryTab(props: {
         borderColor: accent(),
       }}
       activeStyle={{ backgroundColor: tint(accent(), background(), 0.26) }}
-      focusStyle={{ borderColor: accent() }}
+      focusVisibleStyle={{ borderColor: accent() }}
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
         <Text

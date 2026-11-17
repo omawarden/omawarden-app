@@ -2,14 +2,14 @@
 
 ## 1. Overview & Repository Role
 
-`omawarden-app` (`~/Development/linux/omawarden-app`, GitHub: `https://github.com/omawarden/omawarden-app`) is the standalone cross-platform Native Shell (`nsh` `0.4.0`) frontend for the `@omawarden` ecosystem:
+`omawarden-app` (`~/Development/linux/omawarden-app`, GitHub: `https://github.com/omawarden/omawarden-app`) is the standalone cross-platform Native Shell (`nsh` `0.5.1`) frontend for the `@omawarden` ecosystem:
 
 1. **`omawarden-cli`** (currently located at `~/Development/linux/omarchy-bitwarden/omawarden`): The Rust cryptographic engine, keyring bridge, SSH agent, and Unix socket daemon.
 2. **`omawarden-app`** (`~/Development/linux/omawarden-app`): This repository — a 100% **TSX + Tailwind + `nsh/base`** UI backed by a thin Rust native module (`#[native_module("omawarden-app/native")]`) that links directly against the `omawarden` crate (`path = "../omarchy-bitwarden/omawarden"`).
 3. **`omarchy-bitwarden-plugin`**: Thin Quickshell/Omarchy Shell wrapper (to be slimmed down in a later phase; **DO NOT modify `~/Development/linux/omarchy-bitwarden` in this phase**).
 
 ### Toolchain Paths
-- `nsh` binary: `~/.local/share/mise/installs/github-longbridge-nsh/latest/bin/nsh` (version `0.4.0`, installed via `mise`).
+- `nsh` binary: `~/.local/share/mise/installs/github-longbridge-nsh/latest/bin/nsh` (version `0.5.1`, installed via `mise`).
 - Primary desktop target: Linux GTK 4 (`--target linux`). GPUI is a development and embedding backend (`nsh run --target gpui`), not a package target; the web build uses `--target web`.
 - Reference implementation for 1:1 behavioral parity: `~/Development/linux/omarchy-bitwarden/OmarchyBitwarden.qml` and `~/Development/linux/omarchy-bitwarden/components/*.qml`.
 
@@ -459,7 +459,7 @@ Profiling `nsh run --window-size 1440x960` on Linux with GTK4 + dual AMD Vulkan 
 3. **Windowed / Capped Vault List Rendering (`components/VaultItemList.tsx`)**:
    - Avoid mounting hundreds or thousands of GTK `<Button>` row subtrees simultaneously in `<Each of={store.visibleItems()}>`.
    - Render a windowed slice (`visibleLimit` defaults to `80`, resets to `80` when filters change, and grows automatically when keyboard navigation approaches the end) with a `Show more (… remaining)` button at the bottom of the scroll list.
-   - `<Each … key="index">` keeps row slots in place across category switches, and the row action id is `cipher-row-slot-${index}` so the registered action stays valid when a slot's item changes.
+   - Rows are keyed by the cipher (`<Each … key={(item) => item.id}>`), so NSH moves a row with its cipher instead of redrawing a different cipher into its slot, and the row action id is `cipher-row-${id}`, so the registered action stays valid when a reorder moves its row: `actionOrder` is the app's Tab ring and holds first-registration order.
 4. **Hot-Path FilterProjection Without Snapshot or Widget Churn**:
    - Category, scope, folder, and search changes update only `filteredItems()`, which filters the cached `rawItems` in memory. They perform no daemon IPC, no keyring lookups, and no `snapshot.set()`.
    - Phase and modal branches use `<If when={…}>` rather than bare JSX ternaries, so the `<VaultWorkspace />` subtree stays mounted across filter changes and inner badge views update in place instead of being recreated.

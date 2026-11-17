@@ -45,7 +45,7 @@ export function ScopeDropdown() {
           borderColor: accent(),
         }}
         activeStyle={{ backgroundColor: tint(accent(), background(), 0.26) }}
-        focusStyle={{ borderColor: accent() }}
+        focusVisibleStyle={{ borderColor: accent() }}
       >
         <Text
           style={{

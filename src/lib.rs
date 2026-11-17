@@ -1717,7 +1717,7 @@ mod tests {
         let update = OmawardenBridge::check_updates(true);
         assert!(update.checked);
         assert!(update.available);
-        assert_eq!(update.latest_version.as_deref(), Some("0.4.0"));
+        assert_eq!(update.latest_version.as_deref(), Some("0.5.0"));
         assert!(update.release.is_some());
     }
 

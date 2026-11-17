@@ -139,7 +139,7 @@ function PaletteRow(props: {
       }}
       hoverStyle={{ backgroundColor: tint(accent(), palette().popups.background, 0.1) }}
       activeStyle={{ backgroundColor: tint(accent(), palette().popups.background, 0.2) }}
-      focusStyle={{ backgroundColor: tint(accent(), palette().popups.background, 0.1) }}
+      focusVisibleStyle={{ backgroundColor: tint(accent(), palette().popups.background, 0.1) }}
     >
       <View style={{ width: 18, alignItems: "center" }}>
         <Icon
