@@ -124,11 +124,17 @@ fn real_trash(filter: VaultFilterInput) -> VaultSnapshotView {
     // envelope, whose message the UI shows as-is.
     let (mut rows, error) = match response {
         Some(value) if value.is_array() => {
-            let rows = parse_items(&value)
-                .0
+            let (items, reprompts) = parse_items(&value);
+            let rows = items
                 .iter()
-                .map(|item| row_from_item(item, 0))
+                .map(|item| {
+                    let reprompt = reprompts.get(&item.id).copied().unwrap_or(0);
+                    row_from_item(item, reprompt)
+                })
                 .collect();
+            // Keep the parsed ciphers beside the rows: this reply is the only
+            // place a trashed cipher's fields ever arrive.
+            store_trash_details(items, reprompts);
             (rows, None)
         }
         Some(value) => (
@@ -146,6 +152,11 @@ fn real_trash(filter: VaultFilterInput) -> VaultSnapshotView {
             Some("The Omawarden daemon is not running.".to_string()),
         ),
     };
+    if error.is_some() {
+        // A failed read leaves nothing to inspect, so a stale detail from an
+        // earlier read cannot outlive the rows it belonged to.
+        clear_trash_details();
+    }
     sort_trash(&mut rows);
     let filter = trash_filter(&filter);
     let cached = cached_vault().lock().ok().and_then(|guard| {
@@ -206,6 +217,15 @@ fn mock_trash(state: &mut MockState, filter: VaultFilterInput) -> VaultSnapshotV
         .map(MockItem::row)
         .collect();
     sort_trash(&mut rows);
+    // Keep what the read carried, so the inspector can render a trashed
+    // cipher's fields without a second request. The real adapter does the same
+    // with the parsed `VaultItem`s.
+    state.trash_details = state
+        .items
+        .iter()
+        .filter(|item| !item.is_active())
+        .map(|item| (item.id.clone(), item.clone()))
+        .collect();
     state.snapshot_with_rows(rows)
 }
 
@@ -302,6 +322,65 @@ impl CachedVault {
 pub(crate) fn cached_vault() -> &'static Mutex<Option<CachedVault>> {
     static CACHE: OnceLock<Mutex<Option<CachedVault>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(None))
+}
+
+/// The decrypted ciphers the last Trash read carried, keyed by id.
+///
+/// The daemon's `list` reply is the only channel that reaches a trashed cipher:
+/// every per-item read (`get_item`, `get_ssh_key`, `totp`, `get_attachment_key`)
+/// resolves through the active-only `find_item`. So the Trash read keeps what it
+/// parsed instead of projecting it away and dropping it.
+///
+/// This never enters [`CachedVault`], which stays active-only. It lives as long
+/// as the loaded Trash rows: [`clear_session_state`] drops it when the session
+/// ends, while `clear_cached_vault` — also the return-from-Trash refresh — leaves
+/// it alone, so re-opening the Trash stays request-free.
+#[derive(Debug, Default)]
+pub(crate) struct TrashDetails {
+    items: HashMap<String, VaultItem>,
+    reprompts: HashMap<String, u32>,
+}
+
+pub(crate) fn trash_details() -> &'static Mutex<TrashDetails> {
+    static DETAILS: OnceLock<Mutex<TrashDetails>> = OnceLock::new();
+    DETAILS.get_or_init(|| Mutex::new(TrashDetails::default()))
+}
+
+/// The trashed cipher with `id` and its re-prompt flag, when the Trash has been
+/// read this session.
+pub(crate) fn trash_item(id: &str) -> Option<(VaultItem, u32)> {
+    let guard = trash_details().lock().ok()?;
+    let item = guard.items.get(id)?.clone();
+    let reprompt = guard.reprompts.get(id).copied().unwrap_or(0);
+    Some((item, reprompt))
+}
+
+/// Replaces the Trash details with the items of the read that just happened.
+fn store_trash_details(items: Vec<VaultItem>, reprompts: HashMap<String, u32>) {
+    if let Ok(mut guard) = trash_details().lock() {
+        *guard = TrashDetails {
+            items: items
+                .into_iter()
+                .map(|item| (item.id.clone(), item))
+                .collect(),
+            reprompts,
+        };
+    }
+}
+
+fn clear_trash_details() {
+    if let Ok(mut guard) = trash_details().lock() {
+        *guard = TrashDetails::default();
+    }
+}
+
+/// Ends the session: the active cache and the Trash details both go.
+///
+/// Distinct from [`clear_cached_vault`], which is also the return-from-Trash
+/// refresh and must leave the loaded Trash rows and their details in place.
+pub(crate) fn clear_session_state() {
+    clear_cached_vault();
+    clear_trash_details();
 }
 
 pub(crate) fn clear_cached_vault() {
@@ -426,7 +505,7 @@ pub(crate) fn real_snapshot(filter: VaultFilterInput) -> VaultSnapshotView {
             });
         }
     } else {
-        clear_cached_vault();
+        clear_session_state();
     }
     build_snapshot(
         phase,
@@ -488,5 +567,38 @@ mod tests {
             })
             .unwrap_or(true);
         assert!(cache_is_active_only);
+    }
+
+    /// The minimum a `VaultItem` needs to deserialize, with `extra` merged in.
+    fn trashed_entry(extra: Value) -> Value {
+        let mut entry = json!({
+            "id": "id-1",
+            "name": "Old GitHub",
+            "type": 1,
+            "type_name": "Login",
+            "sub_title": "octocat",
+            "favorite": false,
+            "search_text": "old github",
+            "deleted_at": "2026-01-15T10:30:00Z",
+        });
+        if let (Some(base), Some(extra)) = (entry.as_object_mut(), extra.as_object()) {
+            for (key, value) in extra {
+                base.insert(key.clone(), value.clone());
+            }
+        }
+        entry
+    }
+
+    #[test]
+    fn real_trash_rows_carry_the_cipher_reprompt() {
+        let _seam =
+            test_seam::set(|_action: Value| Some(json!([trashed_entry(json!({ "reprompt": 1 }))])));
+
+        let snapshot = InProcess.query_trash(VaultFilterInput::default());
+        let row = snapshot.all_items.first().expect("a trashed row");
+        assert_eq!(
+            row.reprompt, 1,
+            "the Trash row keeps the cipher's re-prompt flag, so Reveal is gated"
+        );
     }
 }

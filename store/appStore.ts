@@ -434,10 +434,12 @@ export const selectionActive = computed<boolean>(() =>
 );
 
 /**
- * Refuses an item action while the Trash is the current view.
+ * Refuses an action that would copy or export an item while the Trash is the
+ * current view.
  *
- * Trashed ciphers are read-only: the daemon's item reads and mutations are
- * active-only, so a secret or an edit there would fail anyway.
+ * A trashed cipher's write and copy paths are active-only, so a copy there
+ * would fail anyway. Revealing in place is not one of these: the inspector
+ * unmasks what the Trash read already carried.
  */
 function trashBlocksItemActions(): boolean {
   if (vaultView() !== "trash") {
@@ -1219,13 +1221,6 @@ export function moveSelection(delta: number): void {
 }
 
 export function refreshInspector(): void {
-  // The Trash renders its inspector from the selected row: the daemon's
-  // per-item read is active-only, so there is nothing to ask it for.
-  if (vaultView() === "trash") {
-    stopTotpTicker();
-    inspector.set(null);
-    return;
-  }
   const cipher = selectedCipher();
   if (!cipher) {
     stopTotpTicker();
@@ -1327,9 +1322,6 @@ export function tickTotp(): void {
 }
 
 export function toggleReveal(field: "password" | "cardNumber" | "cvv" | "privateKey"): void {
-  if (trashBlocksItemActions()) {
-    return;
-  }
   if (!ensureReprompt(() => applyReveal(field))) {
     return;
   }

@@ -705,7 +705,7 @@ test("the Trash entry appears in the Scope dropdown and lists only trashed items
   expect(app.shows("id:cipher-row-trashed2")).toBe(true);
 });
 
-test("the Trash inspector is read-only and shows no secrets", async () => {
+test("the Trash inspector keeps the deletion provenance", async () => {
   const app = await openMock({
     phase: "unlocked",
     items: [...VAULT_ITEMS, TRASHED_ITEM],
@@ -720,16 +720,12 @@ test("the Trash inspector is read-only and shows no secrets", async () => {
   expect(app.texts()).toContain("Login");
   expect(app.texts()).toContain("Work");
   expect(app.texts()).toContain("Acme");
+  expect(app.shows("id:trash-deleted-at")).toBe(true);
 
-  // No secrets: password, TOTP, notes, URIs, custom fields, attachments.
-  expect(app.texts().join(" ")).not.toContain("hunter2");
-  expect(app.shows("id:inspector-totp")).toBe(false);
-  expect(app.shows("id:inspector-uris")).toBe(false);
-  expect(app.shows("id:inspector-fields")).toBe(false);
-  expect(app.shows("id:inspector-attachments")).toBe(false);
-
-  // The inspector header shows the Trash notice.
+  // The Trash notice and its own actions sit above the read-only fields.
   expect(app.texts().join(" ")).toContain("This item is in the Trash");
+  expect(app.shows("id:trash-restore")).toBe(true);
+  expect(app.shows("id:trash-delete-permanent")).toBe(true);
 });
 
 test("an active row has no deletedAt and a trashed row has it", async () => {
@@ -1037,6 +1033,128 @@ test("active vault delete stays soft and never reaches permanent mode", async ()
   await app.press("id:scope-trigger");
   await app.press("id:scope-trash");
   expect(app.shows("id:cipher-row-login1")).toBe(true);
+});
+
+test("the Trash inspector shows the cipher's fields read-only", async () => {
+  const trashed = {
+    ...TRASHED_ITEM,
+    notes: "Recovery codes",
+    fields: [{ name: "API Token", value: "token-abc-123", kind: "hidden" }],
+  };
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM, trashed] });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashed1");
+
+  // The cipher's own fields arrive with the Trash read, masked at first.
+  expect(app.texts()).toContain("octocat");
+  expect(app.texts()).toContain("Recovery codes");
+  expect(app.shows("id:inspector-password")).toBe(true);
+  expect(app.texts()).not.toContain("hunter2");
+
+  // Reveal is allowed...
+  await app.press("id:reveal-password");
+  expect(app.texts()).toContain("hunter2");
+
+  // ...but nothing can leave the inspector.
+  for (const id of [
+    "copy-password",
+    "copy-username",
+    "copy-notes",
+    "copy-field-0",
+    "edit-cipher",
+    "delete-cipher",
+    "toggle-favorite",
+  ]) {
+    expect(app.shows(`id:${id}`)).toBe(false);
+  }
+
+  // The Trash's own actions stay.
+  expect(app.shows("id:trash-restore")).toBe(true);
+  expect(app.shows("id:trash-delete-permanent")).toBe(true);
+});
+
+test("the Trash inspector gates reveal on the cipher's re-prompt", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [{ ...REPROMPT_ITEM, deletedAt: "2026-01-15T10:30:00Z" }],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-secure1");
+
+  expect(app.shows("id:inspector-reprompt")).toBe(true);
+  expect(app.texts()).toContain("••• •••");
+  expect(app.texts()).not.toContain("hunter2");
+
+  await app.press("id:reveal-password");
+  expect(app.shows("id:reprompt-modal")).toBe(true);
+
+  await app.type("id:reprompt-password", "correct horse battery staple");
+  await app.press("id:reprompt-submit");
+  expect(app.shows("id:reprompt-modal")).toBe(false);
+  expect(app.texts()).toContain("hunter2");
+});
+
+test("a trashed TOTP ticks without re-reading the Trash", async () => {
+  const app = await openMockWithClock({
+    phase: "unlocked",
+    items: [
+      {
+        ...TRASHED_ITEM,
+        totp: "JBSWY3DPEHPK3PXP",
+        totpRemaining: 2,
+        totpPeriod: 30,
+      },
+    ],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashed1");
+  expect(app.shows("id:inspector-totp")).toBe(true);
+  expect(app.texts()).toContain("2s");
+
+  await app.wait(1000);
+  expect(app.texts()).toContain("1s");
+
+  await app.wait(1000);
+  expect(app.texts()).toContain("30s");
+
+  // The code is computed from the seed the list carried.
+  expect(OmawardenBridge.mockTrashQueries()).toBe(1);
+});
+
+test("trashed attachments and SSH keys are listed without an extract path", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [
+      LOGIN_ITEM,
+      {
+        ...TRASHED_ITEM,
+        attachments: [{ id: "att7", filename: "codes.txt", size: 128 }],
+        passwordHistory: [{ password: "older-password", changedAt: "2025-06-01" }],
+      },
+      { ...SSH_ITEM, deletedAt: "2026-02-01T00:00:00Z" },
+    ],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashed1");
+
+  expect(app.texts()).toContain("codes.txt");
+  expect(app.shows("id:download-attachment-att7")).toBe(false);
+  expect(app.shows("id:preview-attachment-att7")).toBe(false);
+  expect(app.shows("id:open-password-history")).toBe(false);
+
+  await app.press("id:cipher-row-ssh1");
+  expect(app.texts()).toContain("SHA256:abcdefghijklmnop");
+  expect(app.shows("id:export-ssh-key")).toBe(false);
+  expect(app.shows("id:copy-public-key")).toBe(false);
+  expect(app.shows("id:reveal-private-key")).toBe(true);
 });
 
 test("clearing the search keeps the viewed item selected and inspected", async () => {

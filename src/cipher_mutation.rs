@@ -666,7 +666,10 @@ fn mock_restore(id: String) -> CipherMutationOutcomeView {
         {
             Some(item) => {
                 item.deleted_at = None;
-                Ok(item.title.clone())
+                let title = item.title.clone();
+                // A restored cipher leaves the Trash, so its details go too.
+                state.trash_details.remove(&id);
+                Ok(title)
             }
             None => Err(format!("Cipher '{id}' not found in trash.")),
         }
@@ -708,6 +711,8 @@ fn mock_delete_trash(id: String) -> CipherMutationOutcomeView {
             Some(idx) => {
                 let name = state.items[idx].title.clone();
                 state.items.remove(idx);
+                // A purged cipher is gone, so its details go too.
+                state.trash_details.remove(&id);
                 Ok(name)
             }
             None => Err(format!("Cipher '{id}' not found in trash.")),

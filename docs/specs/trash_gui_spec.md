@@ -5,10 +5,9 @@
 The browse view, Restore, and Permanent Delete are built (#38–#41). The Trash
 inspector's action row holds `Restore` and `Delete Permanently`.
 
-`Details` (#43) is not built yet: today the Trash inspector shows only the
-metadata the row already carries. That ticket turns it into a read-only view of
-the cipher's own fields. The Trash offers no edit, copy or favourite action
-either way.
+`Details` (#43) is built: the Trash inspector is a read-only view of the
+cipher's own fields, rendered from the detail map the Trash list read fills. The
+Trash offers no edit, copy or favourite action.
 
 ## Problem Statement
 
@@ -148,7 +147,7 @@ list is untouched. The action is reachable only from this view.
 
 ## Details
 
-Not built yet (#43). This is the design that ticket implements.
+Built in #43.
 
 The Trash inspector shows the same field set as the active inspector, read-only:
 username, password, TOTP, notes, URIs, card, identity, SSH, custom fields, and
@@ -160,12 +159,12 @@ CVV and the SSH private key are masked by default; notes, the username, custom
 fields, URIs, the card brand and the expiry are plain.
 
 `Reveal` is allowed and stays read-only. It is gated by the cipher's own
-`reprompt`, which means `row_from_item` has to carry the real value instead of
-the `0` it passes today: a trashed item with `reprompt = 1` asks for the master
-password before showing anything, exactly as an active one does. `Copy` stays out
-of scope — every copy entry point keeps going through
-`trashBlocksItemActions()`, so a revealed value can be read but not extracted.
-Password history is not shown: it is a forensic surface, not identification.
+`reprompt`, so the Trash row carries the real value instead of the `0` the first
+slices passed: a trashed item with `reprompt = 1` asks for the master password
+before showing anything, exactly as an active one does. `Copy` stays out of
+scope — every copy entry point keeps going through `trashBlocksItemActions()`,
+so a revealed value can be read but not extracted. Password history is not
+shown: it is a forensic surface, not identification.
 
 The live TOTP code is shown, with the same ticker the active inspector uses,
 running only while a Trash row is selected. The code is computed locally from the
@@ -229,9 +228,12 @@ covers the `cipher_restore` and `cipher_delete_trash` payloads, their receipts
 and errors, and `src/lib.rs` covers the mock adapters' success, their rejection
 of an id that is not trashed, and the seeded error.
 
-When #43 lands it adds its own coverage: the read-only field set, masking parity
+`Details` (#43) adds its own coverage: the read-only field set, masking parity
 with the active inspector, reveal behind `reprompt`, copy staying blocked, the
-live TOTP ticker, and the absent download and export actions.
+live TOTP ticker without a second Trash read, and the absent download and export
+actions. `src/lib.rs` and `src/inspector.rs` cover the detail map into the
+inspector, the absence of a read before the Trash is loaded, and the map being
+dropped by a purge and a lock.
 
 ## Out of Scope
 

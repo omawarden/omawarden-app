@@ -8,6 +8,7 @@
 //! headless UI tests never touch the real keyring, config, clipboard or daemon
 //! socket.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
@@ -280,6 +281,12 @@ pub(crate) struct MockState {
     daemon_ticks: u32,
     /// How many Trash reads the mock has served, so a test can see the lazy load.
     trash_queries: u32,
+    /// The ciphers the last Trash read carried, keyed by id.
+    ///
+    /// Mirrors the real adapter's detail map: a trashed cipher is inspectable
+    /// only once the Trash has been read this session, because the list reply
+    /// is the only channel that carries one.
+    trash_details: HashMap<String, MockItem>,
     /// A daemon rejection for a Trash mutation, surfaced verbatim. Tests seed
     /// it through `trashMutationError` to exercise the failure path in the UI.
     trash_mutation_error: Option<String>,
@@ -349,6 +356,7 @@ impl Default for MockState {
             daemon_online: true,
             daemon_ticks: 0,
             trash_queries: 0,
+            trash_details: HashMap::new(),
             trash_mutation_error: None,
             filter: VaultFilterInput::default(),
             selected_cipher_id: None,
@@ -603,6 +611,15 @@ impl MockState {
     /// The active item with `id`.
     pub(crate) fn active_item(&self, id: &str) -> Option<&MockItem> {
         self.active_items().find(|item| item.id == id)
+    }
+
+    /// The soft-deleted item with `id`, once the Trash has been read.
+    ///
+    /// The real adapter reads these out of the detail map the list reply fills;
+    /// the mock keeps the same map, so "a trashed cipher is inspectable only
+    /// after the Trash has been read" holds in both.
+    pub(crate) fn trashed_item(&self, id: &str) -> Option<&MockItem> {
+        self.trash_details.get(id)
     }
 
     /// Adds a type-5 SSH item to the seeded vault, the way a real save does.
@@ -1961,7 +1978,8 @@ mod tests {
         assert!(
             OmawardenBridge::inspect_cipher("1".to_string(), reveal_none())
                 .error
-                .is_some()
+                .is_some(),
+            "a trashed cipher is inspectable only once the Trash has been read"
         );
 
         // ...but keeps the cipher, stamped with a deletion time, so the Trash
@@ -2375,12 +2393,13 @@ mod tests {
         assert_eq!(snapshot.all_items.len(), 1);
         assert!(snapshot.items.iter().all(|row| row.deleted_at.is_none()));
 
-        // Nor is it reachable through any of the per-item read paths.
+        // Nor does an active-vault path reach it: the per-item reads resolve
+        // the active cache and the daemon, both of which are active-only.
         let inspected = OmawardenBridge::inspect_cipher("2".to_string(), reveal_none());
         assert!(inspected.password.is_none());
         assert!(
             inspected.error.is_some(),
-            "a trashed item is not inspectable"
+            "a trashed item is inspectable only once the Trash has been read"
         );
 
         let totp = OmawardenBridge::refresh_totp("2".to_string());
@@ -2478,6 +2497,132 @@ mod tests {
             trash.all_items.len(),
             1,
             "the Trash is server-wide, so a stale scope or folder cannot narrow it"
+        );
+    }
+
+    #[test]
+    fn mock_trash_details_become_inspectable_after_the_read() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {"id": "1", "title": "GitHub", "category": "login", "username": "octocat"},
+                {
+                    "id": "2",
+                    "title": "Old GitHub",
+                    "category": "login",
+                    "username": "octocat",
+                    "password": "hunter2",
+                    "totp": "JBSWY3DPEHPK3PXP",
+                    "notes": "recover me",
+                    "reprompt": 1,
+                    "deletedAt": "2026-01-02T03:04:05Z"
+                }
+            ]
+        })));
+
+        assert!(
+            OmawardenBridge::inspect_cipher("2".to_string(), reveal_none())
+                .error
+                .is_some(),
+            "the list reply is the only channel, so nothing is readable before it"
+        );
+
+        OmawardenBridge::query_trash(VaultFilterInput::default());
+
+        let masked = OmawardenBridge::inspect_cipher("2".to_string(), reveal_none());
+        assert!(masked.error.is_none(), "{:?}", masked.error);
+        assert_eq!(masked.title, "Old GitHub");
+        assert_eq!(masked.username.as_deref(), Some("octocat"));
+        assert_eq!(masked.notes.as_deref(), Some("recover me"));
+        assert!(
+            masked.password.is_none(),
+            "a trashed password starts masked, exactly as an active one"
+        );
+        assert_eq!(
+            masked.reprompt, 1,
+            "the cipher's re-prompt flag survives the Trash read"
+        );
+        assert!(
+            masked.totp.as_ref().is_some_and(|totp| totp.valid),
+            "the live code comes from the seed the read carried"
+        );
+
+        let mut reveal = reveal_none();
+        reveal.reveal_password = true;
+        let revealed = OmawardenBridge::inspect_cipher("2".to_string(), reveal);
+        assert_eq!(revealed.password.as_deref(), Some("hunter2"));
+
+        assert!(
+            OmawardenBridge::refresh_totp("2".to_string()).valid,
+            "the ticker refreshes a trashed code without a per-item read"
+        );
+    }
+
+    #[test]
+    fn mock_purging_a_cipher_drops_its_trash_details() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {
+                    "id": "2",
+                    "title": "Old GitHub",
+                    "category": "login",
+                    "username": "octocat",
+                    "totp": "JBSWY3DPEHPK3PXP",
+                    "deletedAt": "2026-01-02T03:04:05Z"
+                }
+            ]
+        })));
+        OmawardenBridge::query_trash(VaultFilterInput::default());
+        assert!(
+            OmawardenBridge::inspect_cipher("2".to_string(), reveal_none())
+                .error
+                .is_none()
+        );
+
+        let purged = OmawardenBridge::delete_trash_cipher("2".to_string());
+        assert!(purged.ok, "{:?}", purged.error);
+
+        assert!(
+            OmawardenBridge::inspect_cipher("2".to_string(), reveal_none())
+                .error
+                .is_some(),
+            "a purged cipher leaves nothing to inspect"
+        );
+        assert!(!OmawardenBridge::refresh_totp("2".to_string()).valid);
+    }
+
+    #[test]
+    fn mock_lock_clears_the_trash_details() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {
+                    "id": "2",
+                    "title": "Old GitHub",
+                    "category": "login",
+                    "username": "octocat",
+                    "deletedAt": "2026-01-02T03:04:05Z"
+                }
+            ]
+        })));
+        OmawardenBridge::query_trash(VaultFilterInput::default());
+        assert!(
+            OmawardenBridge::inspect_cipher("2".to_string(), reveal_none())
+                .error
+                .is_none()
+        );
+
+        OmawardenBridge::lock_or_logout(false);
+
+        assert!(
+            OmawardenBridge::inspect_cipher("2".to_string(), reveal_none())
+                .error
+                .is_some(),
+            "a lock drops the decrypted Trash details with the session"
         );
     }
 

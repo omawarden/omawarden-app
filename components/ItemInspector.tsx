@@ -33,14 +33,17 @@ export function ItemInspector() {
 }
 
 /**
- * The Trash's inspector: the deleted item's identity and where it came from.
+ * The Trash's inspector: the deleted cipher's own fields, read-only, beside
+ * its provenance and the Trash actions.
  *
- * It renders the selected row instead of a per-item read, because the daemon's
- * item reads are active-only, and it exposes no secrets at all.
+ * The fields come from the Trash read that listed the item; the daemon's
+ * per-item reads are active-only, so there is nothing else to ask. Reveal is
+ * allowed and gated by the cipher's own re-prompt; every copy, edit, launch
+ * and export is gone.
  */
 function TrashInspector(props: { row: () => CipherRowView }) {
-  const palette = store.palette;
   const row = props.row;
+  const item = store.inspector;
   const details = () =>
     fields([
       optional({
@@ -63,49 +66,35 @@ function TrashInspector(props: { row: () => CipherRowView }) {
     <View testID="trash-inspector" style={{ flex: 1, overflow: "hidden" }}>
       <Scroll style={{ flex: 1 }} contentStyle={{ padding: 12 }}>
         <View style={{ gap: 12 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-            <View style={{ width: scaleLength(24, store.totalScale()), alignItems: "center" }}>
-              <Icon name={categoryIcon(row().category)} size={14} color={palette().muted} />
-            </View>
-            <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
-              <Text
-                style={{
-                  color: palette().popups.text,
-                  fontSize: store.type().base,
-                  fontWeight: 600,
-                  flexShrink: 1,
-                  numberOfLines: 1,
-                }}
-              >
-                {row().title || "Untitled"}
-              </Text>
-              <Text style={{ color: palette().muted, fontSize: store.type().sm, numberOfLines: 1 }}>
-                {categoryLabel(row().category)}
-              </Text>
-            </View>
-          </View>
-
-          <Section testID="inspector-trash">
-            <SectionLabel>
-              This item is in the Trash. Restore it to use it again, or delete it permanently.
-            </SectionLabel>
-            <FieldList fields={details} />
-            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-              <ActionButton
-                label="Restore"
-                testID="trash-restore"
-                tone="primary"
-                disabled={store.isRestoring()}
-                onPress={() => store.restoreCipher(row().id)}
-              />
-              <ActionButton
-                label="Delete Permanently"
-                testID="trash-delete-permanent"
-                tone="danger"
-                onPress={store.openTrashDelete}
-              />
-            </View>
-          </Section>
+          <If when={item()}>
+            {(view) => (
+              <>
+                <InspectorHeader item={view} readOnly />
+                <Section testID="inspector-trash">
+                  <SectionLabel>
+                    This item is in the Trash. Restore it to use it again, or delete it permanently.
+                  </SectionLabel>
+                  <FieldList fields={details} />
+                  <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                    <ActionButton
+                      label="Restore"
+                      testID="trash-restore"
+                      tone="primary"
+                      disabled={store.isRestoring()}
+                      onPress={() => store.restoreCipher(row().id)}
+                    />
+                    <ActionButton
+                      label="Delete Permanently"
+                      testID="trash-delete-permanent"
+                      tone="danger"
+                      onPress={store.openTrashDelete}
+                    />
+                  </View>
+                </Section>
+                <InspectorSections item={view} readOnly />
+              </>
+            )}
+          </If>
         </View>
       </Scroll>
     </View>
@@ -118,6 +107,12 @@ interface FieldAction {
   label: string;
   testID?: string;
   onPress: () => void;
+  /**
+   * What the action does with the value. A reveal stays in a read-only
+   * inspector, because it only unmasks what is already on screen; everything
+   * else (copy, launch, export) takes the secret somewhere else and does not.
+   */
+  kind?: "reveal" | "extract";
 }
 
 /** One row of a section: its label above its value, its actions to the right. */
@@ -186,8 +181,14 @@ function SectionLabel(props: { children?: JSX.Element }) {
  * the right. The rule above the row is part of the row, so an absent field
  * takes its rule with it.
  */
-function Field(props: { spec: () => FieldSpec; first: () => boolean }) {
+function Field(props: { spec: () => FieldSpec; first: () => boolean; readOnly?: boolean }) {
   const palette = store.palette;
+  // A read-only inspector keeps the reveal (it only unmasks a value already on
+  // screen) and drops every action that would copy or export it.
+  const actions = () => {
+    const specs = props.spec().actions ?? [];
+    return props.readOnly ? specs.filter((action) => action.kind === "reveal") : specs;
+  };
   // The body runs once, so every read of `spec()` happens in a binding that
   // re-runs when the spec list is rebuilt: revealing a secret or ticking the
   // TOTP replaces the array, and the row follows.
@@ -215,9 +216,9 @@ function Field(props: { spec: () => FieldSpec; first: () => boolean }) {
             {props.spec().value}
           </Text>
         </View>
-        <If when={(props.spec().actions ?? []).length > 0}>
+        <If when={actions().length > 0}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-            <Each of={props.spec().actions ?? []} key="index">
+            <Each of={actions()} key="index">
               {(action) => (
                 <GhostIconButton
                   testID={action().testID}
@@ -235,10 +236,12 @@ function Field(props: { spec: () => FieldSpec; first: () => boolean }) {
 }
 
 /** A section's fields, each after the first drawn under its own rule. */
-function FieldList(props: { fields: () => FieldSpec[] }) {
+function FieldList(props: { fields: () => FieldSpec[]; readOnly?: boolean }) {
   return (
     <Each of={props.fields()} key="index">
-      {(field, index) => <Field spec={field} first={() => index() === 0} />}
+      {(field, index) => (
+        <Field spec={field} first={() => index() === 0} readOnly={props.readOnly} />
+      )}
     </Each>
   );
 }
@@ -286,14 +289,16 @@ function Badge(props: { label: string; color?: string; icon?: IconName }) {
  * favorite/organization/folder badges, and its category underneath. The plugin
  * keeps this inside the scroll body rather than in a header bar of its own.
  */
-function InspectorHeader(props: { item: () => InspectorView }) {
+function InspectorHeader(props: { item: () => InspectorView; readOnly?: boolean }) {
   const palette = store.palette;
   const iconUrl = () => inspectorIcon(props.item);
   const box = () => scaleLength(24, store.totalScale());
   // The daemon's favorite write covers logins and secure notes only, so the
-  // star is a toggle for those and a plain state indicator for the rest.
+  // star is a toggle for those and a plain state indicator for the rest. In a
+  // read-only inspector it is only ever an indicator.
   const canFavorite = () =>
-    props.item().category === "login" || props.item().category === "secureNote";
+    !props.readOnly &&
+    (props.item().category === "login" || props.item().category === "secureNote");
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
       <View style={{ width: box(), height: box(), alignItems: "center", justifyContent: "center" }}>
@@ -325,7 +330,7 @@ function InspectorHeader(props: { item: () => InspectorView }) {
             {props.item().title || "Untitled"}
           </Text>
           <View
-            testID="toggle-favorite"
+            testID={props.readOnly ? undefined : "toggle-favorite"}
             accessibilityLabel={props.item().favorite ? "Unfavorite" : "Favorite"}
             style={{ cursor: canFavorite() ? "pointer" : "default", padding: 1 }}
             onPress={canFavorite() ? () => store.toggleFavorite() : undefined}
@@ -351,7 +356,12 @@ function InspectorHeader(props: { item: () => InspectorView }) {
           {categoryLabel(props.item().category)}
         </Text>
       </View>
-      <If when={props.item().category === "login" || props.item().category === "secureNote"}>
+      <If
+        when={
+          !props.readOnly &&
+          (props.item().category === "login" || props.item().category === "secureNote")
+        }
+      >
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
           <GhostIconButton
             testID="edit-cipher"
@@ -372,6 +382,28 @@ function InspectorHeader(props: { item: () => InspectorView }) {
 }
 
 function InspectorBody(props: { item: () => InspectorView }) {
+  return (
+    <View testID="item-inspector" style={{ flex: 1, overflow: "hidden" }}>
+      <Scroll style={{ flex: 1 }} contentStyle={{ padding: 12 }}>
+        {/* The pane draws no card of its own: as in the plugin, the sections are
+            the cards, and a capped content column would leave a wide pane half
+            empty. */}
+        <View style={{ gap: 12 }}>
+          <InspectorHeader item={props.item} />
+          <InspectorSections item={props.item} />
+        </View>
+      </Scroll>
+    </View>
+  );
+}
+
+/**
+ * The sections under the header: fields, TOTP and history.
+ *
+ * The Trash's read-only inspector renders the same sections with `readOnly`:
+ * values and reveal stay, every copy, launch and export goes.
+ */
+function InspectorSections(props: { item: () => InspectorView; readOnly?: boolean }) {
   const palette = store.palette;
   const item = props.item;
   const attachment = store.attachmentPreview;
@@ -388,451 +420,455 @@ function InspectorBody(props: { item: () => InspectorView }) {
   const sshRows = () => sshFields(item);
 
   return (
-    <View testID="item-inspector" style={{ flex: 1, overflow: "hidden" }}>
-      <Scroll style={{ flex: 1 }} contentStyle={{ padding: 12 }}>
-        {/* The pane draws no card of its own: as in the plugin, the sections are
-            the cards, and a capped content column would leave a wide pane half
-            empty. */}
-        <View style={{ gap: 12 }}>
-          <InspectorHeader item={item} />
+    <View style={{ gap: 12 }}>
 
-          {reprompt() ? (
-            <View
-              testID="inspector-reprompt"
-              style={{
-                backgroundColor: tint(palette().warning, palette().popups.background, 0.16),
-                borderColor: palette().warning,
-                borderWidth: 1,
-                borderRadius: 6,
-                padding: 10,
-                gap: 8,
-              }}
-            >
-              <Text
-                style={{
-                  color: palette().popups.text,
-                  fontSize: store.type().base,
-                  fontWeight: 500,
+      {reprompt() ? (
+        <View
+          testID="inspector-reprompt"
+          style={{
+            backgroundColor: tint(palette().warning, palette().popups.background, 0.16),
+            borderColor: palette().warning,
+            borderWidth: 1,
+            borderRadius: 6,
+            padding: 10,
+            gap: 8,
+          }}
+        >
+          <Text
+            style={{
+              color: palette().popups.text,
+              fontSize: store.type().base,
+              fontWeight: 500,
+            }}
+          >
+            Master password required
+          </Text>
+          <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
+            {props.readOnly
+              ? "Confirm your master password to reveal secrets from this item."
+              : "Confirm your master password to reveal or copy secrets from this item."}
+          </Text>
+          <ActionButton
+            label="Confirm Master Password"
+            testID="inspector-reprompt-confirm"
+            tone="primary"
+            onPress={store.requestReprompt}
+          />
+        </View>
+      ) : null}
+
+      {item().category === "login" ? (
+        <Section testID="inspector-login">
+          <FieldList fields={loginRows} readOnly={props.readOnly} />
+
+          {item().totp ? (
+            <View testID="inspector-totp" style={{ gap: 8 }}>
+              <Rule />
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
+                      TOTP Code
+                    </Text>
+                    <Text
+                      testID="inspector-totp-remaining"
+                      style={{
+                        color: totpDanger() ? palette().danger : palette().muted,
+                        fontSize: store.type().xs,
+                        fontWeight: totpDanger() ? "bold" : "normal",
+                      }}
+                    >
+                      {item().totp?.valid ? `${item().totp?.remaining}s` : "Unavailable"}
+                    </Text>
+                  </View>
+                  <Text
+                    testID="inspector-totp-code"
+                    style={{
+                      userSelect: reprompt() ? "none" : "text",
+                      color: reprompt() ? palette().muted : totpColor(),
+                      fontSize: store.type().lg,
+                      fontWeight: "bold",
+                      fontFamily: "monospace",
+                    }}
+                  >
+                    {reprompt()
+                      ? "••• •••"
+                      : item().totp?.valid
+                        ? item().totp?.formatted
+                        : item().totp?.error ?? "—"}
+                  </Text>
+                </View>
+                <If when={!props.readOnly}>
+                  <GhostIconButton
+                    testID="copy-totp"
+                    label="Copy TOTP code"
+                    icon="copy"
+                    onPress={() => store.copyField("totp")}
+                  />
+                </If>
+              </View>
+              <Progress
+                value={
+                  (item().totp?.period ?? 0) > 0
+                    ? Math.max(
+                        0,
+                        Math.min(
+                          100,
+                          ((item().totp?.remaining ?? 0) / (item().totp?.period ?? 1)) * 100,
+                        ),
+                      )
+                    : 0
+                }
+                trackStyle={{
+                  height: 3,
+                  borderRadius: 2,
+                  backgroundColor: tint(
+                    palette().popups.text,
+                    palette().popups.background,
+                    0.1,
+                  ),
                 }}
-              >
-                Master password required
-              </Text>
-              <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
-                Confirm your master password to reveal or copy secrets from this item.
-              </Text>
-              <ActionButton
-                label="Confirm Master Password"
-                testID="inspector-reprompt-confirm"
-                tone="primary"
-                onPress={store.requestReprompt}
+                indicatorStyle={{ height: 3, borderRadius: 2, backgroundColor: totpColor() }}
               />
             </View>
           ) : null}
+        </Section>
+      ) : null}
 
-          {item().category === "login" ? (
-            <Section testID="inspector-login">
-              <FieldList fields={loginRows} />
+      {item().category === "card" && item().card ? (
+        <Section testID="inspector-card">
+          <FieldList fields={cardRows} readOnly={props.readOnly} />
+        </Section>
+      ) : null}
 
-              {item().totp ? (
-                <View testID="inspector-totp" style={{ gap: 8 }}>
-                  <Rule />
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                        <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
-                          TOTP Code
-                        </Text>
-                        <Text
-                          testID="inspector-totp-remaining"
-                          style={{
-                            color: totpDanger() ? palette().danger : palette().muted,
-                            fontSize: store.type().xs,
-                            fontWeight: totpDanger() ? "bold" : "normal",
-                          }}
-                        >
-                          {item().totp?.valid ? `${item().totp?.remaining}s` : "Unavailable"}
-                        </Text>
-                      </View>
-                      <Text
-                        testID="inspector-totp-code"
-                        style={{
-                          userSelect: reprompt() ? "none" : "text",
-                          color: reprompt() ? palette().muted : totpColor(),
-                          fontSize: store.type().lg,
-                          fontWeight: "bold",
-                          fontFamily: "monospace",
-                        }}
-                      >
-                        {reprompt()
-                          ? "••• •••"
-                          : item().totp?.valid
-                            ? item().totp?.formatted
-                            : item().totp?.error ?? "—"}
-                      </Text>
-                    </View>
-                    <GhostIconButton
-                      testID="copy-totp"
-                      label="Copy TOTP code"
-                      icon="copy"
-                      onPress={() => store.copyField("totp")}
-                    />
-                  </View>
-                  <Progress
-                    value={
-                      (item().totp?.period ?? 0) > 0
-                        ? Math.max(
-                            0,
-                            Math.min(
-                              100,
-                              ((item().totp?.remaining ?? 0) / (item().totp?.period ?? 1)) * 100,
-                            ),
-                          )
-                        : 0
-                    }
-                    trackStyle={{
-                      height: 3,
-                      borderRadius: 2,
-                      backgroundColor: tint(
-                        palette().popups.text,
-                        palette().popups.background,
-                        0.1,
-                      ),
-                    }}
-                    indicatorStyle={{ height: 3, borderRadius: 2, backgroundColor: totpColor() }}
-                  />
-                </View>
-              ) : null}
-            </Section>
-          ) : null}
+      {item().category === "identity" && item().identity ? (
+        <Section testID="inspector-identity">
+          <FieldList fields={identityRows} readOnly={props.readOnly} />
+        </Section>
+      ) : null}
 
-          {item().category === "card" && item().card ? (
-            <Section testID="inspector-card">
-              <FieldList fields={cardRows} />
-            </Section>
-          ) : null}
+      {item().category === "sshKey" && item().ssh ? (
+        <Section testID="inspector-ssh">
+          <FieldList fields={sshRows} readOnly={props.readOnly} />
+        </Section>
+      ) : null}
 
-          {item().category === "identity" && item().identity ? (
-            <Section testID="inspector-identity">
-              <FieldList fields={identityRows} />
-            </Section>
-          ) : null}
+      {item().notes ? (
+        <Section testID="inspector-notes">
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <SectionLabel>Notes</SectionLabel>
+            </View>
+            <If when={!props.readOnly}>
+              <GhostIconButton
+                testID="copy-notes"
+                label="Copy secure note"
+                icon="copy"
+                onPress={() => store.copyField("notes")}
+              />
+            </If>
+          </View>
+          <Rule />
+          <Text
+            style={{
+              color: palette().popups.text,
+              fontSize: store.type().md,
+              lineHeight: noteLineHeight(store.type()),
+              userSelect: "text",
+            }}
+          >
+            {item().notes}
+          </Text>
+        </Section>
+      ) : null}
 
-          {item().category === "sshKey" && item().ssh ? (
-            <Section testID="inspector-ssh">
-              <FieldList fields={sshRows} />
-            </Section>
-          ) : null}
-
-          {item().notes ? (
-            <Section testID="inspector-notes">
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <SectionLabel>Notes</SectionLabel>
-                </View>
-                <GhostIconButton
-                  testID="copy-notes"
-                  label="Copy secure note"
-                  icon="copy"
-                  onPress={() => store.copyField("notes")}
-                />
-              </View>
-              <Rule />
-              <Text
-                style={{
-                  color: palette().popups.text,
-                  fontSize: store.type().md,
-                  lineHeight: noteLineHeight(store.type()),
-                  userSelect: "text",
-                }}
-              >
-                {item().notes}
-              </Text>
-            </Section>
-          ) : null}
-
-          {item().fields.length > 0 ? (
-            <Section testID="inspector-fields">
-              <SectionLabel>Custom Fields</SectionLabel>
-              <Text
-                testID="inspector-fields-read-only"
-                style={{ color: palette().muted, fontSize: store.type().xs }}
-              >
-                Read-only: the vault write API has no custom field support yet.
-              </Text>
-              <Each of={item().fields} key="index">
-                {(field) => (
-                  <View style={{ gap: 8 }}>
-                    <Rule />
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-                        <Text
-                          style={{
-                            color: palette().muted,
-                            fontSize: store.type().xs,
-                            numberOfLines: 1,
-                          }}
-                        >
-                          {field().name || `Field ${field().index + 1}`}
-                        </Text>
-                        <Text
-                          testID={`field-value-${field().index}`}
-                          style={{
-                            userSelect: "text",
-                            color: palette().popups.text,
-                            fontSize: store.type().base,
-                            fontWeight: 500,
-                            fontFamily:
-                              field().kind === "hidden" &&
-                              !store.reveal().revealFields.includes(field().index)
-                                ? "monospace"
-                                : undefined,
-                            numberOfLines: 1,
-                          }}
-                        >
-                          {field().kind === "hidden" &&
+      {item().fields.length > 0 ? (
+        <Section testID="inspector-fields">
+          <SectionLabel>Custom Fields</SectionLabel>
+          <Text
+            testID="inspector-fields-read-only"
+            style={{ color: palette().muted, fontSize: store.type().xs }}
+          >
+            Read-only: the vault write API has no custom field support yet.
+          </Text>
+          <Each of={item().fields} key="index">
+            {(field) => (
+              <View style={{ gap: 8 }}>
+                <Rule />
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                    <Text
+                      style={{
+                        color: palette().muted,
+                        fontSize: store.type().xs,
+                        numberOfLines: 1,
+                      }}
+                    >
+                      {field().name || `Field ${field().index + 1}`}
+                    </Text>
+                    <Text
+                      testID={`field-value-${field().index}`}
+                      style={{
+                        userSelect: "text",
+                        color: palette().popups.text,
+                        fontSize: store.type().base,
+                        fontWeight: 500,
+                        fontFamily:
+                          field().kind === "hidden" &&
                           !store.reveal().revealFields.includes(field().index)
-                            ? field().valueMasked
-                            : field().value}
-                        </Text>
-                      </View>
-                      {field().kind === "hidden" ? (
-                        <GhostIconButton
-                          testID={`reveal-field-${field().index}`}
-                          label={
-                            store.reveal().revealFields.includes(field().index)
-                              ? "Hide field"
-                              : "Show field"
-                          }
-                          icon={
-                            store.reveal().revealFields.includes(field().index)
-                              ? "eye-off"
-                              : "eye"
-                          }
-                          onPress={() => store.toggleRevealField(field().index)}
-                        />
-                      ) : null}
-                      <GhostIconButton
-                        testID={`copy-field-${field().index}`}
-                        label="Copy field"
-                        icon="copy"
-                        onPress={() => store.copyField("custom", field().index)}
-                      />
-                    </View>
+                            ? "monospace"
+                            : undefined,
+                        numberOfLines: 1,
+                      }}
+                    >
+                      {field().kind === "hidden" &&
+                      !store.reveal().revealFields.includes(field().index)
+                        ? field().valueMasked
+                        : field().value}
+                    </Text>
                   </View>
-                )}
-              </Each>
-            </Section>
-          ) : null}
+                  {field().kind === "hidden" ? (
+                    <GhostIconButton
+                      testID={`reveal-field-${field().index}`}
+                      label={
+                        store.reveal().revealFields.includes(field().index)
+                          ? "Hide field"
+                          : "Show field"
+                      }
+                      icon={
+                        store.reveal().revealFields.includes(field().index)
+                          ? "eye-off"
+                          : "eye"
+                      }
+                      onPress={() => store.toggleRevealField(field().index)}
+                    />
+                  ) : null}
+                  <If when={!props.readOnly}>
+                    <GhostIconButton
+                      testID={`copy-field-${field().index}`}
+                      label="Copy field"
+                      icon="copy"
+                      onPress={() => store.copyField("custom", field().index)}
+                    />
+                  </If>
+                </View>
+              </View>
+            )}
+          </Each>
+        </Section>
+      ) : null}
 
-          {item().attachments.length > 0 ? (
-            <Section testID="inspector-attachments">
-              <SectionLabel>Attachments ({item().attachments.length})</SectionLabel>
-              <Each of={item().attachments} key="index">
-                {(file) => (
-                  <View style={{ gap: 8 }}>
-                    <Rule />
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                      <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
-                        <Text
-                          style={{
-                            color: palette().popups.text,
-                            fontSize: store.type().sm,
-                            fontWeight: 500,
-                            numberOfLines: 1,
-                          }}
-                        >
-                          {file().filename}
-                        </Text>
-                        <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
-                          {file().sizeLabel}
-                        </Text>
-                      </View>
-                      <GhostIconButton
-                        testID={`preview-attachment-${file().id}`}
-                        label="Preview attachment"
-                        icon="eye"
-                        onPress={() => store.openAttachment(item().id, file().id, "preview")}
-                      />
-                      <GhostIconButton
-                        testID={`download-attachment-${file().id}`}
-                        label="Download attachment"
-                        icon="download"
-                        onPress={() => store.saveAttachment(item().id, file().id)}
-                      />
-                    </View>
-                  </View>
-                )}
-              </Each>
-              {attachment() ? (
-                <View
-                  testID="attachment-preview"
-                  style={{
-                    backgroundColor: tint(palette().info, palette().popups.background, 0.12),
-                    borderRadius: 6,
-                    padding: 8,
-                    gap: 6,
-                  }}
-                >
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      {item().attachments.length > 0 ? (
+        <Section testID="inspector-attachments">
+          <SectionLabel>Attachments ({item().attachments.length})</SectionLabel>
+          <Each of={item().attachments} key="index">
+            {(file) => (
+              <View style={{ gap: 8 }}>
+                <Rule />
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
                     <Text
                       style={{
                         color: palette().popups.text,
                         fontSize: store.type().sm,
                         fontWeight: 500,
-                        flex: 1,
                         numberOfLines: 1,
                       }}
                     >
-                      {attachment()?.filename}
+                      {file().filename}
                     </Text>
+                    <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
+                      {file().sizeLabel}
+                    </Text>
+                  </View>
+                  <If when={!props.readOnly}>
                     <GhostIconButton
-                      testID="close-attachment-preview"
-                      label="Close preview"
-                      icon="x"
-                      onPress={store.closeAttachmentPreview}
+                      testID={`preview-attachment-${file().id}`}
+                      label="Preview attachment"
+                      icon="eye"
+                      onPress={() => store.openAttachment(item().id, file().id, "preview")}
                     />
-                  </View>
-                  {attachment()?.isImage ? (
-                    <View style={{ gap: 6 }}>
-                      <If
-                        when={(attachment()?.dataUrl ?? "") !== ""}
-                        else={
-                          <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
-                            This image is too large to preview here. Open it with the system viewer.
-                          </Text>
-                        }
-                      >
-                        <Image
-                          testID="attachment-image"
-                          src={attachment()?.dataUrl ?? ""}
-                          style={{
-                            width: "100%",
-                            maxHeight: 320,
-                            minHeight: 120,
-                            borderRadius: 6,
-                            objectFit: "contain",
-                          }}
-                        />
-                      </If>
-                      <GhostIconButton
-                        testID="open-attachment-external"
-                        label="Open attachment with system viewer"
-                        icon="external-link"
-                        onPress={store.launchAttachmentPreview}
-                      />
-                    </View>
-                  ) : (
-                    <View style={{ gap: 6 }}>
-                      <Scroll style={{ maxHeight: 320 }}>
-                        <Text
-                          testID="attachment-text"
-                          style={{
-                            userSelect: "text",
-                            color: palette().popups.text,
-                            fontSize: store.type().base,
-                            fontFamily: "monospace",
-                          }}
-                        >
-                          {attachment()?.text}
-                        </Text>
-                      </Scroll>
-                      <GhostIconButton
-                        testID="copy-attachment-content"
-                        label="Copy attachment content"
-                        icon="copy"
-                        onPress={() =>
-                          store.copyText(attachment()?.text ?? "", "attachment content", true)
-                        }
-                      />
-                    </View>
-                  )}
+                  </If>
+                  <If when={!props.readOnly}>
+                    <GhostIconButton
+                      testID={`download-attachment-${file().id}`}
+                      label="Download attachment"
+                      icon="download"
+                      onPress={() => store.saveAttachment(item().id, file().id)}
+                    />
+                  </If>
                 </View>
-              ) : null}
-            </Section>
-          ) : null}
-
-          {item().metadata.createdAt ||
-          item().metadata.updatedAt ||
-          item().passwordHistory.length > 0 ? (
-            <Section>
-              <SectionLabel>Item history</SectionLabel>
-              {item().metadata.createdAt ? (
-                <View style={{ gap: 8 }}>
-                  <Rule />
-                  <View style={{ gap: 2 }}>
-                    <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
-                      Created
-                    </Text>
-                    <Text
-                      style={{
-                        color: palette().popups.text,
-                        fontSize: store.type().base,
-                        fontWeight: 500,
-                        numberOfLines: 1,
-                      }}
-                    >
-                      {formatLocalDateTime(item().metadata.createdAt)}
-                    </Text>
-                  </View>
-                </View>
-              ) : null}
-              {item().metadata.updatedAt ? (
-                <View style={{ gap: 8 }}>
-                  <Rule />
-                  <View style={{ gap: 2 }}>
-                    <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
-                      Updated
-                    </Text>
-                    <Text
-                      style={{
-                        color: palette().popups.text,
-                        fontSize: store.type().base,
-                        fontWeight: 500,
-                        numberOfLines: 1,
-                      }}
-                    >
-                      {formatLocalDateTime(item().metadata.updatedAt)}
-                    </Text>
-                  </View>
-                </View>
-              ) : null}
-              {item().passwordHistory.length > 0 ? (
-                <View style={{ gap: 8 }}>
-                  <Rule />
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+              </View>
+            )}
+          </Each>
+          {!props.readOnly && attachment() ? (
+            <View
+              testID="attachment-preview"
+              style={{
+                backgroundColor: tint(palette().info, palette().popups.background, 0.12),
+                borderRadius: 6,
+                padding: 8,
+                gap: 6,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text
+                  style={{
+                    color: palette().popups.text,
+                    fontSize: store.type().sm,
+                    fontWeight: 500,
+                    flex: 1,
+                    numberOfLines: 1,
+                  }}
+                >
+                  {attachment()?.filename}
+                </Text>
+                <GhostIconButton
+                  testID="close-attachment-preview"
+                  label="Close preview"
+                  icon="x"
+                  onPress={store.closeAttachmentPreview}
+                />
+              </View>
+              {attachment()?.isImage ? (
+                <View style={{ gap: 6 }}>
+                  <If
+                    when={(attachment()?.dataUrl ?? "") !== ""}
+                    else={
                       <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
-                        Password History
+                        This image is too large to preview here. Open it with the system viewer.
                       </Text>
-                      <Text
-                        style={{
-                          color: palette().popups.text,
-                          fontSize: store.type().base,
-                          fontWeight: 500,
-                          numberOfLines: 1,
-                        }}
-                      >
-                        {item().passwordHistory.length} previous password
-                        {item().passwordHistory.length === 1 ? "" : "s"}
-                      </Text>
-                    </View>
-                    <GhostIconButton
-                      testID="open-password-history"
-                      label="View password history"
-                      icon="history"
-                      onPress={store.openPasswordHistory}
+                    }
+                  >
+                    <Image
+                      testID="attachment-image"
+                      src={attachment()?.dataUrl ?? ""}
+                      style={{
+                        width: "100%",
+                        maxHeight: 320,
+                        minHeight: 120,
+                        borderRadius: 6,
+                        objectFit: "contain",
+                      }}
                     />
-                  </View>
+                  </If>
+                  <GhostIconButton
+                    testID="open-attachment-external"
+                    label="Open attachment with system viewer"
+                    icon="external-link"
+                    onPress={store.launchAttachmentPreview}
+                  />
                 </View>
-              ) : null}
-            </Section>
+              ) : (
+                <View style={{ gap: 6 }}>
+                  <Scroll style={{ maxHeight: 320 }}>
+                    <Text
+                      testID="attachment-text"
+                      style={{
+                        userSelect: "text",
+                        color: palette().popups.text,
+                        fontSize: store.type().base,
+                        fontFamily: "monospace",
+                      }}
+                    >
+                      {attachment()?.text}
+                    </Text>
+                  </Scroll>
+                  <GhostIconButton
+                    testID="copy-attachment-content"
+                    label="Copy attachment content"
+                    icon="copy"
+                    onPress={() =>
+                      store.copyText(attachment()?.text ?? "", "attachment content", true)
+                    }
+                  />
+                </View>
+              )}
+            </View>
           ) : null}
+        </Section>
+      ) : null}
 
-          {item().error ? (
-            <Text style={{ color: palette().danger, fontSize: store.type().base }}>{item().error}</Text>
+      {item().metadata.createdAt ||
+      item().metadata.updatedAt ||
+      (!props.readOnly && item().passwordHistory.length > 0) ? (
+        <Section>
+          <SectionLabel>Item history</SectionLabel>
+          {item().metadata.createdAt ? (
+            <View style={{ gap: 8 }}>
+              <Rule />
+              <View style={{ gap: 2 }}>
+                <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
+                  Created
+                </Text>
+                <Text
+                  style={{
+                    color: palette().popups.text,
+                    fontSize: store.type().base,
+                    fontWeight: 500,
+                    numberOfLines: 1,
+                  }}
+                >
+                  {formatLocalDateTime(item().metadata.createdAt)}
+                </Text>
+              </View>
+            </View>
           ) : null}
-        </View>
-      </Scroll>
+          {item().metadata.updatedAt ? (
+            <View style={{ gap: 8 }}>
+              <Rule />
+              <View style={{ gap: 2 }}>
+                <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
+                  Updated
+                </Text>
+                <Text
+                  style={{
+                    color: palette().popups.text,
+                    fontSize: store.type().base,
+                    fontWeight: 500,
+                    numberOfLines: 1,
+                  }}
+                >
+                  {formatLocalDateTime(item().metadata.updatedAt)}
+                </Text>
+              </View>
+            </View>
+          ) : null}
+          {!props.readOnly && item().passwordHistory.length > 0 ? (
+            <View style={{ gap: 8 }}>
+              <Rule />
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                  <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
+                    Password History
+                  </Text>
+                  <Text
+                    style={{
+                      color: palette().popups.text,
+                      fontSize: store.type().base,
+                      fontWeight: 500,
+                      numberOfLines: 1,
+                    }}
+                  >
+                    {item().passwordHistory.length} previous password
+                    {item().passwordHistory.length === 1 ? "" : "s"}
+                  </Text>
+                </View>
+                <GhostIconButton
+                  testID="open-password-history"
+                  label="View password history"
+                  icon="history"
+                  onPress={store.openPasswordHistory}
+                />
+              </View>
+            </View>
+          ) : null}
+        </Section>
+      ) : null}
+
+      {item().error ? (
+        <Text style={{ color: palette().danger, fontSize: store.type().base }}>{item().error}</Text>
+      ) : null}
     </View>
   );
 }
@@ -862,6 +898,7 @@ function loginFields(item: () => InspectorView): FieldSpec[] {
           icon: store.reveal().revealPassword ? "eye-off" : "eye",
           label: store.reveal().revealPassword ? "Hide password" : "Show password",
           testID: "reveal-password",
+          kind: "reveal",
           onPress: () => store.toggleReveal("password"),
         },
         {
@@ -918,6 +955,7 @@ function cardFields(item: () => InspectorView, reprompt: () => boolean): FieldSp
           icon: store.reveal().revealCardNumber ? "eye-off" : "eye",
           label: store.reveal().revealCardNumber ? "Hide card number" : "Show card number",
           testID: "reveal-card-number",
+          kind: "reveal",
           onPress: () => store.toggleReveal("cardNumber"),
         },
         {
@@ -951,6 +989,7 @@ function cardFields(item: () => InspectorView, reprompt: () => boolean): FieldSp
           icon: store.reveal().revealCvv ? "eye-off" : "eye",
           label: store.reveal().revealCvv ? "Hide security code" : "Show security code",
           testID: "reveal-cvv",
+          kind: "reveal",
           onPress: () => store.toggleReveal("cvv"),
         },
         {
@@ -1099,6 +1138,7 @@ function sshFields(item: () => InspectorView): FieldSpec[] {
           icon: store.reveal().revealPrivateKey ? "eye-off" : "eye",
           label: store.reveal().revealPrivateKey ? "Hide private key" : "Show private key",
           testID: "reveal-private-key",
+          kind: "reveal",
           onPress: () => store.toggleReveal("privateKey"),
         },
         {

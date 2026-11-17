@@ -280,7 +280,7 @@ fn real_lock_or_logout(logout: bool) -> VaultSnapshotView {
         "app:auth",
         if logout { "signed out" } else { "vault locked" },
     );
-    vault::clear_cached_vault();
+    vault::clear_session_state();
     crate::engine::attachments().clean_previews(None);
     vault::real_snapshot(VaultFilterInput::default())
 }
@@ -401,6 +401,7 @@ fn mock_lock_or_logout(state: &mut MockState, logout: bool) -> VaultSnapshotView
     state.ssh_prompt = None;
     state.two_factor = None;
     state.error = None;
+    state.trash_details.clear();
     if logout {
         state.email.clear();
         state.items.clear();
