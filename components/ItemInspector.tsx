@@ -66,35 +66,31 @@ function TrashInspector(props: { row: () => CipherRowView }) {
     <View testID="trash-inspector" style={{ flex: 1, overflow: "hidden" }}>
       <Scroll style={{ flex: 1 }} contentStyle={{ padding: 12 }}>
         <View style={{ gap: 12 }}>
-          <If when={item()}>
-            {(view) => (
-              <>
-                <InspectorHeader item={view} readOnly />
-                <Section testID="inspector-trash">
-                  <SectionLabel>
-                    This item is in the Trash. Restore it to use it again, or delete it permanently.
-                  </SectionLabel>
-                  <FieldList fields={details} />
-                  <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                    <ActionButton
-                      label="Restore"
-                      testID="trash-restore"
-                      tone="primary"
-                      disabled={store.isRestoring()}
-                      onPress={() => store.restoreCipher(row().id)}
-                    />
-                    <ActionButton
-                      label="Delete Permanently"
-                      testID="trash-delete-permanent"
-                      tone="danger"
-                      onPress={store.openTrashDelete}
-                    />
-                  </View>
-                </Section>
-                <InspectorSections item={view} readOnly />
-              </>
-            )}
-          </If>
+          {/* The header and fields need the detail view; the provenance and
+              the Trash actions only need the row, so they never disappear. */}
+          <If when={item()}>{(view) => <InspectorHeader item={view} readOnly />}</If>
+          <Section testID="inspector-trash">
+            <SectionLabel>
+              This item is in the Trash. Restore it to use it again, or delete it permanently.
+            </SectionLabel>
+            <FieldList fields={details} />
+            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+              <ActionButton
+                label="Restore"
+                testID="trash-restore"
+                tone="primary"
+                disabled={store.isRestoring()}
+                onPress={() => store.restoreCipher(row().id)}
+              />
+              <ActionButton
+                label="Delete Permanently"
+                testID="trash-delete-permanent"
+                tone="danger"
+                onPress={store.openTrashDelete}
+              />
+            </View>
+          </Section>
+          <If when={item()}>{(view) => <InspectorSections item={view} readOnly />}</If>
         </View>
       </Scroll>
     </View>
@@ -108,11 +104,11 @@ interface FieldAction {
   testID?: string;
   onPress: () => void;
   /**
-   * What the action does with the value. A reveal stays in a read-only
-   * inspector, because it only unmasks what is already on screen; everything
-   * else (copy, launch, export) takes the secret somewhere else and does not.
+   * Set on the reveal action, the one action a read-only inspector keeps: it
+   * only unmasks what is already on screen. Every other action copies,
+   * launches or exports the value and is dropped there.
    */
-  kind?: "reveal" | "extract";
+  kind?: "reveal";
 }
 
 /** One row of a section: its label above its value, its actions to the right. */

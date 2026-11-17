@@ -618,7 +618,7 @@ impl MockState {
     /// The real adapter reads these out of the detail map the list reply fills;
     /// the mock keeps the same map, so "a trashed cipher is inspectable only
     /// after the Trash has been read" holds in both.
-    pub(crate) fn trashed_item(&self, id: &str) -> Option<&MockItem> {
+    pub(crate) fn trashed_cipher(&self, id: &str) -> Option<&MockItem> {
         self.trash_details.get(id)
     }
 

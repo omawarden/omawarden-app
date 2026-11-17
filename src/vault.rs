@@ -348,7 +348,7 @@ pub(crate) fn trash_details() -> &'static Mutex<TrashDetails> {
 
 /// The trashed cipher with `id` and its re-prompt flag, when the Trash has been
 /// read this session.
-pub(crate) fn trash_item(id: &str) -> Option<(VaultItem, u32)> {
+pub(crate) fn trashed_cipher(id: &str) -> Option<(VaultItem, u32)> {
     let guard = trash_details().lock().ok()?;
     let item = guard.items.get(id)?.clone();
     let reprompt = guard.reprompts.get(id).copied().unwrap_or(0);

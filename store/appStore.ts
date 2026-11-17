@@ -434,11 +434,11 @@ export const selectionActive = computed<boolean>(() =>
 );
 
 /**
- * Refuses an action that would copy or export an item while the Trash is the
- * current view.
+ * Refuses a write or extract action while the Trash is the current view.
  *
- * A trashed cipher's write and copy paths are active-only, so a copy there
- * would fail anyway. Revealing in place is not one of these: the inspector
+ * Edit, favourite, delete, copy, open URL, password history and SSH export all
+ * leave the read-only view or write through an active-only path, so they stay
+ * off in the Trash. Revealing in place is not one of them: the inspector
  * unmasks what the Trash read already carried.
  */
 function trashBlocksItemActions(): boolean {

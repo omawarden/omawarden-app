@@ -1152,9 +1152,31 @@ test("trashed attachments and SSH keys are listed without an extract path", asyn
 
   await app.press("id:cipher-row-ssh1");
   expect(app.texts()).toContain("SHA256:abcdefghijklmnop");
+  expect(app.texts()).toContain("••••••••");
   expect(app.shows("id:export-ssh-key")).toBe(false);
   expect(app.shows("id:copy-public-key")).toBe(false);
   expect(app.shows("id:reveal-private-key")).toBe(true);
+
+  await app.press("id:reveal-private-key");
+  expect(app.texts()).toContain("-----BEGIN OPENSSH PRIVATE KEY-----\nsecret-material\n-----END OPENSSH PRIVATE KEY-----");
+});
+
+test("the Trash masks a card like the active inspector", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [{ ...CARD_ITEM, id: "trashcard", deletedAt: "2026-01-15T10:30:00Z" }],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashcard");
+
+  expect(app.shows("id:inspector-card-number")).toBe(true);
+  expect(app.texts()).toContain("•••• •••• •••• 1111");
+  expect(app.shows("id:copy-card-number")).toBe(false);
+
+  await app.press("id:reveal-card-number");
+  expect(app.texts()).toContain("4111 1111 1111 1111");
 });
 
 test("clearing the search keeps the viewed item selected and inspected", async () => {

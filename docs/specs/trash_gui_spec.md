@@ -125,12 +125,11 @@ to the Trash rows.
 
 ## Inspector
 
-`components/ItemInspector.tsx` has a Trash branch that renders the selected row
-instead of an `InspectorView` from the engine. Today it shows the title,
-category, deletion time, and folder and organization when present; #43 replaces
-that with the read-only field set described under `Details`. The store's
-`refreshInspector()` short-circuits in the Trash, so no per-item daemon read ever
-runs for a deleted cipher. Write and extract entry points (edit, favorite,
+`components/ItemInspector.tsx` has a Trash branch that renders the selected row's
+provenance and the read-only field set described under `Details`. The store's
+`refreshInspector()` runs the same way in both views: `inspect_cipher` resolves
+a trashed id from the detail map, so a per-item daemon read never runs for a
+deleted cipher. Write and extract entry points (edit, favorite,
 delete, open URL, copy, SSH export) stay guarded by `trashBlocksItemActions()`,
 and the action palette returns no context actions in the Trash. `Restore` is a
 Trash-specific mutation reachable only from this view and guarded by

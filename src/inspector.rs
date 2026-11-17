@@ -209,7 +209,7 @@ fn mock_inspect(
     // borrow across the inspector call.
     match state
         .active_item(&cipher_id)
-        .or_else(|| state.trashed_item(&cipher_id))
+        .or_else(|| state.trashed_cipher(&cipher_id))
         .map(|item| mock_item_inspector(item, &reveal))
     {
         Some(view) => {
@@ -224,7 +224,7 @@ fn mock_inspect(
 fn mock_totp(state: &mut MockState, cipher_id: String) -> TotpLiveView {
     let Some(item) = state
         .active_item(&cipher_id)
-        .or_else(|| state.trashed_item(&cipher_id))
+        .or_else(|| state.trashed_cipher(&cipher_id))
     else {
         return TotpLiveView {
             valid: false,
@@ -263,7 +263,7 @@ fn real_inspect(cipher_id: String, reveal: RevealStateInput) -> InspectorView {
     }
     // A trashed cipher never reaches the daemon: `get_item` is active-only, and
     // the Trash read already carried the fields.
-    if let Some((item, reprompt)) = vault::trash_item(&cipher_id) {
+    if let Some((item, reprompt)) = vault::trashed_cipher(&cipher_id) {
         return vault_item_inspector(&item, &reveal, reprompt);
     }
     let response = daemon(json!({ "action": "get_item", "query": cipher_id, "touch": false }));
@@ -298,43 +298,36 @@ fn real_inspect(cipher_id: String, reveal: RevealStateInput) -> InspectorView {
     }
 }
 
+/// The live code for `item`, or the view that says it has no seed.
+fn item_totp_view(item: &VaultItem) -> TotpLiveView {
+    let seed = item
+        .login
+        .as_ref()
+        .and_then(|login| login.get("totp"))
+        .and_then(|value| value.as_str());
+    totp_view(seed).unwrap_or_else(|| TotpLiveView {
+        valid: false,
+        code: String::new(),
+        formatted: String::new(),
+        remaining: 0,
+        period: 30,
+        error: Some("Item has no TOTP configured.".to_string()),
+    })
+}
+
 /// Reads the live TOTP from the cache, the loaded Trash, or the daemon.
 fn real_totp(cipher_id: String) -> TotpLiveView {
     if let Ok(guard) = vault::cached_vault().lock() {
         if let Some(cached) = guard.as_ref() {
             if let Some(item) = cached.item(&cipher_id) {
-                let seed = item
-                    .login
-                    .as_ref()
-                    .and_then(|login| login.get("totp"))
-                    .and_then(|value| value.as_str());
-                return totp_view(seed).unwrap_or_else(|| TotpLiveView {
-                    valid: false,
-                    code: String::new(),
-                    formatted: String::new(),
-                    remaining: 0,
-                    period: 30,
-                    error: Some("Item has no TOTP configured.".to_string()),
-                });
+                return item_totp_view(item);
             }
         }
     }
     // The daemon's `totp` action resolves through the active-only `find_item`,
     // so a trashed code is computed from the seed the Trash read carried.
-    if let Some((item, _)) = vault::trash_item(&cipher_id) {
-        let seed = item
-            .login
-            .as_ref()
-            .and_then(|login| login.get("totp"))
-            .and_then(|value| value.as_str());
-        return totp_view(seed).unwrap_or_else(|| TotpLiveView {
-            valid: false,
-            code: String::new(),
-            formatted: String::new(),
-            remaining: 0,
-            period: 30,
-            error: Some("Item has no TOTP configured.".to_string()),
-        });
+    if let Some((item, _)) = vault::trashed_cipher(&cipher_id) {
+        return item_totp_view(&item);
     }
     let response = daemon(json!({ "action": "totp", "query": cipher_id, "touch": false }));
     let Some(response) = response else {
