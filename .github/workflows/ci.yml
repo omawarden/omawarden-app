@@ -3,8 +3,11 @@ name: CI
 on:
   push:
     branches: [main]
+  # `develop` is where work is integrated, so its pull requests are checked
+  # too. Pushes to it are not: the merge commit was already checked by the
+  # pull request that produced it.
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 concurrency:
   group: ci-${{ github.ref }}
