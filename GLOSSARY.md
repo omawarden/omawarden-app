@@ -37,8 +37,8 @@ on an active one.
 Trash is a vault state, not an `ItemCategory`: the category tabs keep meaning
 login, card, identity, note and SSH key inside it. The app models it as a
 separate view rather than a filter, so no active-vault path can reach a trashed
-cipher by accident: a trashed cipher is not inspectable, not copyable and has
-no live TOTP.
+cipher by accident. A trashed cipher is inspectable read-only from the Trash,
+with a live TOTP code, but it is not editable and not copyable.
 
 ## Soft Delete
 

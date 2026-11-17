@@ -205,6 +205,15 @@ pub mod native {
   `queryVault` when the user returns, so no cold path gains a second request.
   A failure only toasts the daemon's error. Lock and logout clear the loaded
   Trash rows, the pending refresh and the in-flight restore flag.
+- **Trash details come from the list reply, not a trash-aware `get_item` (#43).**
+  `query_trash` keeps the reply's `VaultItem`s in a Trash-owned map beside the
+  rows, so the inspector renders a deleted cipher's fields without a second
+  request. The map never enters `CachedVault` and is cleared with the loaded
+  Trash rows. `get_item`, `get_ssh_key`, `totp` and `get_attachment_key` stay
+  active-only: widening one of them would move a state flag into the read every
+  other feature depends on, and would turn row selection into a daemon request.
+  The live TOTP code is computed locally from the in-memory seed, because the
+  daemon's `totp` action is trash-blind.
 - **`<If>` preserves mounted views.** Top-level phase and modal switches use
   `<If when={…}>` instead of bare JSX ternaries, which compile to unmemoized
   reactive effects that destroy and recreate their subtree. With `<If>`, the

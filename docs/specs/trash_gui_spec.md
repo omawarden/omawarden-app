@@ -3,8 +3,12 @@
 ## Status
 
 The browse view, Restore, and Permanent Delete are built (#38–#41). The Trash
-inspector's action row holds `Restore` and `Delete Permanently`. The Trash still
-exposes no secrets and offers no edit, copy or favourite action.
+inspector's action row holds `Restore` and `Delete Permanently`.
+
+`Details` (#43) is not built yet: today the Trash inspector shows only the
+metadata the row already carries. That ticket turns it into a read-only view of
+the cipher's own fields. The Trash offers no edit, copy or favourite action
+either way.
 
 ## Problem Statement
 
@@ -16,9 +20,13 @@ inspector, and no indication that anything had been deleted at all.
 
 The Trash is server-side state, not a filter of the active vault. The daemon's
 active `list` excludes deleted ciphers and `list` with `{"trash": true}` returns
-only them. Its per-item reads (`get_item` and `find_item`) are active-only, so a
-trashed cipher cannot be inspected the way an active one is. A Trash view has to
-be built from the list rows alone.
+only them. Its per-item reads (`get_item`, `find_item`, `totp`,
+`get_attachment_key`) are active-only, so a trashed cipher cannot be fetched one
+at a time. The list reply is the only channel that carries one: it is the same
+full-detail `VaultItem` the active list uses, and `vault list --trash` prints it
+verbatim. The first three slices projected those items into rows and discarded
+the items themselves, which is why they could only show row metadata. `Details`
+revisits that choice.
 
 ## Model
 
@@ -81,6 +89,12 @@ sort the rows with `projection::sort_trash`: newest deletion first, then title.
 `CipherRowView.deletedAt` carries the timestamp on a Trashed row and is absent
 (not `null`) on an active one.
 
+`query_trash` also keeps the reply's `VaultItem`s in a Trash-owned map beside the
+rows, so the inspector can render a trashed cipher's fields without a second
+request (#43). That map is never written into `CachedVault`, which stays
+active-only, and it lives and dies with `trashItems`: lock and logout clear both,
+`leaveTrash()` clears neither.
+
 `OmawardenBridge.restoreCipher(id)` delegates to `CipherEngine::restore`.
 `InProcess` sends `{"action": "cipher_restore", "id": id}` through the shared
 daemon socket and maps the reply with the same `map_mutation_response` /
@@ -113,16 +127,16 @@ to the Trash rows.
 ## Inspector
 
 `components/ItemInspector.tsx` has a Trash branch that renders the selected row
-instead of an `InspectorView` from the engine. It shows the title, category,
-deletion time, and folder and organization when present. It exposes no secrets:
-no password, TOTP, notes, custom fields, attachments or URIs. The store's
-`refreshInspector()` short-circuits in the Trash, so no per-item read or TOTP
-ticker runs for a deleted cipher. Secret entry points (copy, reveal, edit,
-favorite, delete, password history, open URL, SSH export) are guarded by
-`trashBlocksItemActions()`, and the action palette returns no context actions in
-the Trash. `Restore` is a Trash-specific mutation reachable only from this view
-and guarded by `vaultView() === "trash"`. Global actions such as sync, lock and
-settings remain available.
+instead of an `InspectorView` from the engine. Today it shows the title,
+category, deletion time, and folder and organization when present; #43 replaces
+that with the read-only field set described under `Details`. The store's
+`refreshInspector()` short-circuits in the Trash, so no per-item daemon read ever
+runs for a deleted cipher. Write and extract entry points (edit, favorite,
+delete, open URL, copy, SSH export) stay guarded by `trashBlocksItemActions()`,
+and the action palette returns no context actions in the Trash. `Restore` is a
+Trash-specific mutation reachable only from this view and guarded by
+`vaultView() === "trash"`. Global actions such as sync, lock and settings remain
+available.
 
 `Restore` in the action row calls `restoreCipher()` with the selected row's id,
 with no confirmation. It stays disabled while a restore is in flight
@@ -131,6 +145,57 @@ re-reads the Trash, clamps the selection to the rows that remain, stays in the
 Trash and toasts `Restored "name".`; the active vault is refreshed only when
 the user returns to it. On failure the daemon's error is shown as-is and the
 list is untouched. The action is reachable only from this view.
+
+## Details
+
+Not built yet (#43). This is the design that ticket implements.
+
+The Trash inspector shows the same field set as the active inspector, read-only:
+username, password, TOTP, notes, URIs, card, identity, SSH, custom fields, and
+the attachment list. It renders from the Trash detail map rather than a per-item
+daemon read, and it never offers a write or extract action.
+
+Masking is identical to the active inspector: the password, the card number, the
+CVV and the SSH private key are masked by default; notes, the username, custom
+fields, URIs, the card brand and the expiry are plain.
+
+`Reveal` is allowed and stays read-only. It is gated by the cipher's own
+`reprompt`, which means `row_from_item` has to carry the real value instead of
+the `0` it passes today: a trashed item with `reprompt = 1` asks for the master
+password before showing anything, exactly as an active one does. `Copy` stays out
+of scope — every copy entry point keeps going through
+`trashBlocksItemActions()`, so a revealed value can be read but not extracted.
+Password history is not shown: it is a forensic surface, not identification.
+
+The live TOTP code is shown, with the same ticker the active inspector uses,
+running only while a Trash row is selected. The code is computed locally from the
+in-memory seed through the existing `totp_view()`. The daemon's `totp` action
+resolves through the active-only `find_item`, so the Trash never calls it.
+
+Attachments are listed with their filename and size and cannot be downloaded;
+SSH keys show the key type, fingerprint and public key and cannot be exported.
+Both are upstream refusals rather than gaps to work around: `get_attachment_key`
+returns nothing for a cipher whose `deletedDate` is set, and `get_ssh_key`
+resolves through `find_item`. The inspector therefore shows no button that is
+guaranteed to fail.
+
+### Why not a trash-aware `get_item`
+
+`get_item`, `get_ssh_key`, `totp` and `get_attachment_key` all resolve through
+`find_item` → `get_items()` → `get_items_by_state(false)`. Adding a `trash`
+parameter would push a state flag into the one read every other feature depends
+on, and it would turn row selection into a daemon request — the cold-path budget
+this spec spends its length protecting.
+
+`cipher_resolve` already accepts `{"trash": true}`, but it answers with
+`{id, name, type, organization_id}` by design, and the `cipher_restore` and
+`cipher_delete_trash` receipts carry only `{id, name}`.
+
+The list reply is the only full-detail channel that already exists. It is what
+`vault list --trash` prints, it is what the app already receives on every Trash
+load, and it is what the plugin's overlay reads. Reusing it costs nothing and
+adds no new IPC surface: the change is in what the app keeps, not in what it
+asks for.
 
 ## Permanent Delete
 
@@ -164,9 +229,15 @@ covers the `cipher_restore` and `cipher_delete_trash` payloads, their receipts
 and errors, and `src/lib.rs` covers the mock adapters' success, their rejection
 of an id that is not trashed, and the seeded error.
 
+When #43 lands it adds its own coverage: the read-only field set, masking parity
+with the active inspector, reveal behind `reprompt`, copy staying blocked, the
+live TOTP ticker, and the absent download and export actions.
+
 ## Out of Scope
 
 - Bulk `Empty Trash`.
 - A version gate for the daemon's Trash actions.
 - Translating or wrapping daemon errors.
-- Editing, copying, or favouriting a cipher while it is in the Trash.
+- Editing, copying, or favouriting a cipher while it is in the Trash. Viewing and
+  revealing are in scope (`Details`); extracting a value is not.
+- Downloading an attachment or exporting an SSH key from the Trash.
