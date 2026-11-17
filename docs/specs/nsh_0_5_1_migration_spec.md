@@ -38,9 +38,10 @@ the AUR `pkgver` all follow it (`release-dev.yml`, `packaging/generate-aur-pkgbu
 6. **Validation**: `nsh check` (0 errors, 0 warnings), `nsh test` (100%),
    `cargo fmt --all --check`, `scripts/check_privacy.py`, `scripts/check_aur_pkgbuild.sh`.
 
-**Out of scope**, recorded as follow-ups in §5: `focusVisibleStyle`, stable list
-keys, and `window.minSize`. This change ports the app to 0.5.1 and adds no new
-behavior.
+**Out of scope**, recorded in §5: `focusVisibleStyle`, index keys outside the
+vault list, and `window.minSize`. The change ports the app to 0.5.1 and takes
+the one 0.5 affordance the list of ciphers was missing — row identity (§3.6) —
+and adds no product behavior.
 
 ## 3. File-level changes
 
@@ -111,6 +112,25 @@ the old value go stale or fail:
   the older `docs/specs/*` files are records of what was true when they were
   written, not statements about the current tree.
 
+### 3.6 Vault rows are keyed by the cipher
+
+`components/VaultItemList.tsx` listed `store.visibleItems()` with
+`key="index"`, so NSH kept a row's views with the slot: a cipher that moved
+under a filter, a sync, or a favourite redrew into whatever slot it landed in.
+The list is now keyed by `item.id`, so NSH keeps the row's views with the
+cipher and moves the row — which is what 0.5's row identity is for.
+
+The row's action id moves with it: `cipher-row-slot-<index>` becomes
+`cipher-row-<cipher id>`. `store.actionOrder` is the app's own Tab ring and
+holds first-registration order, so an action named by its slot would be spliced
+out and appended to the end of the ring every time a reorder moved its row; a
+cipher-named action re-registers under the id it already has and the ring holds.
+
+The row still reads `index()` for selection and for a press: the app's
+selection is `store.selectedIndex()`, and a keyed row's `index()` follows its
+cipher to the cipher's new position, so pressing a row still selects that
+cipher.
+
 ## 4. Verified unaffected
 
 0.5.0's breaking changes were checked one by one against the tree. These do not
@@ -122,7 +142,7 @@ apply, and no code change was needed:
 | `capabilities` grants for media loading | The only local media is a bundler asset import (`assets/icon.png` in `components/AuthView.tsx`); asset imports are the app's own files and need no grant. Other images are remote favicons or `data:` URLs. `host` and `network.hosts` are unchanged. |
 | `focus-visible:` follows keyboard focus only | The app uses no `focus-visible:` / `focus:` classes; it styles focus with the `focusStyle` / `focusWithinStyle` props, whose meaning is unchanged. |
 | `macos.infoPlist` refuses `LSUIElement` | `nsh.json` has no `macos` block. |
-| List-at-start insert behavior | Rows above the visible ones no longer move them. The app keys its `Each` lists by index; 0.5 requires no migration for that (see §5.2). |
+| List-at-start insert behavior | Rows above the visible ones no longer move them. The vault row list is keyed by cipher id (§3.6); the remaining `Each` lists are keyed by index, which 0.5 still supports (§5.2). |
 | Tab order with popovers; file drops; `scrollbar={false}`; history/back; animation parameter sanitizing | The app re-implements its own Tab ring; has no `onFileDrop`, no `scrollbar` prop, no navigation stack; and its one animation (`components/FooterBar.tsx`) passes finite parameters. |
 | Rust API renames/retypes (`Theme::from_json_lenient`, `DataTableColumn::fixed`, `LayoutCurve::Spring`, `Command::Haptic`, `#[non_exhaustive]` types, new struct fields, `Registry::tokens*`) | None appear. The Rust side uses only `nsh_core::prelude::*` — `Registry`, `#[native_module]`, `#[module]`, `JsObject`, `PropEnum`, `#[prop]` — and no platform crate. |
 | Perf line moved to `nsh::fps`, `--fps` only with `-v` | The app and its docs never reference `nsh::perf` or `--fps`. |
@@ -151,17 +171,21 @@ the app an API it never calls, so `capabilities` is left alone. It is not a
 ### 5.1 `focusVisibleStyle`
 
 0.5 adds `focusVisibleStyle` (the `focus-visible:` state: keyboard-originated
-focus, or an input that edits). The app's 16 `focusStyle` sites are unchanged and
+focus, or an input that edits). The app's 13 `focusStyle` sites are unchanged and
 behave exactly as they did on 0.4.0. Switching would stop a mouse press from
-showing the ring — a behavior change, so it is left to a change of its own.
+showing the ring — a behavior change, so it is left to a change of its own. The
+one `focusWithinStyle` site (`components/SettingsModal.tsx`, the Appearance tab's
+text-size slider) stays too: 0.5 has no `focus-visible` variant of it.
 
-### 5.2 Stable list keys
+### 5.2 Index keys elsewhere
 
-0.5's lists keep measurements with their rows, which makes index keys more
-visible: with `key="index"` every row pushed down by an insert looks like a
-different row. The framework only recommends stable keys, so the 22 index-keyed
-`Each` lists stay as they are. The list that would gain the most is the vault row
-list (`components/VaultItemList.tsx`); changing it is its own piece of work.
+The other 21 `Each` lists keep `key="index"`. They list fixed sets or strings —
+settings tabs, scope and folder names, password history, the palette's commands
+— where a row *is* a slot whose text changes, which is what `key="index"`
+expresses. `store/Icons.ts` is written to hold under that recycling: one
+failure signal per domain, so a row reused for another item of the same domain
+still falls back to the category glyph. The one list of ciphers, the vault rows,
+is now keyed by cipher (§3.6).
 
 ### 5.3 `window.minSize`
 

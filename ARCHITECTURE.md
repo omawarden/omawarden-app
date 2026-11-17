@@ -459,7 +459,7 @@ Profiling `nsh run --window-size 1440x960` on Linux with GTK4 + dual AMD Vulkan 
 3. **Windowed / Capped Vault List Rendering (`components/VaultItemList.tsx`)**:
    - Avoid mounting hundreds or thousands of GTK `<Button>` row subtrees simultaneously in `<Each of={store.visibleItems()}>`.
    - Render a windowed slice (`visibleLimit` defaults to `80`, resets to `80` when filters change, and grows automatically when keyboard navigation approaches the end) with a `Show more (… remaining)` button at the bottom of the scroll list.
-   - `<Each … key="index">` keeps row slots in place across category switches, and the row action id is `cipher-row-slot-${index}` so the registered action stays valid when a slot's item changes.
+   - Rows are keyed by the cipher (`<Each … key={(item) => item.id}>`), so NSH moves a row with its cipher instead of redrawing a different cipher into its slot, and the row action id is `cipher-row-${id}`, so the registered action stays valid when a reorder moves its row: `actionOrder` is the app's Tab ring and holds first-registration order.
 4. **Hot-Path FilterProjection Without Snapshot or Widget Churn**:
    - Category, scope, folder, and search changes update only `filteredItems()`, which filters the cached `rawItems` in memory. They perform no daemon IPC, no keyring lookups, and no `snapshot.set()`.
    - Phase and modal branches use `<If when={…}>` rather than bare JSX ternaries, so the `<VaultWorkspace />` subtree stays mounted across filter changes and inner badge views update in place instead of being recreated.

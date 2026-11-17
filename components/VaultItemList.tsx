@@ -82,7 +82,11 @@ export function VaultItemList() {
         <If when={store.filteredItems().length === 0}>
           <EmptyHint>{emptyHint()}</EmptyHint>
         </If>
-        <Each of={store.visibleItems()} key="index">
+        {/* Keyed by cipher, not by position: NSH keeps the row's views with the
+            item, so a filtered-list reorder moves a row instead of redrawing a
+            different cipher into its slot. `item()` and `index()` still follow
+            the row, so the action below stays on the cipher the user pressed. */}
+        <Each of={store.visibleItems()} key={(item) => item.id}>
           {(item, index) => <VaultRow item={item} index={index} />}
         </Each>
         <If when={store.filteredItems().length > store.visibleItems().length}>
@@ -129,7 +133,10 @@ function ShowMoreRow(props: { remaining: () => number }) {
 
 function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
   const palette = store.palette;
-  const id = actionID(`cipher-row-slot-${props.index()}`);
+  // Named by the cipher, not by the slot. `actionOrder` is the app's Tab ring
+  // and holds its first registration order, so a slot-named action would be
+  // spliced out and appended again on every reorder that moves its row.
+  const id = actionID(`cipher-row-${props.item().id}`);
   useAction(id, () => store.selectCipher(props.index()));
   const focused = () => store.focusedAction() === id;
   const inTrash = () => store.vaultView() === "trash";
