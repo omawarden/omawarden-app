@@ -26,7 +26,7 @@ Two constraints collided:
 We define three distinct terms in `GLOSSARY.md` and scope them as follows:
 
 - **Log Pipeline** — app-process event source. Records **state transitions and failures only** (auth success/failure, unlock/lock, sync start/end, cipher write rejections). Three levels: `error`, `warn`, `info`. No per-action INFO "telemetry". Entries sanitized by `sanitize_log_message` before entering the ring.
-- **Log Viewer** — bounded in-memory ring displayed in Diagnose. Timestamps, level badges, level filtering. Not persisted, not streamed, not sent over network.
+- **Log Viewer** — bounded in-memory ring displayed in the Logs tab. Timestamps, level badges, level filtering. Not persisted, not streamed, not sent over network.
 - **Diagnostic Report** — user-triggered clipboard snapshot. Contains: app/engine version, commit, build date, sanitized server URL, health verdicts, RSS, Log Viewer contents. **Explicitly excludes** daemon stderr logs and any absolute paths/local filenames. Report header declares the collection scope.
 
 Cross-process log channel (app ↔ daemon): **not built**. Options evaluated:
@@ -46,7 +46,7 @@ We choose **E**. The daemon's structured stderr remains in the daemon (or `/dev/
 ### Positive
 - Zero new leakage surface; no runtime logs escape the app's sanitization boundary.
 - No daemon protocol change, no engine rebuild required, no risk of EPIPE panic on a shared `setsid`-detached daemon.
-- Diagnose tab and diagnostic report remain pure in-process, clipboard-only, user-triggered.
+- The Diagnose and Logs tabs and the diagnostic report remain pure in-process, clipboard-only, user-triggered.
 - Security invariant tightened: `ARCHITECTURE.md` now forbids absolute paths and local filenames in log lines. The former `src/attachments.rs:379` deviation (absolute download path in the ring) has been remediated.
 
 ### Negative
@@ -65,5 +65,5 @@ We choose **E**. The daemon's structured stderr remains in the daemon (or `/dev/
 - App: `ARCHITECTURE.md` §3 (Security & Domain Invariants)
 - App: `docs/specs/frontend_feature_parity_spec.md` — P2-4 and parity scope
 - App: `src/diagnostics.rs:415-440` (log ring implementation)
-- App: `components/SettingsModal.tsx:325-410` (Diagnose tab)
+- App: `components/SettingsModal.tsx` (Diagnose and Logs tabs)
 - App: `store/appStore.ts:1519-1531` (Copy Diagnostic Report)
