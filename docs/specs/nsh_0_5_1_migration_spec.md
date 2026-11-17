@@ -37,8 +37,8 @@ the AUR `pkgver` all follow it (`release-dev.yml`, `packaging/generate-aur-pkgbu
    `README.md`, `ARCHITECTURE.md`, `GLOSSARY.md`.
 6. **Validation**: `nsh check` (0 errors, 0 warnings), `nsh test` (100%),
    `cargo fmt --all --check`, `scripts/check_privacy.py`, `scripts/check_aur_pkgbuild.sh`.
-7. **Test determinism**: the Rust suite runs with `RUST_TEST_THREADS=1` (§3.8),
-   so the suite's pre-existing shared-state flake cannot redden CI.
+7. **Test determinism**: the Rust suite's process-wide state is isolated per
+   test (§3.8), so the suite's pre-existing shared-state flake cannot redden CI.
 
 **Out of scope**, recorded in §5: index keys outside the vault list and
 `window.minSize`. The change ports the app to 0.5.1 and takes two 0.5 affordances
@@ -149,28 +149,38 @@ does not come from a style prop. The one `focusWithinStyle` site
 (`components/SettingsModal.tsx`, the Appearance tab's text-size slider) stays:
 0.5 has no `focus-visible` variant of it.
 
-### 3.8 The Rust suite runs single-threaded
+### 3.8 The Rust suite isolates its process-wide state
 
 `nsh test` runs the app crates' `cargo test` with libtest's default parallelism,
-and the suite is not parallel-safe. `src/diagnostics.rs` keeps a **process-global**
-log ring: `ring_keeps_only_the_most_recent_lines_oldest_first` clears it, pushes
-`LOG_RING_CAPACITY + 5` lines and reads it back, while `src/lib.rs`'s
-`log_pipeline_records_state_transitions_and_failures` pushes to the same ring.
-`locked_daemon_from_another_build_is_kept` likewise rewrites the process-wide
-`XDG_RUNTIME_DIR`. The full suite in parallel failed roughly one run in three, on
-a random victim
-(`inspector::tests::a_trashed_cipher_is_not_inspectable_before_the_trash_is_read`,
-`diagnostics::tests::ring_keeps_only_the_most_recent_lines_oldest_first`).
+and the suite was not parallel-safe. The process keeps one copy of the mock
+engine state, the active-vault cache, the Trash details and the diagnostics log
+ring, and two tests rewrite `XDG_*` environment variables. `src/lib.rs` had a
+`TEST_LOCK` that serialized only the tests reaching the mock engine, so the rest
+raced: the full suite failed roughly one run in three, most often on
+`inspector::tests::a_trashed_cipher_is_not_inspectable_before_the_trash_is_read`
+or `diagnostics::tests::ring_keeps_only_the_most_recent_lines_oldest_first`.
 
-`.github/workflows/ci.yml`'s headless-tests step and `scripts/check_ci.sh` now set
-`RUST_TEST_THREADS=1`. `nsh test` passes the environment through to `cargo test`
-(a bogus `RUST_TEST_THREADS` fails the libtest run, which is how this was
-confirmed), and the Rust suite finishes in under a second, so one thread costs
-nothing. The TSX tests are unaffected: they belong to the harness, not libtest.
+Serializing alone does not fix it, which is what the first attempt got wrong.
+`real_inspect` reads the process-wide Trash details before it asks the daemon,
+and `the_trash_inspector_reads_the_cipher_the_trash_list_carried` writes
+`trash-id-1` into them. With a lock but no reset, the second of the two Trash
+tests inherits the cipher the first one loaded, so it passes or fails depending
+on which ran first — a flake that mutual exclusion cannot remove, because the
+state outlives the guard.
 
-This does not remove the shared state — `src/lib.rs` already has a `TEST_LOCK`
-that serializes the tests reaching the mock engine, and the remaining globals
-could be given the same treatment. Doing so is a change of its own.
+`src/lib.rs` now has one `#[cfg(test)] mod test_state` whose `lock()` both takes
+the lock and resets the baseline: the mock state, `vault::clear_session_state()`
+(the active cache and the Trash details), and `diagnostics::clear_log_ring()`,
+promoted from the test-local helper. Every test that touches process-wide state
+takes it — `src/lib.rs`'s test module, `inspector`, `vault`, `cipher_mutation`,
+`ssh`, `diagnostics` and `ui_prefs` — replacing the old `TEST_LOCK` and
+`ui_prefs`' separate `ENV_LOCK`, which could not have excluded each other. The
+pure tests still run in parallel; the whole suite finishes in under a second.
+
+This is why `RUST_TEST_THREADS=1` is gone from `.github/workflows/ci.yml` and
+`scripts/check_ci.sh`: it papered over the ordering half of the flake without
+touching the state. The suite now passes every parallel run in a batch of
+fifty.
 
 ## 4. Verified unaffected
 

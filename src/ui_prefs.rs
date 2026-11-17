@@ -178,10 +178,6 @@ fn write_prefs(path: &Path, prefs: &UiPrefsView) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use std::ffi::OsString;
-    use std::sync::Mutex;
-
-    /// Serializes the tests that change the process-wide config environment.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     /// Points the config environment at a temporary directory, then restores it.
     struct ConfigHome {
@@ -192,11 +188,11 @@ mod tests {
 
     impl ConfigHome {
         fn new(path: &std::path::Path) -> Self {
-            let guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+            let _guard = crate::test_state::lock();
             let xdg = std::env::var_os("XDG_CONFIG_HOME");
             let config_dir = std::env::var_os("OMAWARDEN_CONFIG_DIR");
-            // SAFETY: `ENV_LOCK` keeps every test that touches these variables
-            // from running at the same time.
+            // SAFETY: `test_state::lock()` keeps every test that touches these
+            // variables from running at the same time.
             unsafe {
                 std::env::set_var("XDG_CONFIG_HOME", path);
                 std::env::remove_var("OMAWARDEN_CONFIG_DIR");
@@ -204,7 +200,7 @@ mod tests {
             Self {
                 xdg,
                 config_dir,
-                _guard: guard,
+                _guard,
             }
         }
     }

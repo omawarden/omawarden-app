@@ -435,6 +435,7 @@ mod tests {
     /// becomes `item_id`.
     #[test]
     fn real_save_ssh_key_sends_v2_action_and_reads_item_id() {
+        let _guard = crate::test_state::lock();
         let _seam = test_seam::set(|action: Value| {
             match action.get("action").and_then(|value| value.as_str()) {
                 Some("ping") => Some(json!({ "ok": true, "unlocked": true })),
@@ -475,6 +476,7 @@ mod tests {
     /// sent, with the unlock message the daemon would otherwise reject with.
     #[test]
     fn real_save_ssh_key_refuses_when_vault_locked() {
+        let _guard = crate::test_state::lock();
         let _seam = test_seam::set(|action: Value| {
             let action_str = action
                 .get("action")
@@ -500,6 +502,7 @@ mod tests {
     /// the daemon is missing rather than blaming a locked vault.
     #[test]
     fn real_save_ssh_key_reports_missing_daemon() {
+        let _guard = crate::test_state::lock();
         let _seam = test_seam::set(|_action: Value| None);
 
         let outcome = real_save_ssh_key(vault_save_input());
@@ -515,6 +518,7 @@ mod tests {
     /// the actionable message the CLI prints.
     #[test]
     fn real_save_ssh_key_refuses_when_the_server_lacks_ssh_key_storage() {
+        let _guard = crate::test_state::lock();
         let _seam = test_seam::set(|action: Value| {
             match action.get("action").and_then(|value| value.as_str()) {
                 Some("ping") => Some(json!({ "ok": true, "unlocked": true })),
@@ -544,6 +548,7 @@ mod tests {
     /// the save: the capability check fails open.
     #[test]
     fn real_save_ssh_key_fails_open_when_capabilities_are_unknown() {
+        let _guard = crate::test_state::lock();
         let _seam = test_seam::set(|action: Value| {
             match action.get("action").and_then(|value| value.as_str()) {
                 Some("ping") => Some(json!({ "ok": true, "unlocked": true })),

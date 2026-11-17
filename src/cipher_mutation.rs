@@ -1055,6 +1055,7 @@ mod tests {
 
     #[test]
     fn real_restore_sends_the_daemon_action_and_maps_the_receipt() {
+        let _guard = crate::test_state::lock();
         let _seam = crate::daemon::test_seam::set(|action: Value| {
             assert_eq!(
                 action.get("action").and_then(Value::as_str),
@@ -1078,6 +1079,7 @@ mod tests {
 
     #[test]
     fn real_restore_surfaces_the_daemon_error() {
+        let _guard = crate::test_state::lock();
         let _seam = crate::daemon::test_seam::set(|_action: Value| {
             Some(json!({
                 "ok": false,

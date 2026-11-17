@@ -532,6 +532,7 @@ mod tests {
 
     #[test]
     fn real_trash_sends_the_trash_flag_and_surfaces_the_daemon_error() {
+        let _guard = crate::test_state::lock();
         let _seam = test_seam::set(|action: Value| {
             assert_eq!(
                 action.get("action").and_then(Value::as_str),
@@ -591,6 +592,7 @@ mod tests {
 
     #[test]
     fn real_trash_rows_carry_the_cipher_reprompt() {
+        let _guard = crate::test_state::lock();
         let _seam =
             test_seam::set(|_action: Value| Some(json!([trashed_entry(json!({ "reprompt": 1 }))])));
 

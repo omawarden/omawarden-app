@@ -740,6 +740,7 @@ mod tests {
 
     #[test]
     fn the_trash_inspector_reads_the_cipher_the_trash_list_carried() {
+        let _guard = crate::test_state::lock();
         let _seam = crate::daemon::test_seam::set(|action: Value| {
             match action.get("action").and_then(Value::as_str) {
                 Some("list") => Some(json!([trashed_entry(json!({}))])),
@@ -766,6 +767,7 @@ mod tests {
 
     #[test]
     fn a_trashed_cipher_is_not_inspectable_before_the_trash_is_read() {
+        let _guard = crate::test_state::lock();
         let _seam = crate::daemon::test_seam::set(|action: Value| {
             match action.get("action").and_then(Value::as_str) {
                 Some("get_item") => Some(json!({ "ok": false, "error": "Item not found." })),

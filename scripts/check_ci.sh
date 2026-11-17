@@ -39,11 +39,6 @@ step "TypeScript type-check"
 nsh check
 
 step "Headless tests"
-# The Rust suite shares process-wide state — the diagnostic log ring, and the
-# daemon's XDG_RUNTIME_DIR — so libtest's default parallelism makes it flaky:
-# a random test panics roughly one run in three. `nsh test` passes the
-# environment through to `cargo test`, and the Rust suite runs in well under a
-# second, so one thread costs nothing.
-RUST_TEST_THREADS=1 nsh test
+nsh test
 
 printf '\nAll CI checks passed.\n'
