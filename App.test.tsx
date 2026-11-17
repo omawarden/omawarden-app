@@ -1,5 +1,7 @@
 import { expect, open, test } from "nsh/test";
 import { OmawardenBridge } from "omawarden-app/native";
+import { buildDiagnosticReport, DIAGNOSTIC_SCOPE } from "./store/diagnosticReport";
+import { formatLocalDateTime } from "./store/DateTime";
 
 type MockState = Record<string, unknown>;
 
@@ -124,6 +126,41 @@ const IMPORTED_SSH_KEY_PEM =
   "AAAECK8QucQD6uVKWOM8q8h5etLaPHPAQe/Oqkb2ChGWF5UtHthy4miuXjPQaO+UJEcWNp\n" +
   "/8aRB6y9wTGD9D1Thq+kAAAADm9tYXdhcmRlbi10ZXN0AQIDBAUGBw==\n" +
   "-----END OPENSSH PRIVATE KEY-----";
+
+// A trashed login with a deletion date.
+const TRASHED_ITEM: Record<string, unknown> = {
+  id: "trashed1",
+  title: "Old GitHub",
+  category: "login",
+  username: "octocat",
+  password: "hunter2",
+  deletedAt: "2026-01-15T10:30:00Z",
+  organization: "Acme",
+  folder: "Work",
+};
+
+// An older trashed item, to verify newest-deleted-first sort.
+const OLDER_TRASHED_ITEM: Record<string, unknown> = {
+  id: "trashed2",
+  title: "Ancient Login",
+  category: "login",
+  deletedAt: "2026-01-01T00:00:00Z",
+};
+
+// A trashed secure note, for category tab filtering in Trash.
+const TRASHED_NOTE: Record<string, unknown> = {
+  id: "trashed3",
+  title: "Old Notes",
+  category: "secureNote",
+  notes: "some notes",
+  deletedAt: "2026-02-01T12:00:00Z",
+};
+
+const TRASH_ITEMS: Array<Record<string, unknown>> = [
+  TRASHED_ITEM,
+  OLDER_TRASHED_ITEM,
+  TRASHED_NOTE,
+];
 
 const VAULT_ITEMS: Array<Record<string, unknown>> = [
   LOGIN_ITEM,
@@ -596,6 +633,571 @@ test("filter changes preserve the mounted workspace and update rows instantly", 
   await app.clear("id:vault-search");
   expect(app.shows("id:vault-workspace")).toBe(true);
   expect(app.texts()).toContain("6 of 6");
+});
+
+test("the Trash entry appears in the Scope dropdown and lists only trashed items", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, ...TRASH_ITEMS],
+  });
+
+  // The workspace mounts with the active vault.
+  expect(app.shows("id:vault-workspace")).toBe(true);
+  expect(app.shows("id:cipher-row-login1")).toBe(true);
+  expect(app.shows("id:cipher-row-trashed1")).toBe(false);
+  expect(app.shows("id:cipher-row-trashed2")).toBe(false);
+
+  // Open the scope dropdown; the Trash row is below the org rows, after a divider.
+  await app.press("id:scope-trigger");
+  expect(app.shows("id:scope-dropdown")).toBe(true);
+  expect(app.shows("id:scope-trash")).toBe(true);
+  expect(app.shows("id:scope-divider")).toBe(true);
+
+  // The Trash row shows no count before the first load: the next text belongs
+  // to the folder column, not to the row.
+  const textsBefore = app.texts();
+  const trashIdx = textsBefore.findIndex((t) => t.trim() === "Trash");
+  expect(trashIdx).toBeGreaterThanOrEqual(0);
+  expect(/^\d+$/.test((textsBefore[trashIdx + 1] ?? "").trim())).toBe(false);
+
+  // Open the Trash — it loads once.
+  await app.press("id:scope-trash");
+  expect(app.shows("id:scope-dropdown")).toBe(false);
+  expect(app.texts()).toContain("Trash");
+
+  // Only trashed items are listed; active ones are absent.
+  expect(app.shows("id:cipher-row-trashed1")).toBe(true);
+  expect(app.shows("id:cipher-row-trashed2")).toBe(true);
+  expect(app.shows("id:cipher-row-trashed3")).toBe(true);
+  expect(app.shows("id:cipher-row-login1")).toBe(false);
+  expect(app.shows("id:cipher-row-card1")).toBe(false);
+
+  // Newest deletion first: trashed3 (Feb 1) then trashed1 (Jan 15) then trashed2 (Jan 1).
+  const afterOpen = app.texts();
+  const idx3 = afterOpen.findIndex((t) => t === "Old Notes");
+  const idx1 = afterOpen.findIndex((t) => t === "Old GitHub");
+  const idx2 = afterOpen.findIndex((t) => t === "Ancient Login");
+  expect(idx3).toBeLessThan(idx1);
+  expect(idx1).toBeLessThan(idx2);
+
+  // The Trash row reports its count after the first load.
+  await app.press("id:scope-trigger");
+  expect(app.shows("id:scope-dropdown")).toBe(true);
+  const textsLoaded = app.texts();
+  const loadedIdx = textsLoaded.findIndex((t) => t.trim() === "Trash");
+  expect(textsLoaded[loadedIdx + 1]).toBe("3");
+  await app.press("id:scope-trigger");
+
+  // Category tabs filter the Trash locally.
+  await app.press("id:category-secureNote");
+  expect(app.shows("id:cipher-row-trashed3")).toBe(true);
+  expect(app.shows("id:cipher-row-trashed1")).toBe(false);
+  expect(app.shows("id:cipher-row-trashed2")).toBe(false);
+
+  await app.press("id:category-all");
+
+  // Search filters the Trash locally.
+  await app.type("id:vault-search", "github");
+  expect(app.shows("id:cipher-row-trashed1")).toBe(true);
+  expect(app.shows("id:cipher-row-trashed2")).toBe(false);
+
+  await app.clear("id:vault-search");
+  expect(app.shows("id:cipher-row-trashed2")).toBe(true);
+});
+
+test("the Trash inspector keeps the deletion provenance", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashed1");
+
+  // Inspector shows title, category, deletion time, folder, organization.
+  expect(app.texts()).toContain("Old GitHub");
+  expect(app.texts()).toContain("Login");
+  expect(app.texts()).toContain("Work");
+  expect(app.texts()).toContain("Acme");
+  expect(app.shows("id:trash-deleted-at")).toBe(true);
+
+  // The Trash notice and its own actions sit above the read-only fields.
+  expect(app.texts().join(" ")).toContain("This item is in the Trash");
+  expect(app.shows("id:trash-restore")).toBe(true);
+  expect(app.shows("id:trash-delete-permanent")).toBe(true);
+});
+
+test("an active row has no deletedAt and a trashed row has it", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+
+  // The bridge's row DTO omits the key outright on active rows (skip_none),
+  // while every Trash row carries it.
+  const emptyFilter = { search: "", category: "all" as const, scopeId: null, folderId: null };
+  const active = OmawardenBridge.queryVault(emptyFilter);
+  expect(active.allItems.some((row) => "deletedAt" in row)).toBe(false);
+  const trash = OmawardenBridge.queryTrash(emptyFilter);
+  expect(trash.allItems.length).toBe(1);
+  expect("deletedAt" in trash.allItems[0]).toBe(true);
+  expect(trash.allItems[0].deletedAt).toBe("2026-01-15T10:30:00Z");
+
+  // The list badge and the inspector both format the deletion time.
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashed1");
+  expect(app.texts()).toContain(formatLocalDateTime("2026-01-15T10:30:00Z"));
+  expect(app.shows("id:trash-deleted-at")).toBe(true);
+});
+
+test("no Trash request on boot, unlock, tick, or active-vault search", async () => {
+  const app = await openMockWithClock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+
+  // Boot + unlock happened via openMockWithClock; no Trash request yet.
+  expect(OmawardenBridge.mockTrashQueries()).toBe(0);
+
+  // Active-vault search does not trigger Trash.
+  await app.type("id:vault-search", "git");
+  expect(OmawardenBridge.mockTrashQueries()).toBe(0);
+
+  await app.clear("id:vault-search");
+  expect(OmawardenBridge.mockTrashQueries()).toBe(0);
+
+  // Category change does not trigger Trash.
+  await app.press("id:category-card");
+  expect(OmawardenBridge.mockTrashQueries()).toBe(0);
+  await app.press("id:category-all");
+  expect(OmawardenBridge.mockTrashQueries()).toBe(0);
+
+  // Daemon tick does not trigger Trash.
+  await app.wait(2500);
+  expect(OmawardenBridge.mockTrashQueries()).toBe(0);
+
+  // Only opening the Trash triggers the request.
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  expect(OmawardenBridge.mockTrashQueries()).toBe(1);
+
+  // Re-opening reuses the loaded list: no new request.
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-all");
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  expect(OmawardenBridge.mockTrashQueries()).toBe(1);
+});
+
+test("sync while the Trash is open reloads the Trash", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  expect(app.shows("id:cipher-row-trashed1")).toBe(true);
+  expect(OmawardenBridge.mockTrashQueries()).toBe(1);
+
+  // Trigger a sync via the action palette.
+  await app.keyboard.press("mod+k");
+  expect(app.shows("id:action-palette-modal")).toBe(true);
+  await app.press("id:action-sync");
+  expect(app.shows("id:action-palette-modal")).toBe(false);
+  expect(app.texts()).toContain("Vault synchronized.");
+
+  // Trash was re-read on sync.
+  expect(OmawardenBridge.mockTrashQueries()).toBe(2);
+  expect(app.shows("id:cipher-row-trashed1")).toBe(true);
+});
+
+test("scope and folder controls are hidden in the Trash", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+
+  // In the active view the dropdown shows both the scope and folder columns.
+  await app.press("id:scope-trigger");
+  expect(app.shows("id:scope-dropdown")).toBe(true);
+  expect(app.shows("id:scope-personal")).toBe(true);
+  expect(app.shows("id:scope-folder-all")).toBe(true);
+
+  await app.press("id:scope-trash");
+
+  // In the Trash the folder column and the filter hint are gone. The scope
+  // rows stay: they are the way back to the active vault.
+  await app.press("id:scope-trigger");
+  expect(app.shows("id:scope-dropdown")).toBe(true);
+  expect(app.shows("id:scope-trash")).toBe(true);
+  expect(app.shows("id:scope-personal")).toBe(true);
+  expect(app.shows("id:scope-folder-all")).toBe(false);
+  expect(app.texts()).not.toContain("Folders");
+  expect(app.texts()).not.toContain(
+    "Scope filters apply together with the category tabs and the search text.",
+  );
+
+  // The scope trigger labels the view as Trash.
+  expect(app.texts()).toContain("Scope: Trash");
+
+  // Picking a scope leaves the Trash instead of narrowing it.
+  await app.press("id:scope-all");
+  expect(app.shows("id:cipher-row-login1")).toBe(true);
+  expect(app.shows("id:cipher-row-trashed1")).toBe(false);
+});
+
+test("Trash empty states distinguish empty from no matches", async () => {
+  // No trashed items at all.
+  const emptyApp = await openMock({ phase: "unlocked", items: VAULT_ITEMS });
+  await emptyApp.press("id:scope-trigger");
+  await emptyApp.press("id:scope-trash");
+  expect(emptyApp.texts()).toContain("The Trash is empty.");
+
+  // Some trashed items, but search matches none.
+  const searchApp = await openMock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+  await searchApp.press("id:scope-trigger");
+  await searchApp.press("id:scope-trash");
+  await searchApp.type("id:vault-search", "nomatch");
+  expect(searchApp.texts()).toContain("No trashed items match this search.");
+});
+
+test("restoring from the Trash removes the row, keeps the view, and toasts", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashed1");
+  expect(app.shows("id:trash-restore")).toBe(true);
+
+  // One press, no confirmation dialog.
+  await app.press("id:trash-restore");
+  expect(app.shows("id:cipher-delete-modal")).toBe(false);
+  expect(app.texts()).toContain('Restored "Old GitHub".');
+  expect(app.shows("id:cipher-row-trashed1")).toBe(false);
+
+  // The user stays in the Trash; its rows were re-read after the mutation.
+  expect(app.texts()).toContain("Scope: Trash");
+  expect(app.texts()).toContain("The Trash is empty.");
+  expect(OmawardenBridge.mockTrashQueries()).toBe(2);
+
+  // The restored cipher is in the active list on the way back.
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-all");
+  expect(app.shows("id:cipher-row-trashed1")).toBe(true);
+  expect(app.shows("id:cipher-row-login1")).toBe(true);
+});
+
+test("restoring keeps the selection inside the remaining Trash rows", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM, OLDER_TRASHED_ITEM],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  // Newest deletion first, so trashed2 is the second row.
+  await app.press("id:cipher-row-trashed2");
+  expect(app.shows("id:trash-inspector")).toBe(true);
+
+  await app.press("id:trash-restore");
+  expect(app.shows("id:cipher-row-trashed1")).toBe(true);
+  expect(app.shows("id:cipher-row-trashed2")).toBe(false);
+  // The clamped selection still inspects a Trash row, not the empty state.
+  expect(app.shows("id:trash-inspector")).toBe(true);
+  expect(app.texts()).toContain("Scope: Trash");
+});
+
+test("a failed restore shows the daemon error and leaves the row in place", async () => {
+  const error = "Server rejected restore (HTTP 403): denied";
+  const app = await openMock({
+    phase: "unlocked",
+    trashMutationError: error,
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashed1");
+  await app.press("id:trash-restore");
+
+  expect(app.texts()).toContain(error);
+  expect(app.shows("id:cipher-row-trashed1")).toBe(true);
+  expect(app.texts()).toContain("Scope: Trash");
+  // A failure does not invalidate or re-read the loaded Trash list.
+  expect(OmawardenBridge.mockTrashQueries()).toBe(1);
+});
+
+test("restore is not reachable from the active vault", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+  await app.press("id:cipher-row-login1");
+
+  expect(app.shows("id:trash-restore")).toBe(false);
+  // The active inspector still offers its own edit and soft-delete actions.
+  expect(app.shows("id:edit-cipher")).toBe(true);
+  expect(app.shows("id:delete-cipher")).toBe(true);
+});
+
+test("Trash inspector shows Delete Permanently and opens permanent modal", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashed1");
+  expect(app.shows("id:trash-delete-permanent")).toBe(true);
+
+  await app.press("id:trash-delete-permanent");
+  expect(app.shows("id:cipher-delete-modal")).toBe(true);
+  // Permanent modal title and body strings (issue #41 acceptance).
+  expect(app.texts()).toContain("Permanently Delete?");
+  expect(app.texts()).toContain("This cannot be undone.");
+  expect(app.texts()).toContain("Delete Permanently");
+  // Cancel keeps the row and sends no request.
+  await app.press("id:cipher-delete-cancel");
+  expect(app.shows("id:cipher-row-trashed1")).toBe(true);
+  expect(app.shows("id:cipher-delete-modal")).toBe(false);
+});
+
+test("confirming permanent delete purges the row and keeps the Trash open", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM, OLDER_TRASHED_ITEM],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashed1");
+  await app.press("id:trash-delete-permanent");
+
+  // Confirm the permanent delete.
+  await app.press("id:cipher-delete-confirm");
+  expect(app.shows("id:cipher-delete-modal")).toBe(false);
+  expect(app.shows("id:cipher-row-trashed1")).toBe(false);
+  // Newest deletion first, so trashed2 is still there and becomes the first row.
+  expect(app.shows("id:cipher-row-trashed2")).toBe(true);
+  expect(app.texts()).toContain("Scope: Trash");
+  // The purge re-reads the Trash list.
+  expect(OmawardenBridge.mockTrashQueries()).toBe(2);
+});
+
+test("a failed permanent delete shows the daemon error and leaves the row in place", async () => {
+  const error = "Server rejected purge (HTTP 403): denied";
+  const app = await openMock({
+    phase: "unlocked",
+    trashMutationError: error,
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashed1");
+  await app.press("id:trash-delete-permanent");
+  await app.press("id:cipher-delete-confirm");
+
+  expect(app.texts()).toContain(error);
+  expect(app.shows("id:cipher-row-trashed1")).toBe(true);
+  expect(app.texts()).toContain("Scope: Trash");
+  // A failure does not invalidate or re-read the loaded Trash list.
+  expect(OmawardenBridge.mockTrashQueries()).toBe(1);
+});
+
+test("active vault delete stays soft and never reaches permanent mode", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM, MAIL_ITEM] });
+
+  await app.press("id:cipher-row-login1");
+  await app.press("id:delete-cipher");
+  expect(app.shows("id:cipher-delete-modal")).toBe(true);
+  // Soft-delete copy.
+  expect(app.texts()).toContain("The item can be restored from the trash.");
+  expect(app.texts()).toContain("Delete");
+  expect(app.texts()).not.toContain("Permanently Delete?");
+  expect(app.texts()).not.toContain("This cannot be undone.");
+  expect(app.texts()).not.toContain("Delete Permanently");
+
+  // Confirm soft delete.
+  await app.press("id:cipher-delete-confirm");
+  expect(app.shows("id:cipher-delete-modal")).toBe(false);
+  expect(app.shows("id:cipher-row-login1")).toBe(false);
+  // The item is in the Trash now.
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  expect(app.shows("id:cipher-row-login1")).toBe(true);
+});
+
+test("the Trash inspector shows the cipher's fields read-only", async () => {
+  const trashed = {
+    ...TRASHED_ITEM,
+    notes: "Recovery codes",
+    fields: [{ name: "API Token", value: "token-abc-123", kind: "hidden" }],
+  };
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM, trashed] });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashed1");
+
+  // The cipher's own fields arrive with the Trash read, masked at first.
+  expect(app.texts()).toContain("octocat");
+  expect(app.texts()).toContain("Recovery codes");
+  expect(app.shows("id:inspector-password")).toBe(true);
+  expect(app.texts()).not.toContain("hunter2");
+
+  // Reveal is allowed...
+  await app.press("id:reveal-password");
+  expect(app.texts()).toContain("hunter2");
+
+  // ...but nothing can leave the inspector.
+  for (const id of [
+    "copy-password",
+    "copy-username",
+    "copy-notes",
+    "copy-field-0",
+    "edit-cipher",
+    "delete-cipher",
+    "toggle-favorite",
+  ]) {
+    expect(app.shows(`id:${id}`)).toBe(false);
+  }
+
+  // The Trash's own actions stay.
+  expect(app.shows("id:trash-restore")).toBe(true);
+  expect(app.shows("id:trash-delete-permanent")).toBe(true);
+});
+
+test("the Trash inspector gates reveal on the cipher's re-prompt", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [{ ...REPROMPT_ITEM, deletedAt: "2026-01-15T10:30:00Z" }],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-secure1");
+
+  expect(app.shows("id:inspector-reprompt")).toBe(true);
+  expect(app.texts()).toContain("••• •••");
+  expect(app.texts()).not.toContain("hunter2");
+
+  await app.press("id:reveal-password");
+  expect(app.shows("id:reprompt-modal")).toBe(true);
+
+  await app.type("id:reprompt-password", "correct horse battery staple");
+  await app.press("id:reprompt-submit");
+  expect(app.shows("id:reprompt-modal")).toBe(false);
+  expect(app.texts()).toContain("hunter2");
+});
+
+test("a trashed TOTP ticks without re-reading the Trash", async () => {
+  const app = await openMockWithClock({
+    phase: "unlocked",
+    items: [
+      {
+        ...TRASHED_ITEM,
+        totp: "JBSWY3DPEHPK3PXP",
+        totpRemaining: 2,
+        totpPeriod: 30,
+      },
+    ],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashed1");
+  expect(app.shows("id:inspector-totp")).toBe(true);
+  expect(app.texts()).toContain("2s");
+
+  await app.wait(1000);
+  expect(app.texts()).toContain("1s");
+
+  await app.wait(1000);
+  expect(app.texts()).toContain("30s");
+
+  // The code is computed from the seed the list carried.
+  expect(OmawardenBridge.mockTrashQueries()).toBe(1);
+});
+
+test("trashed attachments and SSH keys are listed without an extract path", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [
+      LOGIN_ITEM,
+      {
+        ...TRASHED_ITEM,
+        attachments: [{ id: "att7", filename: "codes.txt", size: 128 }],
+        passwordHistory: [{ password: "older-password", changedAt: "2025-06-01" }],
+      },
+      { ...SSH_ITEM, deletedAt: "2026-02-01T00:00:00Z" },
+    ],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashed1");
+
+  expect(app.texts()).toContain("codes.txt");
+  expect(app.shows("id:download-attachment-att7")).toBe(false);
+  expect(app.shows("id:preview-attachment-att7")).toBe(false);
+  expect(app.shows("id:open-password-history")).toBe(false);
+
+  await app.press("id:cipher-row-ssh1");
+  expect(app.texts()).toContain("SHA256:abcdefghijklmnop");
+  expect(app.texts()).toContain("••••••••");
+  expect(app.shows("id:export-ssh-key")).toBe(false);
+  expect(app.shows("id:copy-public-key")).toBe(false);
+  expect(app.shows("id:reveal-private-key")).toBe(true);
+
+  await app.press("id:reveal-private-key");
+  expect(app.texts()).toContain("-----BEGIN OPENSSH PRIVATE KEY-----\nsecret-material\n-----END OPENSSH PRIVATE KEY-----");
+});
+
+test("the Trash masks a card like the active inspector", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [{ ...CARD_ITEM, id: "trashcard", deletedAt: "2026-01-15T10:30:00Z" }],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashcard");
+
+  expect(app.shows("id:inspector-card-number")).toBe(true);
+  expect(app.texts()).toContain("•••• •••• •••• 1111");
+  expect(app.shows("id:copy-card-number")).toBe(false);
+
+  await app.press("id:reveal-card-number");
+  expect(app.texts()).toContain("4111 1111 1111 1111");
+});
+
+test("clearing the search keeps the viewed item selected and inspected", async () => {
+  const mail = { ...MAIL_ITEM, uris: ["https://mail.example.com"] };
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM, mail, CARD_ITEM] });
+
+  await app.type("id:vault-search", "personal");
+  expect(app.shows("id:cipher-row-login2")).toBe(true);
+  expect(app.shows("id:cipher-row-login1")).toBe(false);
+
+  await app.press("id:cipher-row-login2");
+  expect(app.texts()).toContain("https://mail.example.com");
+
+  await app.clear("id:vault-search");
+  // The list is whole again...
+  expect(app.shows("id:cipher-row-login1")).toBe(true);
+  expect(app.shows("id:cipher-row-card1")).toBe(true);
+  // ...but the inspector stays on the item that was being read instead of
+  // jumping to the first row of the restored list.
+  expect(app.texts()).toContain("https://mail.example.com");
+  expect(app.texts()).not.toContain("https://github.com");
 });
 
 test("empty search results show an empty hint", async () => {
@@ -1241,7 +1843,7 @@ test("the minimum window gate takes the keyboard out of the vault search", async
 // Settings
 // ---------------------------------------------------------------------------
 
-test("settings modal exposes general, appearance, security, diagnose, and about tabs", async () => {
+test("settings modal exposes general, appearance, security, diagnose, logs, and about tabs", async () => {
   const app = await openMock({
     phase: "unlocked",
     items: [LOGIN_ITEM],
@@ -1279,7 +1881,13 @@ test("settings modal exposes general, appearance, security, diagnose, and about 
   await app.press("id:settings-tab-diagnose");
   expect(app.shows("id:settings-diagnose")).toBe(true);
   expect(app.shows("id:health-check-0")).toBe(true);
-  expect(app.texts()).toContain("https://vault.example.com");
+  // Diagnose tab should NOT show the server URL (that's in Logs tab)
+  expect(app.shows("id:diagnostic-server-url")).toBe(false);
+
+  await app.press("id:settings-tab-logs");
+  expect(app.shows("id:settings-diagnostic-logs")).toBe(true);
+  // Logs tab SHOULD show the server URL
+  expect(app.shows("id:diagnostic-server-url")).toBe(true);
   await app.press("id:refresh-health");
   await app.press("id:copy-diagnostics");
   expect(app.texts()).toContain("Copied diagnostic report to clipboard.");
@@ -1300,6 +1908,242 @@ test("settings modal exposes general, appearance, security, diagnose, and about 
   expect(app.texts()).toContain(
     "You are running the latest version. No newer release notes are available.",
   );
+});
+
+// Log Pipeline lines, in the format the app's `push_log` emits. Mock mode
+// seeds the same Log Viewer ring the real ring feeds.
+const DIAGNOSTIC_LINES = [
+  "[2026-01-01T10:00:00.000Z] [INFO] [app:auth] vault unlocked",
+  "[2026-01-01T10:00:01.000Z] [WARN] [app:diagnostics] update check: the release response had no tag",
+  "[2026-01-01T10:00:02.000Z] [ERROR] [app:vault] cipher write rejected: HTTP 422",
+];
+
+test("logs tab filters the log viewer by level", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+    logs: DIAGNOSTIC_LINES,
+  });
+
+  await app.press("id:open-settings");
+  await app.press("id:settings-tab-logs");
+
+  expect(app.texts()).toContain("All (3)");
+  expect(app.texts()).toContain("Errors & Warnings (2)");
+  expect(app.texts()).toContain("Info (1)");
+  expect(app.texts()).toContain("vault unlocked");
+  expect(app.texts()).toContain("cipher write rejected: HTTP 422");
+  // Stable testID for the ERROR line: [2026-01-01T10:00:02.000Z] [ERROR] [app:vault] ...
+  expect(app.shows("id:log-level-badge-log-2026-01-01T10-00-02-000Z-ERROR-app:vault")).toBe(true);
+
+  await app.press("id:log-filter-errors");
+  expect(app.texts()).not.toContain("vault unlocked");
+  expect(app.texts()).toContain("update check: the release response had no tag");
+  expect(app.texts()).toContain("cipher write rejected: HTTP 422");
+
+  await app.press("id:log-filter-info");
+  expect(app.texts()).toContain("vault unlocked");
+  expect(app.texts()).not.toContain("update check: the release response had no tag");
+  expect(app.texts()).not.toContain("cipher write rejected: HTTP 422");
+
+  await app.press("id:log-filter-all");
+  expect(app.texts()).toContain("cipher write rejected: HTTP 422");
+});
+
+test("logs tab shows an empty state when no logs were recorded", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM], logs: [] });
+
+  await app.press("id:open-settings");
+  await app.press("id:settings-tab-logs");
+
+  expect(app.shows("id:log-viewer-empty")).toBe(true);
+  expect(app.texts()).toContain("No logs recorded yet");
+  expect(app.texts()).toContain("All (0)");
+});
+
+test("log viewer badges use distinct semantic colors", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+    logs: DIAGNOSTIC_LINES,
+  });
+
+  await app.press("id:open-settings");
+  await app.press("id:settings-tab-logs");
+
+  const info = app.spanStyle("text:INFO").color;
+  const warn = app.spanStyle("text:WARN").color;
+  const error = app.spanStyle("text:ERROR").color;
+  expect(info).not.toBe(warn);
+  expect(warn).not.toBe(error);
+  expect(error).not.toBe(info);
+});
+
+test("refresh health also refreshes the log viewer", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM], logs: [] });
+
+  await app.press("id:open-settings");
+  await app.press("id:settings-tab-logs");
+  expect(app.texts()).toContain("No logs recorded yet");
+
+  // A new Log Pipeline event lands in the ring while Settings stays open.
+  OmawardenBridge.configureMockState(
+    JSON.stringify({
+      phase: "unlocked",
+      items: [LOGIN_ITEM],
+      logs: ["[2026-01-01T11:00:00.000Z] [INFO] [app:vault] vault sync completed"],
+    }),
+  );
+  await app.press("id:refresh-health");
+
+  expect(app.texts()).toContain("vault sync completed");
+  expect(app.texts()).toContain("All (1)");
+  expect(app.texts()).not.toContain("No logs recorded yet");
+});
+
+test("copy diagnostic report includes the scope declaration and sanitized fields", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+    logs: DIAGNOSTIC_LINES,
+  });
+
+  await app.press("id:open-settings");
+  await app.press("id:settings-tab-logs");
+  await app.press("id:copy-diagnostics");
+  expect(app.texts()).toContain("Copied diagnostic report to clipboard.");
+
+  expect(DIAGNOSTIC_SCOPE).toBe(
+    "This report contains the app's in-process diagnostic log ring only. " +
+      "The shared daemon's structured stderr logs are not collected.",
+  );
+
+  const report = buildDiagnosticReport({
+    diagnostics: {
+      serverUrlSanitized: "https://vault.example.com",
+      logs: DIAGNOSTIC_LINES,
+      appVersion: "0.4.0",
+      engineVersion: "0.12.0-dev",
+      gitCommit: "abcdef0",
+      buildDate: "2026-11-13",
+      memoryRssMb: 42.5,
+    },
+    health: {
+      checks: [
+        { name: "Engine Installed", ok: true, detail: "" },
+        { name: "Server Reachable", ok: true, detail: "" },
+        { name: "Secret Service Keyring", ok: true, detail: "" },
+        { name: "Wayland Clipboard", ok: true, detail: "" },
+        { name: "Memory Locked", ok: false, detail: "" },
+      ],
+    },
+    generatedAt: "2026-11-13T12:00:00.000Z",
+  });
+
+  expect(report).toContain("### Omawarden Diagnostic Report");
+  expect(report).toContain("- **Generated At**: 2026-11-13T12:00:00.000Z");
+  expect(report).toContain("- **App Version**: 0.4.0");
+  expect(report).toContain("- **Engine Version**: 0.12.0-dev");
+  expect(report).toContain("- **Git Commit**: abcdef0");
+  expect(report).toContain("- **Build Date**: 2026-11-13");
+  expect(report).toContain("- **Server URL**: https://vault.example.com");
+  expect(report).toContain("- **Memory (RSS)**: 42.5 MiB");
+  expect(report).toContain("Engine Installed: OK");
+  expect(report).toContain("Memory Locked: FAIL");
+  expect(report).toContain(DIAGNOSTIC_SCOPE);
+  expect(report).toContain("#### Recent Logs (3 entries):");
+  expect(report).toContain(DIAGNOSTIC_LINES[2]);
+  expect(report).not.toContain("/home/user/");
+  expect(report).not.toContain("[omawarden:daemon]");
+});
+
+test("diagnostic report excludes daemon log channels", async () => {
+  const app = await openMock({
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+    logs: [
+      "[2026-01-01T10:00:00.000Z] [INFO] [app:auth] vault unlocked",
+      "[2026-01-01T10:00:01.000Z] [ERROR] [omawarden:daemon] failed to bind socket",
+    ],
+  });
+
+  await app.press("id:open-settings");
+  await app.press("id:settings-tab-logs");
+  await app.press("id:copy-diagnostics");
+  expect(app.texts()).toContain("Copied diagnostic report to clipboard.");
+
+  const report = buildDiagnosticReport({
+    diagnostics: {
+      serverUrlSanitized: "https://vault.example.com",
+      logs: [
+        "[2026-01-01T10:00:00.000Z] [INFO] [app:auth] vault unlocked",
+        "[2026-01-01T10:00:01.000Z] [ERROR] [omawarden:daemon] failed to bind socket",
+      ],
+      appVersion: "0.4.0",
+      engineVersion: "0.12.0-dev",
+      gitCommit: "abcdef0",
+      buildDate: "2026-11-13",
+      memoryRssMb: 42.5,
+    },
+    health: { checks: [] },
+    generatedAt: "2026-11-13T12:00:00.000Z",
+  });
+
+  expect(report).toContain(DIAGNOSTIC_SCOPE);
+  expect(report).toContain("vault unlocked");
+  expect(report).not.toContain("failed to bind socket");
+  expect(report).not.toContain("[omawarden:daemon]");
+  expect(report).toContain("#### Recent Logs (1 entries):");
+});
+
+test("integration: unlock, auth failure, diagnose, filter, and copy report", async () => {
+  // 1. Unlock the vault (mock).
+  const app = await openMock({ phase: "login", items: [LOGIN_ITEM] });
+  await app.type("id:login-email", "user@example.com");
+  await app.type("id:login-password", "correct horse battery staple");
+  await app.press("id:login-submit");
+  expect(app.shows("id:vault-workspace")).toBe(true);
+
+  // 2. Trigger an authentication failure (empty master password), then recover.
+  await app.press("id:lock-vault");
+  expect(app.shows("id:auth-view-locked")).toBe(true);
+  await app.press("id:unlock-submit");
+  expect(app.shows("id:auth-view-locked")).toBe(true);
+  await app.type("id:unlock-password", "correct horse battery staple");
+  await app.press("id:unlock-submit");
+  expect(app.shows("id:vault-workspace")).toBe(true);
+
+  // 3. Open Settings -> Logs.
+  await app.press("id:open-settings");
+  await app.press("id:settings-tab-logs");
+
+  // 4. Verify the error log line appears with ERROR level and [app:auth] source.
+  expect(app.texts()).toContain("authentication failed: Master password is required.");
+  expect(app.texts()).toContain("[app:auth]");
+  expect(app.texts()).toContain("ERROR");
+
+  // 5. Errors & Warnings -> visible; Info -> hidden.
+  await app.press("id:log-filter-errors");
+  expect(app.texts()).toContain("authentication failed: Master password is required.");
+  await app.press("id:log-filter-info");
+  expect(app.texts()).not.toContain("authentication failed: Master password is required.");
+
+  // 6. Copy the Diagnostic Report.
+  await app.press("id:log-filter-all");
+  await app.press("id:copy-diagnostics");
+  expect(app.texts()).toContain("Copied diagnostic report to clipboard.");
+
+  // 7. Verify the report structure: event emission -> ring -> viewer -> report.
+  const snapshot = OmawardenBridge.getSettings();
+  const report = buildDiagnosticReport({
+    diagnostics: snapshot.diagnostics,
+    health: { checks: [] },
+    generatedAt: "2026-11-13T12:00:00.000Z",
+  });
+  expect(report).toContain("### Omawarden Diagnostic Report");
+  expect(report).toContain(DIAGNOSTIC_SCOPE);
+  expect(report).toContain("authentication failed");
+  expect(report).not.toContain("[omawarden:daemon]");
 });
 
 test("settings scrolls to the lower rows at the minimum window size", async () => {
@@ -1817,6 +2661,45 @@ test("creating a login from the Logins tab adds a row", async () => {
   expect(app.texts()).toContain("GitLab");
 });
 
+test("a new login appears in the list before the vault is synced", async () => {
+  // The daemon's `list` serves a cached list that a mutation does not
+  // invalidate; only a sync refreshes it. The row must still appear at once.
+  const app = await openMock({
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+    staleListCache: true,
+  });
+
+  await app.press("id:category-login");
+  await app.press("id:create-login");
+  await app.type("id:cipher-form-name", "GitLab");
+  await app.type("id:cipher-form-username", "dev");
+  await app.type("id:cipher-form-password", "hunter2");
+  await app.press("id:cipher-form-submit");
+
+  expect(app.shows("id:cipher-form-modal")).toBe(false);
+  expect(app.texts()).toContain("GitLab");
+});
+
+test("creating a login selects it and shows it in the inspector", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:category-login");
+  await app.press("id:create-login");
+  await app.type("id:cipher-form-name", "GitLab");
+  await app.type("id:cipher-form-username", "dev");
+  await app.type("id:cipher-form-password", "hunter2");
+  await app.type("id:cipher-form-uri-0", "https://gitlab.example.com");
+  await app.press("id:cipher-form-submit");
+
+  // The new row is selected, so the inspector shows its website. A list row
+  // never shows a URL, so this only appears when the item is inspected.
+  expect(app.shows("id:item-inspector")).toBe(true);
+  expect(app.texts()).toContain("https://gitlab.example.com");
+  // The header's total comes from the cached rows, so it includes the new one.
+  expect(app.texts()).toContain("2 / 2");
+});
+
 test("creating a secure note from its tab adds a note", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
@@ -1972,6 +2855,24 @@ test("the favorite star toggles from both of its states", async () => {
   expect(app.shows("id:cipher-favorite-login1")).toBe(false);
   // Unfavorited: the control is still there and pressing it favorites again.
   expect(app.shows("id:toggle-favorite")).toBe(true);
+  await app.press("id:toggle-favorite");
+  expect(app.shows("id:cipher-favorite-login1")).toBe(true);
+});
+
+test("toggling favorite updates the row before the vault is synced", async () => {
+  // Same stale-list seam: the star must flip locally without waiting for sync.
+  const app = await openMock({
+    phase: "unlocked",
+    items: [LOGIN_ITEM],
+    staleListCache: true,
+  });
+
+  await app.press("id:cipher-row-login1");
+  expect(app.shows("id:cipher-favorite-login1")).toBe(true);
+
+  await app.press("id:toggle-favorite");
+  expect(app.shows("id:cipher-favorite-login1")).toBe(false);
+
   await app.press("id:toggle-favorite");
   expect(app.shows("id:cipher-favorite-login1")).toBe(true);
 });

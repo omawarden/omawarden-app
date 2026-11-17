@@ -101,6 +101,15 @@ pub mod native {
         /// Synchronize the vault with the Bitwarden server and return the updated snapshot.
         pub fn sync_vault(filter: VaultFilterInput) -> VaultSnapshotView;
 
+        /// Query the Trash: the soft-deleted ciphers, newest deletion first.
+        pub fn query_trash(filter: VaultFilterInput) -> VaultSnapshotView;
+
+        /// Restore a soft-deleted cipher from the Trash.
+        pub fn restore_cipher(id: String) -> CipherMutationOutcomeView;
+
+        /// Permanently delete a cipher that is in the Trash.
+        pub fn delete_trash_cipher(id: String) -> CipherMutationOutcomeView;
+
         /// Inspect a specific cipher item, computing masked/revealed fields, TOTP state, and available actions.
         pub fn inspect_cipher(cipher_id: String, reveal: RevealStateInput) -> InspectorView;
 
@@ -174,12 +183,37 @@ pub mod native {
   `refresh_totp`, and `copy_cipher_field` serve cache hits directly and fall
   back to the daemon only on a miss. `lock_or_logout`, `sync_vault`,
   `save_ssh_key`, and a locked `poll_daemon_tick` clear the cache.
+  `query_trash` reads the daemon's `list` with `{"trash": true}` and borrows
+  the cache for its account context only: the deleted rows never enter
+  `CachedVault`, which stays active-only.
 - **`FilterProjection` is the TSX hot path.** `store/appStore.ts` keeps
   `rawItems` (from `snapshot.allItems`), fine-grained `category`, `scopeId`,
   `folderId`, and `search` signals, and derives `filteredItems()` with the same
   pure-TS subsequence scorer as the Rust engine. `query()`, `setSearch()`,
   `setCategory()`, `setScope()`, and `setFolder()` never call
-  `OmawardenBridge.queryVault` and never call `snapshot.set()`.
+  `OmawardenBridge.queryVault` and never call `snapshot.set()` — except for the
+  single `leaveTrash()` path, which re-reads the active vault once when the user
+  returns from the Trash after a restore or purge. The loaded
+  Trash rows live in their own `trashItems` signal; `viewRows()` picks the
+  rows of the current view, and `filterTrashRows()` narrows them locally.
+- **Trash mutations refresh one view at a time.** `restore_cipher` goes through
+  `CipherEngine` to the daemon's `cipher_restore` action. On success the store
+  stays in the Trash, calls `reloadTrash()` so the row disappears, and sets
+  `activeRowsStale` instead of re-reading the active vault from inside the
+  Trash; `leaveTrash()` — the single way back used by `closeTrash()`,
+  `setScope()`, `setFolder()` and `selectCipherById()` — applies that one
+  `queryVault` when the user returns, so no cold path gains a second request.
+  A failure only toasts the daemon's error. Lock and logout clear the loaded
+  Trash rows, the pending refresh and the in-flight restore flag.
+- **Trash details come from the list reply, not a trash-aware `get_item` (#43).**
+  `query_trash` keeps the reply's `VaultItem`s in a Trash-owned map beside the
+  rows, so the inspector renders a deleted cipher's fields without a second
+  request. The map never enters `CachedVault` and is cleared with the loaded
+  Trash rows. `get_item`, `get_ssh_key`, `totp` and `get_attachment_key` stay
+  active-only: widening one of them would move a state flag into the read every
+  other feature depends on, and would turn row selection into a daemon request.
+  The live TOTP code is computed locally from the in-memory seed, because the
+  daemon's `totp` action is trash-blind.
 - **`<If>` preserves mounted views.** Top-level phase and modal switches use
   `<If when={…}>` instead of bare JSX ternaries, which compile to unmemoized
   reactive effects that destroy and recreate their subtree. With `<If>`, the
@@ -199,12 +233,14 @@ pub mod native {
    - Passphrase generator word count MUST be strictly validated in `3..=20`. Values outside this range must return `"Passphrase word count must be between 3 and 20 words."` and NEVER be silently clamped.
 2. **No Plaintext Secret Leakage**:
    - Clipboard copies of passwords, TOTPs, CVVs, private keys, and hidden custom fields MUST pass `sensitive = true` (`wl-copy --sensitive` + Clipboard Guard auto-clear after `clipboard_clear_seconds`).
-   - Diagnostic logs and server URLs in Diagnose tab must redact tokens, passwords, and private IPs (`sanitize_log` / `sanitize_server_url`).
+   - Diagnostic logs and server URLs in Diagnose tab must redact tokens, passwords, private IPs, **absolute paths, and local filenames** (`sanitize_log` / `sanitize_server_url`).
 3. **Strict URL Scheme Validation**:
    - `launch_url` must parse with `url::Url::parse` and only allow `http` or `https` schemes.
    - `server_url` / `identity_url` only allow `http://` on loopback (`localhost`, `127.0.0.1`, `[::1]`); remote hosts require `https://`.
 4. **Idle Auto-Lock Integrity**:
    - `poll_daemon_tick` MUST query the daemon with `"touch": false` so background polling never resets the idle inactivity timer.
+
+**Known Deviation (Resolved)**: `src/attachments.rs:379` previously pushed an absolute download path into the in-memory log ring. The line was changed to log only `"attachment saved"` and the destination path is no longer recorded. The logging boundary invariant (no absolute paths / local filenames in log lines) now holds without exception.
 
 ---
 

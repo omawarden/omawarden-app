@@ -174,7 +174,7 @@ replaces a terminal primitive rather than copying it.
 - Card, Identity, custom-field, and SSH-key mutation.
 - Organization-owned and collection-assigned cipher writes; the daemon's
   rejection is surfaced as-is.
-- Trash recovery, offline mutation queuing, and a raw JSON/stdin entry point.
+- Offline mutation queuing and a raw JSON/stdin entry point.
 - Re-encryption, rotation, and revision history for edited items.
 
 ## Further Notes

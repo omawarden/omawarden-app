@@ -204,10 +204,17 @@ fn mock_inspect(
     cipher_id: String,
     reveal: RevealStateInput,
 ) -> InspectorView {
-    match state.items.iter().find(|item| item.id == cipher_id) {
-        Some(item) => {
+    // Build the view while `state` is still only borrowed, then record the
+    // selection: assigning `selected_cipher_id` first would hold a mutable
+    // borrow across the inspector call.
+    match state
+        .active_item(&cipher_id)
+        .or_else(|| state.trashed_cipher(&cipher_id))
+        .map(|item| mock_item_inspector(item, &reveal))
+    {
+        Some(view) => {
             state.selected_cipher_id = Some(cipher_id.clone());
-            mock_item_inspector(item, &reveal)
+            view
         }
         None => empty_inspector(&cipher_id, format!("Item '{cipher_id}' was not found.")),
     }
@@ -215,7 +222,10 @@ fn mock_inspect(
 
 /// Answers a TOTP refresh from the mock items.
 fn mock_totp(state: &mut MockState, cipher_id: String) -> TotpLiveView {
-    let Some(item) = state.items.iter().find(|item| item.id == cipher_id) else {
+    let Some(item) = state
+        .active_item(&cipher_id)
+        .or_else(|| state.trashed_cipher(&cipher_id))
+    else {
         return TotpLiveView {
             valid: false,
             code: String::new(),
@@ -242,7 +252,7 @@ fn mock_totp(state: &mut MockState, cipher_id: String) -> TotpLiveView {
     view
 }
 
-/// Reads the item from the cache, or asks the daemon.
+/// Reads the item from the cache, the loaded Trash, or the daemon.
 fn real_inspect(cipher_id: String, reveal: RevealStateInput) -> InspectorView {
     if let Ok(guard) = vault::cached_vault().lock() {
         if let Some(cached) = guard.as_ref() {
@@ -250,6 +260,11 @@ fn real_inspect(cipher_id: String, reveal: RevealStateInput) -> InspectorView {
                 return vault_item_inspector(item, &reveal, cached.reprompt(&cipher_id));
             }
         }
+    }
+    // A trashed cipher never reaches the daemon: `get_item` is active-only, and
+    // the Trash read already carried the fields.
+    if let Some((item, reprompt)) = vault::trashed_cipher(&cipher_id) {
+        return vault_item_inspector(&item, &reveal, reprompt);
     }
     let response = daemon(json!({ "action": "get_item", "query": cipher_id, "touch": false }));
     let Some(response) = response else {
@@ -283,26 +298,36 @@ fn real_inspect(cipher_id: String, reveal: RevealStateInput) -> InspectorView {
     }
 }
 
-/// Reads the live TOTP from the cache, or asks the daemon.
+/// The live code for `item`, or the view that says it has no seed.
+fn item_totp_view(item: &VaultItem) -> TotpLiveView {
+    let seed = item
+        .login
+        .as_ref()
+        .and_then(|login| login.get("totp"))
+        .and_then(|value| value.as_str());
+    totp_view(seed).unwrap_or_else(|| TotpLiveView {
+        valid: false,
+        code: String::new(),
+        formatted: String::new(),
+        remaining: 0,
+        period: 30,
+        error: Some("Item has no TOTP configured.".to_string()),
+    })
+}
+
+/// Reads the live TOTP from the cache, the loaded Trash, or the daemon.
 fn real_totp(cipher_id: String) -> TotpLiveView {
     if let Ok(guard) = vault::cached_vault().lock() {
         if let Some(cached) = guard.as_ref() {
             if let Some(item) = cached.item(&cipher_id) {
-                let seed = item
-                    .login
-                    .as_ref()
-                    .and_then(|login| login.get("totp"))
-                    .and_then(|value| value.as_str());
-                return totp_view(seed).unwrap_or_else(|| TotpLiveView {
-                    valid: false,
-                    code: String::new(),
-                    formatted: String::new(),
-                    remaining: 0,
-                    period: 30,
-                    error: Some("Item has no TOTP configured.".to_string()),
-                });
+                return item_totp_view(item);
             }
         }
+    }
+    // The daemon's `totp` action resolves through the active-only `find_item`,
+    // so a trashed code is computed from the seed the Trash read carried.
+    if let Some((item, _)) = vault::trashed_cipher(&cipher_id) {
+        return item_totp_view(&item);
     }
     let response = daemon(json!({ "action": "totp", "query": cipher_id, "touch": false }));
     let Some(response) = response else {
@@ -672,7 +697,85 @@ fn empty_inspector(cipher_id: &str, error: String) -> InspectorView {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_scheme_host, host_part};
+    use super::*;
+    use crate::VaultFilterInput;
+    use crate::vault::VaultEngine;
+    use serde_json::json;
+
+    /// The minimum a `VaultItem` needs to deserialize, with `extra` merged in.
+    fn trashed_entry(extra: Value) -> Value {
+        let mut entry = json!({
+            "id": "trash-id-1",
+            "name": "Old GitHub",
+            "type": 1,
+            "type_name": "Login",
+            "sub_title": "octocat",
+            "favorite": false,
+            "search_text": "old github",
+            "deleted_at": "2026-01-15T10:30:00Z",
+            "login": {
+                "username": "octocat",
+                "password": "hunter2",
+                "totp": "JBSWY3DPEHPK3PXP"
+            },
+            "reprompt": 1,
+        });
+        if let (Some(base), Some(extra)) = (entry.as_object_mut(), extra.as_object()) {
+            for (key, value) in extra {
+                base.insert(key.clone(), value.clone());
+            }
+        }
+        entry
+    }
+
+    fn reveal_none() -> RevealStateInput {
+        RevealStateInput {
+            reveal_password: false,
+            reveal_card_number: false,
+            reveal_cvv: false,
+            reveal_private_key: false,
+            reveal_fields: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn the_trash_inspector_reads_the_cipher_the_trash_list_carried() {
+        let _seam = crate::daemon::test_seam::set(|action: Value| {
+            match action.get("action").and_then(Value::as_str) {
+                Some("list") => Some(json!([trashed_entry(json!({}))])),
+                other => panic!("the Trash inspector must not ask the daemon: {other:?}"),
+            }
+        });
+        crate::vault::InProcess.query_trash(VaultFilterInput::default());
+
+        let masked = InProcess.inspect("trash-id-1".to_string(), reveal_none());
+        assert_eq!(masked.title, "Old GitHub");
+        assert_eq!(masked.username.as_deref(), Some("octocat"));
+        assert_eq!(masked.reprompt, 1, "Reveal stays gated by the cipher");
+        assert!(
+            masked.password.is_none(),
+            "a trashed password starts masked"
+        );
+        assert!(masked.totp.as_ref().is_some_and(|totp| totp.valid));
+
+        let mut revealed = reveal_none();
+        revealed.reveal_password = true;
+        let revealed = InProcess.inspect("trash-id-1".to_string(), revealed);
+        assert_eq!(revealed.password.as_deref(), Some("hunter2"));
+    }
+
+    #[test]
+    fn a_trashed_cipher_is_not_inspectable_before_the_trash_is_read() {
+        let _seam = crate::daemon::test_seam::set(|action: Value| {
+            match action.get("action").and_then(Value::as_str) {
+                Some("get_item") => Some(json!({ "ok": false, "error": "Item not found." })),
+                other => panic!("only the per-item read is expected here: {other:?}"),
+            }
+        });
+
+        let view = InProcess.inspect("trash-id-1".to_string(), reveal_none());
+        assert_eq!(view.error.as_deref(), Some("Item not found."));
+    }
 
     #[test]
     fn a_website_reads_as_scheme_and_host() {

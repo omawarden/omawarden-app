@@ -221,6 +221,9 @@ pub struct CipherRowView {
     pub card_brand: Option<String>,
     /// The masked card number, when the item is a card.
     pub card_mask: Option<String>,
+    /// When the cipher was moved to the Trash; absent for active items.
+    #[prop(skip_none)]
+    pub deleted_at: Option<String>,
 }
 
 /// The pending SSH agent signing request.

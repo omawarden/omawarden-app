@@ -6,16 +6,26 @@ import * as store from "../store/appStore";
 import { tint } from "../theme/palette";
 import { TabButton, inputStyle } from "./AuthView";
 import { ActionButton, Chip, ModalShell, Panel, SectionTitle } from "./ui";
+import {
+  parseLogLine,
+  isProblemLine,
+  logLevelColor,
+  stableLogTestId,
+  type ParsedLogLine,
+} from "../store/diagnosticReport";
 
-type SettingsTab = "general" | "appearance" | "security" | "diagnose" | "about";
+type SettingsTab = "general" | "appearance" | "security" | "diagnose" | "logs" | "about";
+type LogFilter = "all" | "errors" | "info";
 
 const tab = signal<SettingsTab>("general");
+const logFilter = signal<LogFilter>("all");
 
 const TABS: Array<{ id: SettingsTab; label: string; testID: string }> = [
   { id: "general", label: "General", testID: "settings-tab-general" },
   { id: "appearance", label: "Appearance", testID: "settings-tab-appearance" },
   { id: "security", label: "Security", testID: "settings-tab-security" },
   { id: "diagnose", label: "Diagnose", testID: "settings-tab-diagnose" },
+  { id: "logs", label: "Logs", testID: "settings-tab-logs" },
   { id: "about", label: "About", testID: "settings-tab-about" },
 ];
 
@@ -43,6 +53,25 @@ export function SettingsModal() {
         const config = () => current().config;
         const diagnostics = () => current().diagnostics;
         const percent = () => Math.round(store.appFontScale() * 100);
+        const logLines = () => (diagnostics().logs ?? []).map(parseLogLine);
+        const logCounts = () => {
+          const lines = logLines();
+          return {
+            all: lines.length,
+            problems: lines.filter(isProblemLine).length,
+            info: lines.filter((line) => line.level === "INFO").length,
+          };
+        };
+        const visibleLogs = () => {
+          const lines = logLines();
+          if (logFilter() === "errors") {
+            return lines.filter(isProblemLine);
+          }
+          if (logFilter() === "info") {
+            return lines.filter((line) => line.level === "INFO");
+          }
+          return lines;
+        };
         return (
           <ModalShell
             title="Settings"
@@ -368,10 +397,14 @@ export function SettingsModal() {
                     )}
                   </Each>
                 </Panel>
+              </View>
+            ) : null}
 
+            {tab() === "logs" ? (
+              <View style={{ gap: 12 }}>
                 <Panel testID="settings-diagnostic-logs">
                   <SectionTitle hint="Tokens, passwords, and private addresses are redacted.">
-                    Sanitized Server &amp; Logs
+                    Sanitized Server & Logs
                   </SectionTitle>
                   <Text
                     testID="diagnostic-server-url"
@@ -379,20 +412,93 @@ export function SettingsModal() {
                   >
                     {diagnostics().serverUrlSanitized}
                   </Text>
-                  <Each of={diagnostics().logs ?? []} key="index">
-                    {(line) => (
-                      <Text
-                        style={{
-                          color: palette().muted,
-                          fontSize: store.type().sm,
-                          fontFamily: "monospace",
-                          userSelect: "text",
+
+                  <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
+                    <ActionButton
+                      label={`All (${logCounts().all})`}
+                      testID="log-filter-all"
+                      tone={logFilter() === "all" ? "primary" : "secondary"}
+                      onPress={() => logFilter.set("all")}
+                    />
+                    <ActionButton
+                      label={`Errors & Warnings (${logCounts().problems})`}
+                      testID="log-filter-errors"
+                      tone={logFilter() === "errors" ? "primary" : "secondary"}
+                      onPress={() => logFilter.set("errors")}
+                    />
+                    <ActionButton
+                      label={`Info (${logCounts().info})`}
+                      testID="log-filter-info"
+                      tone={logFilter() === "info" ? "primary" : "secondary"}
+                      onPress={() => logFilter.set("info")}
+                    />
+                  </View>
+
+                  {visibleLogs().length === 0 ? (
+                    <Text
+                      testID="log-viewer-empty"
+                      style={{ color: palette().muted, fontSize: store.type().sm }}
+                    >
+                      {logLines().length === 0
+                        ? "No logs recorded yet"
+                        : "No lines match this filter"}
+                    </Text>
+                  ) : (
+                    <Each of={visibleLogs()} key="index">
+                      {(line, index) => {
+                          const testIdSuffix = stableLogTestId(line());
+                          return (
+                            <View
+                              testID={`log-line-${testIdSuffix}`}
+                              style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}
+                            >
+                              <Text
+                                testID={`log-level-badge-${testIdSuffix}`}
+                                style={{
+                                  color: logLevelColor(line().level, palette()),
+                                  fontSize: store.type().sm,
+                                  fontWeight: "bold",
+                                  fontFamily: "monospace",
+                                }}
+                              >
+                                {line().level}
+                              </Text>
+                              <Text
+                                style={{
+                                  color: palette().muted,
+                                  fontSize: store.type().sm,
+                                  fontFamily: "monospace",
+                                  userSelect: "text",
+                                }}
+                              >
+                                {line().timestamp}
+                              </Text>
+                              <Text
+                                style={{
+                                  color: palette().muted,
+                                  fontSize: store.type().sm,
+                                  fontFamily: "monospace",
+                                  userSelect: "text",
+                                }}
+                              >
+                                [{line().source}]
+                              </Text>
+                              <Text
+                                style={{
+                                  color: palette().popups.text,
+                                  fontSize: store.type().sm,
+                                  fontFamily: "monospace",
+                                  userSelect: "text",
+                                }}
+                              >
+                                {line().message}
+                              </Text>
+                            </View>
+                          );
                         }}
-                      >
-                        {line()}
-                      </Text>
-                    )}
-                  </Each>
+                      </Each>
+                  )}
+
                   <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
                     <ActionButton
                       label="Refresh Health"
@@ -408,7 +514,6 @@ export function SettingsModal() {
                 </Panel>
               </View>
             ) : null}
-
             {tab() === "about" ? (
               <View style={{ gap: 12 }}>
                 <Panel testID="settings-about">

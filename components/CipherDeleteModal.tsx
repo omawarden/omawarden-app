@@ -7,23 +7,28 @@ import { ActionButton, ModalShell } from "./ui";
  * Confirms a cipher delete.
  *
  * A soft delete keeps the item in the sync queue; a permanent delete removes
- * it from the vault and the server. The permanent variant adds a second
- * warning row, so the destructive choice is never one press away from a
- * misclick.
+ * it from the vault and the server. The Trash's permanent delete uses a third
+ * mode with different copy and a different confirm handler, reachable only from
+ * the Trash inspector. The active vault's delete is always soft.
  */
 export function CipherDeleteModal() {
   const palette = store.palette;
   const cipher = store.selectedCipher;
   const permanent = store.cipherDeletePermanent;
+  const inTrash = () => store.vaultView() === "trash";
+
+  const isTrashPermanent = () => permanent() && inTrash();
 
   return (
     <ModalShell
-      title={permanent() ? "Delete Permanently?" : "Delete Item?"}
+      title={isTrashPermanent() ? "Permanently Delete?" : permanent() ? "Delete Permanently?" : "Delete Item?"}
       testID="cipher-delete-modal"
       subtitle={
-        permanent()
-          ? "This removes the item from the vault and the server."
-          : "This moves the item to the trash and syncs the change."
+        isTrashPermanent()
+          ? "This cannot be undone."
+          : permanent()
+            ? "This removes the item from the vault and the server."
+            : "This moves the item to the trash and syncs the change."
       }
       width={520}
       onClose={store.closeModal}
@@ -49,12 +54,14 @@ export function CipherDeleteModal() {
         }}
       >
         <Text style={{ color: palette().danger, fontSize: store.type().base, fontWeight: "bold" }}>
-          {permanent() ? "This cannot be undone." : "The item can be restored from the trash."}
+          {isTrashPermanent() ? "This cannot be undone." : permanent() ? "This cannot be undone." : "The item can be restored from the trash."}
         </Text>
         <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
-          {permanent()
+          {isTrashPermanent()
             ? "Permanent deletes remove the item from every synced device."
-            : "A soft delete keeps the item until the next sync and can be undone."}
+            : permanent()
+              ? "Permanent deletes remove the item from every synced device."
+              : "A soft delete keeps the item until the next sync and can be undone."}
         </Text>
       </View>
 
@@ -64,7 +71,7 @@ export function CipherDeleteModal() {
           label={permanent() ? "Delete Permanently" : "Delete"}
           testID="cipher-delete-confirm"
           tone="danger"
-          onPress={() => store.confirmDeleteCipher(permanent())}
+          onPress={() => (isTrashPermanent() ? store.confirmDeleteTrashCipher() : store.confirmDeleteCipher(permanent()))}
         />
       </View>
     </ModalShell>

@@ -11,7 +11,8 @@ export function ScopeDropdown() {
   const ScopeRow = (props: {
     id: string;
     name: string;
-    count: number;
+    /** Omitted while the count is unknown, so no placeholder shows. */
+    count?: number;
     active: boolean;
     onPress: () => void;
   }) => {
@@ -55,7 +56,9 @@ export function ScopeDropdown() {
         >
           {props.name}
         </Text>
-        <Text style={{ color: palette().muted, fontSize: store.type().sm }}>{props.count}</Text>
+        <If when={props.count !== undefined}>
+          <Text style={{ color: palette().muted, fontSize: store.type().sm }}>{props.count}</Text>
+        </If>
       </Button>
     );
   };
@@ -73,7 +76,16 @@ export function ScopeDropdown() {
         flexWrap: "wrap",
       }}
     >
-      <View style={{ minWidth: 220, flex: 1, gap: 4 }}>
+      <View
+        style={{
+          minWidth: 220,
+          flex: 1,
+          // In the Trash the folder column is gone, so the scope column keeps a
+          // popup-like width instead of stretching across the whole window.
+          maxWidth: store.vaultView() === "trash" ? 360 : undefined,
+          gap: 4,
+        }}
+      >
         <Text style={{ color: palette().muted, fontSize: store.type().sm, fontWeight: "bold" }}>
           Vault Scope
         </Text>
@@ -83,47 +95,73 @@ export function ScopeDropdown() {
               id={scope().id}
               name={scope().name}
               count={scope().count}
-              active={store.scopeId() === scope().id}
-              onPress={() => store.setScope(scope().id)}
+              active={store.vaultView() === "active" && store.scopeId() === scope().id}
+              onPress={() => {
+                store.closeTrash();
+                store.setScope(scope().id);
+              }}
             />
           )}
         </Each>
-      </View>
 
-      <View style={{ minWidth: 220, flex: 1, gap: 4 }}>
-        <Text style={{ color: palette().muted, fontSize: store.type().sm, fontWeight: "bold" }}>Folders</Text>
-        <ScopeRow
-          id="folder-all"
-          name="All Folders"
-          count={snap().totalCount}
-          active={store.folderId() === null}
-          onPress={() => store.setFolder(null)}
+        <View
+          testID="scope-divider"
+          style={{
+            borderTopWidth: 1,
+            borderTopColor: palette().popups.border,
+            marginTop: 4,
+            marginBottom: 4,
+          }}
         />
-        <Each of={snap().folders} key="index">
-          {(folder) => (
-            <ScopeRow
-              id={folder().id}
-              name={folder().name}
-              count={folder().count}
-              active={store.folderId() === folder().id}
-              onPress={() => store.setFolder(folder().id)}
-            />
-          )}
-        </Each>
+        <ScopeRow
+          id="trash"
+          name="Trash"
+          count={store.trashCount() ?? undefined}
+          active={store.vaultView() === "trash"}
+          onPress={store.openTrash}
+        />
       </View>
 
-      <View
-        style={{
-          width: "100%",
-          backgroundColor: tint(palette().info, palette().popups.background, 0.12),
-          borderRadius: 7,
-          padding: 8,
-        }}
-      >
-        <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
-          Scope filters apply together with the category tabs and the search text.
-        </Text>
-      </View>
+      <If when={store.vaultView() === "active"}>
+        <View style={{ minWidth: 220, flex: 1, gap: 4 }}>
+          <Text style={{ color: palette().muted, fontSize: store.type().sm, fontWeight: "bold" }}>
+            Folders
+          </Text>
+          <ScopeRow
+            id="folder-all"
+            name="All Folders"
+            count={snap().totalCount}
+            active={store.folderId() === null}
+            onPress={() => store.setFolder(null)}
+          />
+          <Each of={snap().folders} key="index">
+            {(folder) => (
+              <ScopeRow
+                id={folder().id}
+                name={folder().name}
+                count={folder().count}
+                active={store.folderId() === folder().id}
+                onPress={() => store.setFolder(folder().id)}
+              />
+            )}
+          </Each>
+        </View>
+      </If>
+
+      <If when={store.vaultView() === "active"}>
+        <View
+          style={{
+            width: "100%",
+            backgroundColor: tint(palette().info, palette().popups.background, 0.12),
+            borderRadius: 7,
+            padding: 8,
+          }}
+        >
+          <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
+            Scope filters apply together with the category tabs and the search text.
+          </Text>
+        </View>
+      </If>
     </View>
   );
 }

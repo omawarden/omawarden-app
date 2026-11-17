@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 
 use serde_json::{Value, json};
 
-use crate::diagnostics::push_log;
+use crate::diagnostics::{LogLevel, push_log};
 use crate::{AttachmentOutcomeView, MockState, daemon, load_config, with_mock};
 
 /// The attachment capabilities the bridge exposes.
@@ -376,7 +376,9 @@ fn real_save_attachment(
             }
         }
     }
-    push_log(format!("attachment saved to {}", destination.display()));
+    // The destination is deliberately not logged: an absolute path is a
+    // private detail, and the Diagnostic Report excludes local filenames.
+    push_log(LogLevel::Info, "app:attachments", "attachment saved");
     AttachmentOutcomeView {
         ok: true,
         path: Some(destination.display().to_string()),

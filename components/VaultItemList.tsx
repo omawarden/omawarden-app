@@ -3,6 +3,7 @@ import { Button } from "nsh/base";
 import type { CipherRowView, ItemCategory } from "omawarden-app/native";
 import * as store from "../store/appStore";
 import { formatMaskedCardNumber } from "../store/CardFormatter";
+import { formatLocalDateTime } from "../store/DateTime";
 import { markIconFailed, rowIcon } from "../store/Icons";
 import { VAULT_ICON_SIZE, scaleLength, sidebarWidth } from "../theme/layout";
 import { tint } from "../theme/palette";
@@ -28,6 +29,15 @@ function categoryIcon(category: ItemCategory): IconName {
 
 export function VaultItemList() {
   const palette = store.palette;
+
+  // The Trash has two empty states: nothing deleted at all, and nothing left
+  // after the category and search filters it applies to the loaded rows.
+  const emptyHint = () =>
+    store.vaultView() === "trash"
+      ? store.viewRows().length === 0
+        ? "The Trash is empty."
+        : "No trashed items match this search."
+      : "No items match this search.";
 
   return (
     <View
@@ -61,7 +71,7 @@ export function VaultItemList() {
             numberOfLines: 1,
           }}
         >
-          Vault Items
+          {store.vaultView() === "trash" ? "Trash" : "Vault Items"}
         </Text>
         <Text style={{ color: palette().muted, fontSize: store.type().sm, flexShrink: 0, numberOfLines: 1 }}>
           {store.visibleItems().length} of {store.filteredItems().length}
@@ -70,7 +80,7 @@ export function VaultItemList() {
 
       <Scroll style={{ flex: 1 }} contentStyle={{ padding: 8, gap: 8 }}>
         <If when={store.filteredItems().length === 0}>
-          <EmptyHint>No items match this search.</EmptyHint>
+          <EmptyHint>{emptyHint()}</EmptyHint>
         </If>
         <Each of={store.visibleItems()} key="index">
           {(item, index) => <VaultRow item={item} index={index} />}
@@ -122,12 +132,14 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
   const id = actionID(`cipher-row-slot-${props.index()}`);
   useAction(id, () => store.selectCipher(props.index()));
   const focused = () => store.focusedAction() === id;
-  const active = () =>
-    props.index() === store.selectedIndex() && store.inspector() !== null;
+  const inTrash = () => store.vaultView() === "trash";
+  const active = () => props.index() === store.selectedIndex() && store.selectionActive();
   const accent = () => palette().popups.selectedText;
   const background = () =>
     active() ? palette().popups.selectedBackground : palette().popups.background;
-  const iconUrl = () => rowIcon(props.item);
+  // Trashed rows show the category glyph: the favicon comes from a website URL,
+  // and the Trash inspector exposes no URIs.
+  const iconUrl = () => (inTrash() ? "" : rowIcon(props.item));
   const subtitle = () => {
     const item = props.item();
     if (item.category === "card" && item.cardMask) {
@@ -196,7 +208,7 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
           >
             {props.item().title}
           </Text>
-          <If when={props.item().favorite}>
+          <If when={!inTrash() && props.item().favorite}>
             <Icon
               testID={`cipher-favorite-${props.item().id}`}
               name="star-filled"
@@ -217,7 +229,23 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
           {subtitle()}
         </Text>
         <View style={{ flexDirection: "row", gap: 4, flexWrap: "wrap" }}>
-          <If when={props.item().organization}>
+          <If when={inTrash()}>
+            <View
+              style={{
+                backgroundColor: tint(palette().warning, palette().popups.background, 0.16),
+                borderRadius: 5,
+                paddingHorizontal: 5,
+              }}
+            >
+              <Text
+                testID={`cipher-deleted-${props.item().id}`}
+                style={{ color: palette().warning, fontSize: store.type()["2xs"] }}
+              >
+                {formatLocalDateTime(props.item().deletedAt)}
+              </Text>
+            </View>
+          </If>
+          <If when={!inTrash() && props.item().organization}>
             <View
               style={{
                 backgroundColor: tint(palette().info, palette().popups.background, 0.16),
@@ -230,7 +258,7 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
               </Text>
             </View>
           </If>
-          <If when={props.item().attachmentCount > 0}>
+          <If when={!inTrash() && props.item().attachmentCount > 0}>
             <View
               style={{
                 backgroundColor: tint(palette().purple, palette().popups.background, 0.16),
@@ -243,7 +271,7 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
               </Text>
             </View>
           </If>
-          <If when={props.item().hasTotp}>
+          <If when={!inTrash() && props.item().hasTotp}>
             <View
               style={{
                 backgroundColor: tint(palette().success, palette().popups.background, 0.16),

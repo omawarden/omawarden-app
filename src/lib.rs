@@ -8,6 +8,7 @@
 //! headless UI tests never touch the real keyring, config, clipboard or daemon
 //! socket.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
@@ -189,6 +190,8 @@ pub(crate) struct MockItem {
     pub(crate) favorite: bool,
     pub(crate) folder: Option<String>,
     pub(crate) organization: Option<String>,
+    /// When the cipher was moved to the Trash; `None` while it is active.
+    pub(crate) deleted_at: Option<String>,
     card: Option<MockCard>,
     identity: Option<MockIdentity>,
     ssh: Option<MockSsh>,
@@ -276,9 +279,46 @@ pub(crate) struct MockState {
     daemon_online: bool,
     /// How many mock ticks have been answered, so a test can see the timer stop.
     daemon_ticks: u32,
+    /// How many Trash reads the mock has served, so a test can see the lazy load.
+    trash_queries: u32,
+    /// The ciphers the last Trash read carried, keyed by id.
+    ///
+    /// Mirrors the real adapter's detail map: a trashed cipher is inspectable
+    /// only once the Trash has been read this session, because the list reply
+    /// is the only channel that carries one.
+    trash_details: HashMap<String, MockItem>,
+    /// A daemon rejection for a Trash mutation, surfaced verbatim. Tests seed
+    /// it through `trashMutationError` to exercise the failure path in the UI.
+    trash_mutation_error: Option<String>,
     filter: VaultFilterInput,
     selected_cipher_id: Option<String>,
     master_password: String,
+    /// The mock Log Viewer ring, fed by the same Log Pipeline events as the
+    /// real in-process ring so headless tests exercise the whole path.
+    logs: Vec<String>,
+    /// When set, `query` serves this frozen list instead of `items`, modelling
+    /// the daemon's `list` cache: a cipher mutation does not invalidate it, and
+    /// only a sync refreshes it. Tests that assert the UI updates without a
+    /// sync enable it via `staleListCache`.
+    list_cache: Option<Vec<MockItem>>,
+    /// Whether `configure_mock_state` should seed `list_cache` from the items.
+    stale_list_cache: bool,
+}
+
+impl MockState {
+    /// Records a Log Pipeline line in the mock Log Viewer ring.
+    pub(crate) fn record_log(
+        &mut self,
+        level: crate::diagnostics::LogLevel,
+        source: &str,
+        message: &str,
+    ) {
+        self.logs
+            .push(crate::diagnostics::format_log_line(level, source, message));
+        while self.logs.len() > crate::diagnostics::LOG_RING_CAPACITY {
+            self.logs.remove(0);
+        }
+    }
 }
 
 impl Default for VaultFilterInput {
@@ -315,9 +355,15 @@ impl Default for MockState {
             sync_error: None,
             daemon_online: true,
             daemon_ticks: 0,
+            trash_queries: 0,
+            trash_details: HashMap::new(),
+            trash_mutation_error: None,
             filter: VaultFilterInput::default(),
             selected_cipher_id: None,
             master_password: "correct horse battery staple".to_string(),
+            logs: Vec::new(),
+            list_cache: None,
+            stale_list_cache: false,
         }
     }
 }
@@ -375,6 +421,15 @@ fn parse_category(raw: &str) -> ItemCategory {
 }
 
 impl MockItem {
+    /// Whether the cipher is still in the active vault.
+    ///
+    /// A trashed item is hidden exactly as the daemon's active `list` hides
+    /// it: not in the snapshot, not inspectable, not copyable, no TOTP. Only
+    /// the Trash view reads `items` directly.
+    pub(crate) fn is_active(&self) -> bool {
+        self.deleted_at.is_none()
+    }
+
     /// Builds a mock cipher from a JSON object.
     fn from_json(value: &Value) -> Self {
         let category = parse_category(
@@ -411,6 +466,7 @@ impl MockItem {
             favorite: json_bool(value, "favorite", false),
             folder: json_string(value, "folder"),
             organization: json_string(value, "organization"),
+            deleted_at: json_string(value, "deletedAt"),
             reprompt: value.get("reprompt").and_then(Value::as_u64).unwrap_or(0) as u32,
             totp_remaining: value
                 .get("totpRemaining")
@@ -541,11 +597,31 @@ impl MockItem {
                 .card
                 .as_ref()
                 .map(|card| mask_card_number_for(&card.number, &card.brand)),
+            deleted_at: self.deleted_at.clone(),
         }
     }
 }
 
 impl MockState {
+    /// The items the active vault can see.
+    pub(crate) fn active_items(&self) -> impl Iterator<Item = &MockItem> {
+        self.items.iter().filter(|item| item.is_active())
+    }
+
+    /// The active item with `id`.
+    pub(crate) fn active_item(&self, id: &str) -> Option<&MockItem> {
+        self.active_items().find(|item| item.id == id)
+    }
+
+    /// The soft-deleted item with `id`, once the Trash has been read.
+    ///
+    /// The real adapter reads these out of the detail map the list reply fills;
+    /// the mock keeps the same map, so "a trashed cipher is inspectable only
+    /// after the Trash has been read" holds in both.
+    pub(crate) fn trashed_cipher(&self, id: &str) -> Option<&MockItem> {
+        self.trash_details.get(id)
+    }
+
     /// Adds a type-5 SSH item to the seeded vault, the way a real save does.
     ///
     /// The headless tests drive create/import → save → inspect, so the saved
@@ -574,8 +650,28 @@ impl MockState {
         self.items.push(item);
     }
 
+    /// The snapshot `query` returns: the frozen list cache when the stale-list
+    /// seam is on, else the live items.
+    fn query_snapshot(&self) -> VaultSnapshotView {
+        match &self.list_cache {
+            Some(cache) => self.snapshot_with_rows(
+                cache
+                    .iter()
+                    .filter(|item| item.is_active())
+                    .map(MockItem::row)
+                    .collect(),
+            ),
+            None => self.snapshot(),
+        }
+    }
+
     /// The current snapshot.
     fn snapshot(&self) -> VaultSnapshotView {
+        self.snapshot_with_rows(self.active_items().map(MockItem::row).collect())
+    }
+
+    /// The snapshot for an arbitrary row set, used by the stale-list seam.
+    fn snapshot_with_rows(&self, rows: Vec<CipherRowView>) -> VaultSnapshotView {
         projection::build_snapshot(
             self.phase,
             self.email.clone(),
@@ -585,7 +681,7 @@ impl MockState {
             self.quick_unlock_usable,
             self.two_factor.clone(),
             self.error.clone(),
-            self.items.iter().map(MockItem::row).collect(),
+            rows,
             &self.filter,
             self.last_sync.clone(),
             self.selected_cipher_id.clone(),
@@ -632,12 +728,20 @@ fn configure_mock_from_json(state: &mut MockState, value: &Value) {
     state.two_factor_required = json_bool(value, "twoFactorRequired", state.two_factor_required);
     state.update_available = json_bool(value, "updateAvailable", state.update_available);
     state.daemon_online = json_bool(value, "daemonOnline", state.daemon_online);
+    state.stale_list_cache = json_bool(value, "staleListCache", state.stale_list_cache);
     if let Some(password) = json_string(value, "masterPassword") {
         state.master_password = password;
     }
     state.last_sync = json_string(value, "lastSync").or(state.last_sync.clone());
     state.error = json_string(value, "error");
     state.sync_error = json_string(value, "syncError");
+    state.trash_mutation_error = json_string(value, "trashMutationError");
+    if let Some(logs) = value.get("logs").and_then(|v| v.as_array()) {
+        state.logs = logs
+            .iter()
+            .filter_map(|entry| entry.as_str().map(str::to_string))
+            .collect();
+    }
     if let Some(missing) = value.get("dependenciesMissing").and_then(|v| v.as_array()) {
         state.dependencies_missing = missing
             .iter()
@@ -840,6 +944,9 @@ impl OmawardenBridge {
                 Err(error) => fresh.error = Some(format!("Invalid mock state JSON: {error}")),
             }
             *state = fresh;
+            if state.stale_list_cache {
+                state.list_cache = Some(state.items.clone());
+            }
             state.snapshot()
         })
     }
@@ -847,6 +954,11 @@ impl OmawardenBridge {
     /// Counts the mock ticks answered so far, so a test can see the timer stop.
     pub fn mock_daemon_ticks() -> u32 {
         with_mock(|state| state.daemon_ticks)
+    }
+
+    /// Counts the mock Trash reads, so a test can see the lazy-load rule.
+    pub fn mock_trash_queries() -> u32 {
+        with_mock(|state| state.trash_queries)
     }
 
     /// Initialize the app or handle an external summon payload (e.g. `{"view":"ssh-approval","id":1}`).
@@ -941,9 +1053,21 @@ impl OmawardenBridge {
         engine::vault().query(filter)
     }
 
+    /// Query the Trash: the soft-deleted ciphers, newest deletion first.
+    pub fn query_trash(filter: VaultFilterInput) -> VaultSnapshotView {
+        engine::vault().query_trash(filter)
+    }
+
     /// Synchronize the vault with the Bitwarden server and return the updated snapshot.
     pub fn sync_vault(filter: VaultFilterInput) -> VaultSnapshotView {
         engine::vault().sync(filter)
+    }
+
+    /// Clears the in-process active-vault cache so the next read re-fetches from
+    /// the daemon. Called after a Trash restore or purge so the restored item is
+    /// visible without a full sync.
+    pub fn clear_vault_cache() {
+        vault::clear_cached_vault();
     }
 
     /// Inspect a specific cipher item, computing masked/revealed fields, TOTP state, and actions.
@@ -977,6 +1101,22 @@ impl OmawardenBridge {
     /// removes it from the vault and the server. The caller confirms both.
     pub fn delete_cipher(id: String, permanent: bool) -> CipherMutationOutcomeView {
         engine::cipher().delete(id, permanent)
+    }
+
+    /// Restore a soft-deleted cipher from the Trash.
+    ///
+    /// The daemon answers with `outcome: "restored"` and the cipher's name; the
+    /// store keeps the user in the Trash and re-reads its rows on success.
+    pub fn restore_cipher(id: String) -> CipherMutationOutcomeView {
+        engine::cipher().restore(id)
+    }
+
+    /// Permanently delete a cipher from the Trash.
+    ///
+    /// The daemon answers with `outcome: "deleted"` and `permanent: true`; the
+    /// store keeps the user in the Trash and re-reads its rows on success.
+    pub fn delete_trash_cipher(id: String) -> CipherMutationOutcomeView {
+        engine::cipher().delete_trash(id)
     }
 
     /// Compute live TOTP code and remaining TTL for a cipher item.
@@ -1151,6 +1291,7 @@ fn expand_home(path: &str) -> PathBuf {
 mod tests {
     use super::*;
     use crate::auth::{normalize_optional_code, two_factor_provider_view};
+    use crate::cipher_mutation::CipherEngine;
     use crate::format::{MASK, format_card_number, mask_card_number};
     use crate::platform::validate_launch_url;
     use crate::projection::fuzzy_score;
@@ -1819,6 +1960,337 @@ mod tests {
     }
 
     #[test]
+    fn mock_soft_delete_moves_the_cipher_to_the_trash() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {"id": "1", "title": "GitHub", "category": "login", "username": "octocat"}
+            ]
+        })));
+
+        let deleted = OmawardenBridge::delete_cipher("1".to_string(), false);
+        assert!(deleted.ok, "{:?}", deleted.error);
+
+        // The soft delete hides the row from the active vault...
+        let active = OmawardenBridge::query_vault(VaultFilterInput::default());
+        assert_eq!(active.total_count, 0);
+        assert!(
+            OmawardenBridge::inspect_cipher("1".to_string(), reveal_none())
+                .error
+                .is_some(),
+            "a trashed cipher is inspectable only once the Trash has been read"
+        );
+
+        // ...but keeps the cipher, stamped with a deletion time, so the Trash
+        // can list and restore it.
+        let stamped = with_mock(|state| {
+            state
+                .items
+                .iter()
+                .find(|item| item.id == "1")
+                .map(|item| item.deleted_at.clone())
+        });
+        assert!(
+            stamped.flatten().is_some(),
+            "a soft delete must stamp deleted_at"
+        );
+
+        // A permanent delete is what removes the cipher for good.
+        let purged = OmawardenBridge::delete_cipher("1".to_string(), true);
+        assert!(purged.ok, "{:?}", purged.error);
+        assert!(with_mock(|state| !state
+            .items
+            .iter()
+            .any(|item| item.id == "1")));
+    }
+
+    #[test]
+    fn mock_restore_returns_the_cipher_to_the_active_vault() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {"id": "1", "title": "Old GitHub", "category": "login", "deletedAt": "2026-01-02T03:04:05Z"}
+            ]
+        })));
+
+        let restored = OmawardenBridge::restore_cipher("1".to_string());
+        assert!(restored.ok, "{:?}", restored.error);
+        assert_eq!(restored.outcome, "restored");
+        assert_eq!(restored.name.as_deref(), Some("Old GitHub"));
+
+        // The cipher is active again, so the Trash is empty.
+        let active = OmawardenBridge::query_vault(VaultFilterInput::default());
+        assert_eq!(active.total_count, 1);
+        assert_eq!(active.all_items[0].title, "Old GitHub");
+        assert!(active.all_items[0].deleted_at.is_none());
+        let trash = OmawardenBridge::query_trash(VaultFilterInput::default());
+        assert!(trash.all_items.is_empty());
+    }
+
+    #[test]
+    fn mock_restore_rejects_an_id_that_is_not_trashed() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {"id": "1", "title": "GitHub", "category": "login"}
+            ]
+        })));
+
+        let missing = OmawardenBridge::restore_cipher("unknown".to_string());
+        assert!(!missing.ok, "an unknown id must not silently succeed");
+        let active = OmawardenBridge::restore_cipher("1".to_string());
+        assert!(!active.ok, "an active id must not be restorable");
+        assert_eq!(
+            active.error.as_deref(),
+            Some("Cipher '1' not found in trash.")
+        );
+        assert_eq!(
+            OmawardenBridge::query_vault(VaultFilterInput::default()).total_count,
+            1
+        );
+    }
+
+    #[test]
+    fn mock_restore_surfaces_the_daemon_error() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "trashMutationError": "Server rejected restore (HTTP 403): denied",
+            "items": [
+                {"id": "1", "title": "Old GitHub", "category": "login", "deletedAt": "2026-01-02T03:04:05Z"}
+            ]
+        })));
+
+        let restored = OmawardenBridge::restore_cipher("1".to_string());
+        assert!(!restored.ok);
+        assert_eq!(
+            restored.error.as_deref(),
+            Some("Server rejected restore (HTTP 403): denied")
+        );
+        // A failed restore leaves the row in the Trash.
+        assert_eq!(
+            OmawardenBridge::query_trash(VaultFilterInput::default())
+                .all_items
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn real_delete_trash_sends_the_daemon_action_and_maps_the_receipt() {
+        let _seam = crate::daemon::test_seam::set(|action: Value| {
+            assert_eq!(
+                action.get("action").and_then(Value::as_str),
+                Some("cipher_delete_trash"),
+                "a permanent trash delete is its own daemon action"
+            );
+            assert_eq!(action.get("id").and_then(Value::as_str), Some("id-1"));
+            assert!(action.get("permanent").is_none());
+            Some(json!({
+                "ok": true,
+                "outcome": "deleted",
+                "permanent": true,
+                "item": {"id": "id-1", "name": "Old GitHub", "permanent": true}
+            }))
+        });
+        let outcome = crate::cipher_mutation::InProcess.delete_trash("id-1".to_string());
+        assert!(outcome.ok);
+        assert_eq!(outcome.outcome, "deleted");
+        assert_eq!(outcome.id.as_deref(), Some("id-1"));
+        assert_eq!(outcome.name.as_deref(), Some("Old GitHub"));
+    }
+
+    #[test]
+    fn real_delete_trash_surfaces_the_daemon_error() {
+        let _seam = crate::daemon::test_seam::set(|_action: Value| {
+            Some(json!({
+                "ok": false,
+                "outcome": "rejected",
+                "error": "Unlock the vault before permanently deleting a cipher from trash."
+            }))
+        });
+        let outcome = crate::cipher_mutation::InProcess.delete_trash("id-1".to_string());
+        assert!(!outcome.ok);
+        assert_eq!(
+            outcome.error.as_deref(),
+            Some("Unlock the vault before permanently deleting a cipher from trash.")
+        );
+    }
+
+    #[test]
+    fn mock_delete_trash_removes_the_cipher_permanently() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {"id": "1", "title": "Old GitHub", "category": "login", "deletedAt": "2026-01-02T03:04:05Z"}
+            ]
+        })));
+
+        let purged = OmawardenBridge::delete_trash_cipher("1".to_string());
+        assert!(purged.ok, "{:?}", purged.error);
+        assert_eq!(purged.outcome, "deleted");
+        assert_eq!(purged.name.as_deref(), Some("Old GitHub"));
+
+        // The cipher is gone entirely.
+        let active = OmawardenBridge::query_vault(VaultFilterInput::default());
+        assert_eq!(active.total_count, 0);
+        let trash = OmawardenBridge::query_trash(VaultFilterInput::default());
+        assert!(trash.all_items.is_empty());
+    }
+
+    #[test]
+    fn mock_delete_trash_rejects_an_id_that_is_not_trashed() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {"id": "1", "title": "GitHub", "category": "login"}
+            ]
+        })));
+
+        let missing = OmawardenBridge::delete_trash_cipher("unknown".to_string());
+        assert!(!missing.ok, "an unknown id must not silently succeed");
+        let active = OmawardenBridge::delete_trash_cipher("1".to_string());
+        assert!(!active.ok, "an active id must not be purged");
+        assert_eq!(
+            active.error.as_deref(),
+            Some("Cipher '1' not found in trash.")
+        );
+        assert_eq!(
+            OmawardenBridge::query_vault(VaultFilterInput::default()).total_count,
+            1
+        );
+    }
+
+    #[test]
+    fn mock_delete_trash_surfaces_the_daemon_error() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "trashMutationError": "Server rejected purge (HTTP 403): denied",
+            "items": [
+                {"id": "1", "title": "Old GitHub", "category": "login", "deletedAt": "2026-01-02T03:04:05Z"}
+            ]
+        })));
+
+        let purged = OmawardenBridge::delete_trash_cipher("1".to_string());
+        assert!(!purged.ok);
+        assert_eq!(
+            purged.error.as_deref(),
+            Some("Server rejected purge (HTTP 403): denied")
+        );
+        // A failed purge leaves the row in the Trash.
+        assert_eq!(
+            OmawardenBridge::query_trash(VaultFilterInput::default())
+                .all_items
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn mock_trashed_cipher_cannot_be_edited() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {"id": "1", "title": "Old GitHub", "category": "login", "deletedAt": "2026-01-02T03:04:05Z"}
+            ]
+        })));
+
+        let edit = OmawardenBridge::mutate_cipher(
+            CipherMutationInput {
+                cipher_type: "login".to_string(),
+                name: Some("Renamed".to_string()),
+                username: None,
+                password: None,
+                notes: None,
+                uris: None,
+                folder_id: None,
+                favorite: None,
+            },
+            Some("1".to_string()),
+        );
+        assert!(!edit.ok, "a trashed cipher is read-only");
+        assert!(
+            edit.error
+                .unwrap_or_default()
+                .contains("in the trash and cannot be edited")
+        );
+        assert!(with_mock(|state| state
+            .items
+            .iter()
+            .any(|item| item.id == "1" && item.title == "Old GitHub")));
+    }
+
+    #[test]
+    fn mock_stale_list_cache_serves_the_pre_mutation_rows_until_sync() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "staleListCache": true,
+            "items": [
+                {"id": "1", "title": "GitHub", "category": "login", "favorite": true}
+            ]
+        })));
+
+        // A create lands in the live items, but `query` still serves the cache.
+        let created = OmawardenBridge::mutate_cipher(
+            CipherMutationInput {
+                cipher_type: "login".to_string(),
+                name: Some("GitLab".to_string()),
+                username: None,
+                password: None,
+                notes: None,
+                uris: None,
+                folder_id: None,
+                favorite: None,
+            },
+            None,
+        );
+        assert!(created.ok, "{:?}", created.error);
+        let stale = OmawardenBridge::query_vault(VaultFilterInput::default());
+        assert_eq!(stale.category_counts.logins, 1);
+        assert!(stale.items.iter().all(|row| row.title != "GitLab"));
+
+        // A favorite flip is hidden until a sync refreshes the cache too.
+        OmawardenBridge::mutate_cipher(
+            CipherMutationInput {
+                cipher_type: "login".to_string(),
+                name: Some("GitHub".to_string()),
+                username: None,
+                password: None,
+                notes: None,
+                uris: None,
+                folder_id: None,
+                favorite: Some(false),
+            },
+            Some("1".to_string()),
+        );
+        let still_stale = OmawardenBridge::query_vault(VaultFilterInput::default());
+        let github = still_stale
+            .items
+            .iter()
+            .find(|row| row.id == "1")
+            .expect("cached row");
+        assert!(github.favorite);
+
+        // A sync re-reads the vault, so both changes become visible.
+        let synced = OmawardenBridge::sync_vault(VaultFilterInput::default());
+        assert_eq!(synced.category_counts.logins, 2);
+        let github = synced
+            .items
+            .iter()
+            .find(|row| row.id == "1")
+            .expect("synced row");
+        assert!(!github.favorite);
+    }
+
+    #[test]
     fn mock_cipher_create_rejects_bad_input() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
@@ -1888,6 +2360,273 @@ mod tests {
     }
 
     #[test]
+    fn mock_trashed_items_stay_out_of_the_active_vault() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let snapshot = OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {
+                    "id": "1",
+                    "title": "GitHub",
+                    "category": "login",
+                    "username": "octocat",
+                    "password": "s3cret",
+                    "totp": "JBSWY3DPEHPK3PXP"
+                },
+                {
+                    "id": "2",
+                    "title": "Old GitHub",
+                    "category": "login",
+                    "username": "octocat",
+                    "password": "hunter2",
+                    "totp": "JBSWY3DPEHPK3PXP",
+                    "deletedAt": "2026-01-02T03:04:05Z"
+                }
+            ]
+        })));
+
+        // The active snapshot is the daemon's active `list`: the trashed item
+        // is not in it, in the filtered rows or in `allItems`.
+        assert_eq!(snapshot.total_count, 1);
+        assert_eq!(snapshot.items.len(), 1);
+        assert_eq!(snapshot.items[0].id, "1");
+        assert_eq!(snapshot.all_items.len(), 1);
+        assert!(snapshot.items.iter().all(|row| row.deleted_at.is_none()));
+
+        // Nor does an active-vault path reach it: the per-item reads resolve
+        // the active cache and the daemon, both of which are active-only.
+        let inspected = OmawardenBridge::inspect_cipher("2".to_string(), reveal_none());
+        assert!(inspected.password.is_none());
+        assert!(
+            inspected.error.is_some(),
+            "a trashed item is inspectable only once the Trash has been read"
+        );
+
+        let totp = OmawardenBridge::refresh_totp("2".to_string());
+        assert!(!totp.valid);
+        assert!(totp.error.is_some());
+
+        let copied =
+            OmawardenBridge::copy_cipher_field("2".to_string(), "password".to_string(), None);
+        assert!(!copied.ok);
+        assert_eq!(copied.error.as_deref(), Some("Item not found."));
+
+        let tick = OmawardenBridge::poll_daemon_tick(Some("2".to_string()));
+        assert!(tick.totp.is_none(), "a trashed item has no live TOTP");
+
+        // And active target resolution does not offer it either.
+        let resolved = OmawardenBridge::resolve_cipher_target("Old GitHub".to_string());
+        assert!(!resolved.ok);
+
+        // The active item still answers on every one of those paths.
+        assert!(
+            OmawardenBridge::inspect_cipher("1".to_string(), reveal_none())
+                .error
+                .is_none()
+        );
+        assert!(OmawardenBridge::refresh_totp("1".to_string()).valid);
+        assert!(
+            OmawardenBridge::poll_daemon_tick(Some("1".to_string()))
+                .totp
+                .is_some()
+        );
+        assert!(
+            OmawardenBridge::resolve_cipher_target("GitHub".to_string())
+                .item
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn mock_trash_lists_deleted_items_newest_first() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {"id": "1", "title": "Active", "category": "login"},
+                {"id": "2", "title": "Older", "category": "login", "deletedAt": "2026-01-01T00:00:00Z"},
+                {"id": "3", "title": "Newer", "category": "login", "deletedAt": "2026-02-01T00:00:00Z"}
+            ]
+        })));
+
+        assert_eq!(OmawardenBridge::mock_trash_queries(), 0);
+        let trash = OmawardenBridge::query_trash(VaultFilterInput::default());
+        assert_eq!(OmawardenBridge::mock_trash_queries(), 1);
+
+        let ids: Vec<&str> = trash.all_items.iter().map(|row| row.id.as_str()).collect();
+        assert_eq!(ids, vec!["3", "2"]);
+        assert!(trash.all_items.iter().all(|row| row.deleted_at.is_some()));
+        assert!(
+            trash
+                .all_items
+                .iter()
+                .all(|row| row.category == ItemCategory::Login)
+        );
+
+        // The active snapshot still holds only the active item, so reading the
+        // Trash did not leak into the cache.
+        let active = OmawardenBridge::query_vault(VaultFilterInput::default());
+        assert_eq!(active.all_items.len(), 1);
+        assert_eq!(active.all_items[0].id, "1");
+    }
+
+    #[test]
+    fn mock_trash_ignores_the_active_scope_and_folder() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {
+                    "id": "1",
+                    "title": "Old Work Login",
+                    "category": "login",
+                    "organization": "Acme",
+                    "folder": "Work",
+                    "deletedAt": "2026-02-01T00:00:00Z"
+                }
+            ]
+        })));
+
+        let trash = OmawardenBridge::query_trash(VaultFilterInput {
+            search: String::new(),
+            category: ItemCategory::All,
+            scope_id: Some("personal".to_string()),
+            folder_id: Some("folder:Work".to_string()),
+        });
+        assert_eq!(
+            trash.all_items.len(),
+            1,
+            "the Trash is server-wide, so a stale scope or folder cannot narrow it"
+        );
+    }
+
+    #[test]
+    fn mock_trash_details_become_inspectable_after_the_read() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {"id": "1", "title": "GitHub", "category": "login", "username": "octocat"},
+                {
+                    "id": "2",
+                    "title": "Old GitHub",
+                    "category": "login",
+                    "username": "octocat",
+                    "password": "hunter2",
+                    "totp": "JBSWY3DPEHPK3PXP",
+                    "notes": "recover me",
+                    "reprompt": 1,
+                    "deletedAt": "2026-01-02T03:04:05Z"
+                }
+            ]
+        })));
+
+        assert!(
+            OmawardenBridge::inspect_cipher("2".to_string(), reveal_none())
+                .error
+                .is_some(),
+            "the list reply is the only channel, so nothing is readable before it"
+        );
+
+        OmawardenBridge::query_trash(VaultFilterInput::default());
+
+        let masked = OmawardenBridge::inspect_cipher("2".to_string(), reveal_none());
+        assert!(masked.error.is_none(), "{:?}", masked.error);
+        assert_eq!(masked.title, "Old GitHub");
+        assert_eq!(masked.username.as_deref(), Some("octocat"));
+        assert_eq!(masked.notes.as_deref(), Some("recover me"));
+        assert!(
+            masked.password.is_none(),
+            "a trashed password starts masked, exactly as an active one"
+        );
+        assert_eq!(
+            masked.reprompt, 1,
+            "the cipher's re-prompt flag survives the Trash read"
+        );
+        assert!(
+            masked.totp.as_ref().is_some_and(|totp| totp.valid),
+            "the live code comes from the seed the read carried"
+        );
+
+        let mut reveal = reveal_none();
+        reveal.reveal_password = true;
+        let revealed = OmawardenBridge::inspect_cipher("2".to_string(), reveal);
+        assert_eq!(revealed.password.as_deref(), Some("hunter2"));
+
+        assert!(
+            OmawardenBridge::refresh_totp("2".to_string()).valid,
+            "the ticker refreshes a trashed code without a per-item read"
+        );
+    }
+
+    #[test]
+    fn mock_purging_a_cipher_drops_its_trash_details() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {
+                    "id": "2",
+                    "title": "Old GitHub",
+                    "category": "login",
+                    "username": "octocat",
+                    "totp": "JBSWY3DPEHPK3PXP",
+                    "deletedAt": "2026-01-02T03:04:05Z"
+                }
+            ]
+        })));
+        OmawardenBridge::query_trash(VaultFilterInput::default());
+        assert!(
+            OmawardenBridge::inspect_cipher("2".to_string(), reveal_none())
+                .error
+                .is_none()
+        );
+
+        let purged = OmawardenBridge::delete_trash_cipher("2".to_string());
+        assert!(purged.ok, "{:?}", purged.error);
+
+        assert!(
+            OmawardenBridge::inspect_cipher("2".to_string(), reveal_none())
+                .error
+                .is_some(),
+            "a purged cipher leaves nothing to inspect"
+        );
+        assert!(!OmawardenBridge::refresh_totp("2".to_string()).valid);
+    }
+
+    #[test]
+    fn mock_lock_clears_the_trash_details() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "unlocked",
+            "items": [
+                {
+                    "id": "2",
+                    "title": "Old GitHub",
+                    "category": "login",
+                    "username": "octocat",
+                    "deletedAt": "2026-01-02T03:04:05Z"
+                }
+            ]
+        })));
+        OmawardenBridge::query_trash(VaultFilterInput::default());
+        assert!(
+            OmawardenBridge::inspect_cipher("2".to_string(), reveal_none())
+                .error
+                .is_none()
+        );
+
+        OmawardenBridge::lock_or_logout(false);
+
+        assert!(
+            OmawardenBridge::inspect_cipher("2".to_string(), reveal_none())
+                .error
+                .is_some(),
+            "a lock drops the decrypted Trash details with the session"
+        );
+    }
+
+    #[test]
     fn blank_codes_are_omitted_from_the_in_process_call() {
         assert_eq!(normalize_optional_code(Some("   ".to_string())), None);
         assert_eq!(
@@ -1899,6 +2638,59 @@ mod tests {
         assert_eq!(
             if code.is_empty() { None } else { Some(code) },
             Some("123456")
+        );
+    }
+
+    #[test]
+    fn log_pipeline_records_state_transitions_and_failures() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        OmawardenBridge::configure_mock_state(mock_state_json(json!({
+            "phase": "locked",
+            "logs": [],
+        })));
+
+        // An empty master password is a failed authentication state.
+        let failed = OmawardenBridge::authenticate(AuthActionInput {
+            kind: AuthKind::Unlock,
+            email: String::new(),
+            password: String::new(),
+            client_id: String::new(),
+            client_secret: String::new(),
+            code: String::new(),
+            provider: None,
+            remember_email: None,
+            new_device_otp: None,
+        });
+        assert_eq!(failed.phase, AppPhase::Locked);
+
+        OmawardenBridge::authenticate(AuthActionInput {
+            kind: AuthKind::Unlock,
+            email: String::new(),
+            password: "correct horse battery staple".to_string(),
+            client_id: String::new(),
+            client_secret: String::new(),
+            code: String::new(),
+            provider: None,
+            remember_email: None,
+            new_device_otp: None,
+        });
+        OmawardenBridge::lock_or_logout(false);
+
+        let logs = OmawardenBridge::get_settings().diagnostics.logs;
+        assert!(
+            logs.iter()
+                .any(|line| line.contains("[ERROR] [app:auth]") && line.contains("failed")),
+            "no error line for the failed authentication: {logs:?}"
+        );
+        assert!(
+            logs.iter()
+                .any(|line| line.contains("[INFO] [app:auth]") && line.contains("unlocked")),
+            "no info line for the unlock: {logs:?}"
+        );
+        assert!(
+            logs.iter()
+                .any(|line| line.contains("[INFO] [app:auth]") && line.contains("locked")),
+            "no info line for the lock: {logs:?}"
         );
     }
 }

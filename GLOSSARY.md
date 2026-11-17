@@ -25,6 +25,43 @@ Filtering a `FilterProjection` performs **zero IPC**, **zero keyring lookups**,
 and **zero `snapshot.set()`** calls, so switching tabs or typing in the search
 box only re-renders the list rows.
 
+## Trash
+
+The server-side state of soft-deleted ciphers: still stored, still encrypted,
+but hidden from the active vault. A cipher is in the Trash exactly when its
+`deleted_at` timestamp is set; the daemon's active `list` excludes those items,
+and a `list` sent with `{"trash": true}` returns only them.
+`CipherRowView.deletedAt` carries the timestamp on a trashed row and is absent
+on an active one.
+
+Trash is a vault state, not an `ItemCategory`: the category tabs keep meaning
+login, card, identity, note and SSH key inside it. The app models it as a
+separate view rather than a filter, so no active-vault path can reach a trashed
+cipher by accident. A trashed cipher is inspectable read-only from the Trash,
+with a live TOTP code, but it is not editable and not copyable.
+
+## Soft Delete
+
+The reversible delete. Deleting an item from the active vault stamps
+`deleted_at` on the server and moves the cipher into the Trash; it stays
+restorable and the write syncs like any other mutation. Soft delete is the
+only delete the active vault offers.
+
+## Permanent Delete
+
+The irreversible delete: the cipher leaves the Trash and the server. It is not
+a stronger Soft Delete that the active vault can reach — the active vault never
+offers it. It applies only to a cipher already in the Trash, behind a
+confirmation that says it cannot be undone.
+
+## Restore
+
+Bringing a cipher back from the Trash: the daemon clears `deleted_at` and the
+active vault sees the cipher again. In the GUI it is one press from the Trash
+inspector, with no confirmation, and it leaves the user in the Trash. A failed
+restore reports the daemon's error and changes nothing. Restore is the inverse
+of a Soft Delete, not a third kind of delete; the active vault never offers it.
+
 ## In-Process Engine
 
 The `omawarden` Rust crate linked directly into the `nsh` host binary and
@@ -167,3 +204,31 @@ The complete distribution package produced by `nsh package --target linux` and
 augmented with the Polkit authorization policy (`.policy`), install scriptlet,
 desktop entry, and application icon. Distributable via GitHub Releases and
 packaged for Arch Linux as `omawarden-app-git-bin`.
+
+## Log Pipeline
+
+The in-process event source that feeds the `Log Viewer`. It records
+state transitions and failures only — authentication success/failure,
+unlock/lock, vault sync start/end, cipher write rejections — not per-action
+INFO events. Levels are `error`, `warn`, `info` (no `debug` or `trace`).
+Entries are sanitized by the engine's `sanitize_log_message` before entering
+the bounded in-memory ring. The pipeline does **not** receive the daemon's
+structured stderr; that boundary is recorded in ADR 0001.
+
+## Log Viewer
+
+The bounded, in-memory log ring displayed in the Diagnose tab. It holds a
+fixed number of recent entries (implementation detail), each carrying a
+timestamp, a level badge, the sanitized source prefix, and the message.
+The viewer supports live filtering by level. It is not persisted to disk,
+not streamed to journald, and not sent over the network. A `Refresh` action
+re-reads the ring; `Copy Diagnostic Report` includes its current contents.
+
+## Diagnostic Report
+
+A user-triggered, one-shot snapshot copied to the clipboard. It contains:
+app version, engine version, git commit, build date, sanitized server URL,
+health check results, process RSS, and the current `Log Viewer` contents.
+It **explicitly excludes** the daemon's stderr logs and any absolute paths
+or local filenames. The report header states the collection scope so a
+GitHub issue reader knows what is and is not included.
