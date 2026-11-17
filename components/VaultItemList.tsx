@@ -122,7 +122,7 @@ function ShowMoreRow(props: { remaining: () => number }) {
         borderColor: accent(),
       }}
       activeStyle={{ backgroundColor: tint(accent(), palette().popups.background, 0.26) }}
-      focusStyle={{ borderColor: accent() }}
+      focusVisibleStyle={{ borderColor: accent() }}
     >
       <Text style={{ color: accent(), fontSize: store.type().sm, fontWeight: "bold" }}>
         Show more ({props.remaining()} remaining)
@@ -177,7 +177,7 @@ function VaultRow(props: { item: () => CipherRowView; index: () => number }) {
         borderColor: accent(),
       }}
       activeStyle={{ backgroundColor: tint(accent(), background(), 0.26) }}
-      focusStyle={{ borderColor: accent() }}
+      focusVisibleStyle={{ borderColor: accent() }}
     >
       <If when={iconUrl() !== ""}>
         <Image

@@ -113,7 +113,7 @@ export function SearchHeader() {
           borderColor: scopeAccent(),
         }}
         activeStyle={{ backgroundColor: tint(scopeAccent(), scopeBackground(), 0.26) }}
-        focusStyle={{ borderColor: scopeAccent() }}
+        focusVisibleStyle={{ borderColor: scopeAccent() }}
       >
         <Text style={{ color: palette().menu.text, fontSize: store.type().base }}>
           {store.scopeLabel()}

@@ -24,6 +24,11 @@ export function useAction(id: string, onPress: () => void): void {
   cleanup(() => store.unregisterAction(id));
 }
 
+// The app draws its own focus ring: `focusOutline(focused(), …)` on the control's
+// `style`, driven by `store.focusedAction()` because Tab is the app's own ring
+// rather than the platform's. Controls also carry `focusVisibleStyle` for the
+// widget's own focus, so a mouse press — which focuses without showing focus to
+// the keyboard — adds no second ring.
 export function focusOutline(active: boolean, color: string) {
   return {
     outlineWidth: active ? 2 : 0,
@@ -148,7 +153,7 @@ export function ActionButton(props: {
         borderColor: accent(),
       }}
       activeStyle={{ backgroundColor: tint(accent(), background(), 0.26) }}
-      focusStyle={{ borderColor: accent() }}
+      focusVisibleStyle={{ borderColor: accent() }}
       disabledStyle={{ opacity: 0.5 }}
     >
       <Text
@@ -206,7 +211,7 @@ export function SmallButton(props: {
         borderColor: accent(),
       }}
       activeStyle={{ backgroundColor: tint(accent(), background(), 0.26) }}
-      focusStyle={{ borderColor: accent() }}
+      focusVisibleStyle={{ borderColor: accent() }}
       disabledStyle={{ opacity: 0.5 }}
     >
       {props.children ?? (

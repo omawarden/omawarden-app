@@ -86,7 +86,7 @@ function ToastDismiss(props: { accent: () => string }) {
       }}
       hoverStyle={{ backgroundColor: tint(props.accent(), palette().popups.background, 0.18) }}
       activeStyle={{ backgroundColor: tint(props.accent(), palette().popups.background, 0.3) }}
-      focusStyle={{ borderColor: props.accent() }}
+      focusVisibleStyle={{ borderColor: props.accent() }}
     >
       <Icon name="x" size={11} color={palette().muted} />
     </Button>
