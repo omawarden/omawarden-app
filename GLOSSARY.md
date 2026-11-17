@@ -187,16 +187,37 @@ The gate is an overlay, not a replacement. The workspace, every dialog and the
 toast stay mounted underneath, so shrinking and restoring preserves form input,
 open dialogs and scroll position.
 
-It does **not** resize the window or ask the window manager for a minimum size:
-NSH 0.4.0 exposes no native minimum window size, so the app enforces its own
-floor. It does not collapse the sidebar, reflow the workspace, or report an
-error; the layout below the threshold is simply not shown.
+It does **not** resize the window or ask the window manager for a minimum size.
+NSH 0.5.1 offers `window.minSize` in `nsh.json`, and the app deliberately does
+not use it: a tiling compositor sizes the window rather than the user, so a size
+hint can be ignored, and the gate is what explains the requirement when it is.
+The floor is the app's own. It does not collapse the sidebar, reflow the
+workspace, or report an error; the layout below the threshold is simply not
+shown (ADR 0002).
+
+## App Version
+
+The version of `omawarden-app` itself: `version` in `Cargo.toml` and in
+`nsh.json`, which the two must agree on. It is what `env!("CARGO_PKG_VERSION")`
+reports as the running app's version, what the `Dev Release` SemVer is built
+from, and what names the release artifacts and the AUR `pkgver`.
+
+It is **not** the `NSH Version`. The app version moves when the app ships and
+the NSH version when the framework it runs on moves; the two are independent,
+and were only briefly the same number (`0.4.0`).
+
+## NSH Version
+
+The version of Native Shell the app is built on and run by: the `nsh` CLI
+pinned in `mise.toml` and installed by CI, moved together with the `nsh-core`
+and `nsh-base` crates in `Cargo.toml`. It is deliberately independent of the
+`App Version`: `omawarden-app` 0.5.0 is built on NSH 0.5.1.
 
 ## Dev Release
 
 A rolling pre-release published on every push to `main` under the tag `dev`.
-Carries a SemVer string formatted as `0.4.0-dev.<short-sha>` and produces
-multi-architecture tarballs (`.tar.gz`) and standalone AppImages.
+Carries a SemVer string formatted as `<App Version>-dev.<short-sha>` and
+produces multi-architecture tarballs (`.tar.gz`) and standalone AppImages.
 
 ## Release Bundle
 
