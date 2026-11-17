@@ -450,6 +450,18 @@ pub(crate) const LOG_RING_CAPACITY: usize = 40;
 /// A bounded, sanitized ring of recent app diagnostics.
 static LOG_RING: OnceLock<Mutex<VecDeque<String>>> = OnceLock::new();
 
+/// Empties the ring.
+///
+/// Tests take `crate::test_state::lock()`, which calls this so each one starts
+/// from an empty ring instead of inheriting the lines the test before it left.
+#[cfg(test)]
+pub(crate) fn clear_log_ring() {
+    let ring = LOG_RING.get_or_init(|| Mutex::new(VecDeque::new()));
+    ring.lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .clear();
+}
+
 static PRIVATE_IP_RE: OnceLock<regex::Regex> = OnceLock::new();
 static LOCAL_PATH_RE: OnceLock<regex::Regex> = OnceLock::new();
 
@@ -604,15 +616,6 @@ fn fetch_latest_release() -> Result<Value, String> {
 mod tests {
     use super::*;
 
-    /// Gives the ring test a known starting point without exposing a reset in
-    /// the production API.
-    fn clear_log_ring_for_tests() {
-        let ring = LOG_RING.get_or_init(|| Mutex::new(VecDeque::new()));
-        ring.lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .clear();
-    }
-
     #[test]
     fn version_comparison_detects_newer_releases() {
         assert!(version_is_newer("1.0.0", "1.0.1"));
@@ -669,7 +672,7 @@ mod tests {
 
     #[test]
     fn ring_keeps_only_the_most_recent_lines_oldest_first() {
-        clear_log_ring_for_tests();
+        let _guard = crate::test_state::lock();
         for index in 0..(LOG_RING_CAPACITY + 5) {
             push_log(LogLevel::Info, "app:diagnostics", &format!("line {index}"));
         }

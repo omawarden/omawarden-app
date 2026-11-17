@@ -1287,6 +1287,37 @@ fn expand_home(path: &str) -> PathBuf {
     PathBuf::from(trimmed)
 }
 
+/// Serializes the tests that touch state the process keeps in one copy.
+///
+/// The app is a single process with one mock state, one active-vault cache,
+/// one Trash-details cache and one log ring, and two tests rewrite process
+/// environment variables. `cargo test` runs tests on parallel threads, so a
+/// test that reaches any of that state takes this lock; the pure ones still
+/// run in parallel. `src/lib.rs`'s test module, `inspector`, `vault`,
+/// `cipher_mutation`, `ssh`, `diagnostics` and `ui_prefs` share it.
+///
+/// Taking the lock also resets that state. The lock alone only orders the
+/// tests: a test whose state is a process-wide cache (the Trash details, the
+/// active vault, the log ring) would still inherit whatever the test before it
+/// wrote, so `inspector`'s two Trash tests passed or failed depending on which
+/// ran first. The reset gives every one of them the same empty baseline, which
+/// is what makes the suite deterministic instead of merely serial.
+#[cfg(test)]
+mod test_state {
+    use std::sync::{Mutex, MutexGuard};
+
+    static LOCK: Mutex<()> = Mutex::new(());
+
+    /// Resets the process-wide state and holds it until the guard drops.
+    pub(crate) fn lock() -> MutexGuard<'static, ()> {
+        let guard = LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        super::with_mock(|state| *state = super::MockState::default());
+        super::vault::clear_session_state();
+        super::diagnostics::clear_log_ring();
+        guard
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1296,9 +1327,6 @@ mod tests {
     use crate::platform::validate_launch_url;
     use crate::projection::fuzzy_score;
     use serde_json::json;
-
-    /// Serializes tests that share the process-wide mock state.
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn mock_state_json(value: Value) -> String {
         value.to_string()
@@ -1337,6 +1365,7 @@ mod tests {
 
     #[test]
     fn password_length_is_strictly_validated() {
+        let _guard = crate::test_state::lock();
         for length in [0, 1, 4, 129, 200] {
             let result = OmawardenBridge::generate_password(password_input(length));
             assert!(!result.ok, "length {length} must be rejected");
@@ -1357,6 +1386,7 @@ mod tests {
 
     #[test]
     fn passphrase_words_are_strictly_validated() {
+        let _guard = crate::test_state::lock();
         for words in [0, 2, 21, 100] {
             let result = OmawardenBridge::generate_passphrase(passphrase_input(words));
             assert!(!result.ok, "words {words} must be rejected");
@@ -1418,7 +1448,7 @@ mod tests {
 
     #[test]
     fn category_counts_follow_search_and_scope() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         let snapshot = OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "items": [
@@ -1476,7 +1506,7 @@ mod tests {
 
     #[test]
     fn mock_auth_and_lock_transitions() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "login",
             "email": "user@example.com",
@@ -1509,7 +1539,7 @@ mod tests {
 
     #[test]
     fn mock_two_factor_challenge() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "login",
             "twoFactorRequired": true
@@ -1537,7 +1567,7 @@ mod tests {
 
     #[test]
     fn mock_search_scope_category_and_inspector() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         let snapshot = OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "items": [
@@ -1616,7 +1646,7 @@ mod tests {
 
     #[test]
     fn mock_dependencies_and_settings() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "dependencyCheck",
             "dependenciesMissing": ["libsecret", "libfido2"]
@@ -1676,7 +1706,7 @@ mod tests {
 
     #[test]
     fn mock_ui_prefs_round_trip() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "uiPrefs": { "theme": "light", "fontScale": 1.5 }
@@ -1700,7 +1730,7 @@ mod tests {
 
     #[test]
     fn mock_ssh_prompt_and_update() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "updateAvailable": true,
@@ -1734,7 +1764,7 @@ mod tests {
 
     #[test]
     fn mock_fido2_two_factor_succeeds_without_a_code() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "twoFactor",
             "email": "user@example.com",
@@ -1766,7 +1796,7 @@ mod tests {
 
     #[test]
     fn launch_url_rejects_unsafe_schemes() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::set_mock_mode(true);
         assert!(!OmawardenBridge::launch_url(
             "javascript:alert(1)".to_string()
@@ -1859,14 +1889,14 @@ mod tests {
     /// then have to start a second daemon of its own.
     #[test]
     fn locked_daemon_from_another_build_is_kept() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
 
         // Keep the socket away from the login session's daemon.
         let runtime =
             std::env::temp_dir().join(format!("omawarden-app-daemon-test-{}", std::process::id()));
         std::fs::create_dir_all(&runtime).expect("create the test runtime dir");
         let previous_runtime = std::env::var_os("XDG_RUNTIME_DIR");
-        // SAFETY: TEST_LOCK serializes the tests that reach the daemon, and the
+        // SAFETY: test_state::lock() serializes the tests that reach the daemon, and the
         // previous value is restored before the guard drops.
         unsafe { std::env::set_var("XDG_RUNTIME_DIR", &runtime) };
 
@@ -1899,7 +1929,7 @@ mod tests {
 
     #[test]
     fn mock_cipher_create_edit_delete_round_trip() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         let snapshot = OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "items": [
@@ -1961,7 +1991,7 @@ mod tests {
 
     #[test]
     fn mock_soft_delete_moves_the_cipher_to_the_trash() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "items": [
@@ -2007,7 +2037,7 @@ mod tests {
 
     #[test]
     fn mock_restore_returns_the_cipher_to_the_active_vault() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "items": [
@@ -2031,7 +2061,7 @@ mod tests {
 
     #[test]
     fn mock_restore_rejects_an_id_that_is_not_trashed() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "items": [
@@ -2055,7 +2085,7 @@ mod tests {
 
     #[test]
     fn mock_restore_surfaces_the_daemon_error() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "trashMutationError": "Server rejected restore (HTTP 403): denied",
@@ -2081,6 +2111,7 @@ mod tests {
 
     #[test]
     fn real_delete_trash_sends_the_daemon_action_and_maps_the_receipt() {
+        let _guard = crate::test_state::lock();
         let _seam = crate::daemon::test_seam::set(|action: Value| {
             assert_eq!(
                 action.get("action").and_then(Value::as_str),
@@ -2105,6 +2136,7 @@ mod tests {
 
     #[test]
     fn real_delete_trash_surfaces_the_daemon_error() {
+        let _guard = crate::test_state::lock();
         let _seam = crate::daemon::test_seam::set(|_action: Value| {
             Some(json!({
                 "ok": false,
@@ -2122,7 +2154,7 @@ mod tests {
 
     #[test]
     fn mock_delete_trash_removes_the_cipher_permanently() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "items": [
@@ -2144,7 +2176,7 @@ mod tests {
 
     #[test]
     fn mock_delete_trash_rejects_an_id_that_is_not_trashed() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "items": [
@@ -2168,7 +2200,7 @@ mod tests {
 
     #[test]
     fn mock_delete_trash_surfaces_the_daemon_error() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "trashMutationError": "Server rejected purge (HTTP 403): denied",
@@ -2194,7 +2226,7 @@ mod tests {
 
     #[test]
     fn mock_trashed_cipher_cannot_be_edited() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "items": [
@@ -2229,7 +2261,7 @@ mod tests {
 
     #[test]
     fn mock_stale_list_cache_serves_the_pre_mutation_rows_until_sync() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "staleListCache": true,
@@ -2292,7 +2324,7 @@ mod tests {
 
     #[test]
     fn mock_cipher_create_rejects_bad_input() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "items": []
@@ -2316,7 +2348,7 @@ mod tests {
 
     #[test]
     fn mock_cipher_resolve_targets() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "items": [
@@ -2345,7 +2377,7 @@ mod tests {
 
     #[test]
     fn mock_cipher_resolve_is_ambiguous_for_partial_names() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "items": [
@@ -2361,7 +2393,7 @@ mod tests {
 
     #[test]
     fn mock_trashed_items_stay_out_of_the_active_vault() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         let snapshot = OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "items": [
@@ -2439,7 +2471,7 @@ mod tests {
 
     #[test]
     fn mock_trash_lists_deleted_items_newest_first() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "items": [
@@ -2472,7 +2504,7 @@ mod tests {
 
     #[test]
     fn mock_trash_ignores_the_active_scope_and_folder() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "items": [
@@ -2502,7 +2534,7 @@ mod tests {
 
     #[test]
     fn mock_trash_details_become_inspectable_after_the_read() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "items": [
@@ -2561,7 +2593,7 @@ mod tests {
 
     #[test]
     fn mock_purging_a_cipher_drops_its_trash_details() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "items": [
@@ -2596,7 +2628,7 @@ mod tests {
 
     #[test]
     fn mock_lock_clears_the_trash_details() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
             "items": [
@@ -2643,7 +2675,7 @@ mod tests {
 
     #[test]
     fn log_pipeline_records_state_transitions_and_failures() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "locked",
             "logs": [],
