@@ -9,7 +9,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 if ! command -v nsh >/dev/null 2>&1; then
-  echo "nsh is not on PATH. Install NSH v0.4.0 first." >&2
+  echo "nsh is not on PATH. Install NSH v0.5.1 first." >&2
   exit 1
 fi
 
