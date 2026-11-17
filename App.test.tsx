@@ -2022,7 +2022,7 @@ test("copy diagnostic report includes the scope declaration and sanitized fields
     diagnostics: {
       serverUrlSanitized: "https://vault.example.com",
       logs: DIAGNOSTIC_LINES,
-      appVersion: "0.4.0",
+      appVersion: "0.5.0",
       engineVersion: "0.12.0-dev",
       gitCommit: "abcdef0",
       buildDate: "2026-11-13",
@@ -2042,7 +2042,7 @@ test("copy diagnostic report includes the scope declaration and sanitized fields
 
   expect(report).toContain("### Omawarden Diagnostic Report");
   expect(report).toContain("- **Generated At**: 2026-11-13T12:00:00.000Z");
-  expect(report).toContain("- **App Version**: 0.4.0");
+  expect(report).toContain("- **App Version**: 0.5.0");
   expect(report).toContain("- **Engine Version**: 0.12.0-dev");
   expect(report).toContain("- **Git Commit**: abcdef0");
   expect(report).toContain("- **Build Date**: 2026-11-13");
@@ -2079,7 +2079,7 @@ test("diagnostic report excludes daemon log channels", async () => {
         "[2026-01-01T10:00:00.000Z] [INFO] [app:auth] vault unlocked",
         "[2026-01-01T10:00:01.000Z] [ERROR] [omawarden:daemon] failed to bind socket",
       ],
-      appVersion: "0.4.0",
+      appVersion: "0.5.0",
       engineVersion: "0.12.0-dev",
       gitCommit: "abcdef0",
       buildDate: "2026-11-13",
@@ -2292,7 +2292,7 @@ test("release notes load when an update is available", async () => {
   await app.press("id:open-settings");
   await app.press("id:settings-tab-about");
   await app.press("id:check-updates");
-  expect(app.texts()).toContain("Latest: 0.4.0");
+  expect(app.texts()).toContain("Latest: 0.5.0");
 
   await app.press("id:modal-close");
   expect(app.shows("id:update-badge")).toBe(true);
@@ -2300,8 +2300,8 @@ test("release notes load when an update is available", async () => {
   await app.press("id:update-badge");
   expect(app.shows("id:release-notes-modal")).toBe(true);
   expect(app.shows("id:release-notes-content")).toBe(true);
-  expect(app.texts()).toContain("Omawarden 0.4.0");
-  expect(app.texts()).toContain("v0.4.0");
+  expect(app.texts()).toContain("Omawarden 0.5.0");
+  expect(app.texts()).toContain("v0.5.0");
   expect(app.shows("id:open-release-page")).toBe(true);
 
   await app.press("id:open-release-page");
@@ -2582,7 +2582,7 @@ test("footer shows shortcut hints, theme, and engine version", async () => {
   expect(app.texts()).toContain("Ctrl+K");
   expect(app.texts()).toContain("Ctrl+,");
   expect(app.texts()).toContain("Theme: Dark");
-  expect(app.texts()).toContain("Engine 0.4.0");
+  expect(app.texts()).toContain("Engine 0.5.0");
 });
 
 // ---------------------------------------------------------------------------
