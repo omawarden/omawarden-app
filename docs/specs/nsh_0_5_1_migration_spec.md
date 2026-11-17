@@ -4,7 +4,7 @@ This document specifies the migration of `omawarden-app` from Native Shell (NSH)
 0.4.0 to NSH 0.5.1: the framework version, the app version, the local and CI
 toolchain, the version literals in code and tests, and the repository
 documentation. It also records every 0.5.0 breaking change that was checked
-against the codebase and found **not** to apply, and the three 0.5 capabilities
+against the codebase and found **not** to apply, and the two 0.5 capabilities
 the app deliberately does not adopt.
 
 ---
@@ -37,11 +37,14 @@ the AUR `pkgver` all follow it (`release-dev.yml`, `packaging/generate-aur-pkgbu
    `README.md`, `ARCHITECTURE.md`, `GLOSSARY.md`.
 6. **Validation**: `nsh check` (0 errors, 0 warnings), `nsh test` (100%),
    `cargo fmt --all --check`, `scripts/check_privacy.py`, `scripts/check_aur_pkgbuild.sh`.
+7. **Test determinism**: the Rust suite runs with `RUST_TEST_THREADS=1` (§3.8),
+   so the suite's pre-existing shared-state flake cannot redden CI.
 
-**Out of scope**, recorded in §5: `focusVisibleStyle`, index keys outside the
-vault list, and `window.minSize`. The change ports the app to 0.5.1 and takes
-the one 0.5 affordance the list of ciphers was missing — row identity (§3.6) —
-and adds no product behavior.
+**Out of scope**, recorded in §5: index keys outside the vault list and
+`window.minSize`. The change ports the app to 0.5.1 and takes two 0.5 affordances
+the app was missing — row identity in the list of ciphers (§3.6) and
+`focusVisibleStyle` for the widget's own focus (§3.7) — and adds no product
+behavior.
 
 ## 3. File-level changes
 
@@ -131,6 +134,44 @@ selection is `store.selectedIndex()`, and a keyed row's `index()` follows its
 cipher to the cipher's new position, so pressing a row still selects that
 cipher.
 
+### 3.7 Focus rings use `focusVisibleStyle`
+
+The app draws its own focus ring — `focusOutline(focused(), accent())` on the
+control's `style`, where `focused()` is `store.focusedAction()` — because Tab is
+the app's own ring (`store.cycleAction`), not the platform's. The controls also
+carried `focusStyle` for the widget's own focus, which lights up on a mouse press
+as well as on keyboard focus.
+
+All 13 sites now use `focusVisibleStyle` (the `focus-visible:` state:
+keyboard-originated focus, or an input that edits), so a mouse press focuses a
+widget without adding a second ring. The app's own ring is untouched, since it
+does not come from a style prop. The one `focusWithinStyle` site
+(`components/SettingsModal.tsx`, the Appearance tab's text-size slider) stays:
+0.5 has no `focus-visible` variant of it.
+
+### 3.8 The Rust suite runs single-threaded
+
+`nsh test` runs the app crates' `cargo test` with libtest's default parallelism,
+and the suite is not parallel-safe. `src/diagnostics.rs` keeps a **process-global**
+log ring: `ring_keeps_only_the_most_recent_lines_oldest_first` clears it, pushes
+`LOG_RING_CAPACITY + 5` lines and reads it back, while `src/lib.rs`'s
+`log_pipeline_records_state_transitions_and_failures` pushes to the same ring.
+`locked_daemon_from_another_build_is_kept` likewise rewrites the process-wide
+`XDG_RUNTIME_DIR`. The full suite in parallel failed roughly one run in three, on
+a random victim
+(`inspector::tests::a_trashed_cipher_is_not_inspectable_before_the_trash_is_read`,
+`diagnostics::tests::ring_keeps_only_the_most_recent_lines_oldest_first`).
+
+`.github/workflows/ci.yml`'s headless-tests step and `scripts/check_ci.sh` now set
+`RUST_TEST_THREADS=1`. `nsh test` passes the environment through to `cargo test`
+(a bogus `RUST_TEST_THREADS` fails the libtest run, which is how this was
+confirmed), and the Rust suite finishes in under a second, so one thread costs
+nothing. The TSX tests are unaffected: they belong to the harness, not libtest.
+
+This does not remove the shared state — `src/lib.rs` already has a `TEST_LOCK`
+that serializes the tests reaching the mock engine, and the remaining globals
+could be given the same treatment. Doing so is a change of its own.
+
 ## 4. Verified unaffected
 
 0.5.0's breaking changes were checked one by one against the tree. These do not
@@ -140,9 +181,9 @@ apply, and no code change was needed:
 | --- | --- |
 | Window API replaced (`WindowRef`, `<Window>`, window kinds) | The app opens no secondary windows and has no window config. It reads `windowSize` (the surface size, unchanged in 0.5) in `store/windowGate.ts`, `components/MinimumWindowGate.tsx`, and `components/VaultItemList.tsx`. |
 | `capabilities` grants for media loading | The only local media is a bundler asset import (`assets/icon.png` in `components/AuthView.tsx`); asset imports are the app's own files and need no grant. Other images are remote favicons or `data:` URLs. `host` and `network.hosts` are unchanged. |
-| `focus-visible:` follows keyboard focus only | The app uses no `focus-visible:` / `focus:` classes; it styles focus with the `focusStyle` / `focusWithinStyle` props, whose meaning is unchanged. |
+| `focus-visible:` follows keyboard focus only | The app used the `focusStyle` / `focusWithinStyle` props for the widget's own focus and drew its own ring from `store.focusedAction()`. The 13 `focusStyle` sites now use `focusVisibleStyle` (§3.7); no `focusVisibleWithinStyle` exists, so the one `focusWithinStyle` site stays. |
 | `macos.infoPlist` refuses `LSUIElement` | `nsh.json` has no `macos` block. |
-| List-at-start insert behavior | Rows above the visible ones no longer move them. The vault row list is keyed by cipher id (§3.6); the remaining `Each` lists are keyed by index, which 0.5 still supports (§5.2). |
+| List-at-start insert behavior | Rows above the visible ones no longer move them. The vault row list is keyed by cipher id (§3.6); the remaining `Each` lists are keyed by index, which 0.5 still supports (§5.1). |
 | Tab order with popovers; file drops; `scrollbar={false}`; history/back; animation parameter sanitizing | The app re-implements its own Tab ring; has no `onFileDrop`, no `scrollbar` prop, no navigation stack; and its one animation (`components/FooterBar.tsx`) passes finite parameters. |
 | Rust API renames/retypes (`Theme::from_json_lenient`, `DataTableColumn::fixed`, `LayoutCurve::Spring`, `Command::Haptic`, `#[non_exhaustive]` types, new struct fields, `Registry::tokens*`) | None appear. The Rust side uses only `nsh_core::prelude::*` — `Registry`, `#[native_module]`, `#[module]`, `JsObject`, `PropEnum`, `#[prop]` — and no platform crate. |
 | Perf line moved to `nsh::fps`, `--fps` only with `-v` | The app and its docs never reference `nsh::perf` or `--fps`. |
@@ -168,16 +209,7 @@ the app an API it never calls, so `capabilities` is left alone. It is not a
 
 ## 5. Deliberately not adopted
 
-### 5.1 `focusVisibleStyle`
-
-0.5 adds `focusVisibleStyle` (the `focus-visible:` state: keyboard-originated
-focus, or an input that edits). The app's 13 `focusStyle` sites are unchanged and
-behave exactly as they did on 0.4.0. Switching would stop a mouse press from
-showing the ring — a behavior change, so it is left to a change of its own. The
-one `focusWithinStyle` site (`components/SettingsModal.tsx`, the Appearance tab's
-text-size slider) stays too: 0.5 has no `focus-visible` variant of it.
-
-### 5.2 Index keys elsewhere
+### 5.1 Index keys elsewhere
 
 The other 21 `Each` lists keep `key="index"`. They list fixed sets or strings —
 settings tabs, scope and folder names, password history, the palette's commands
@@ -187,7 +219,7 @@ failure signal per domain, so a row reused for another item of the same domain
 still falls back to the category glyph. The one list of ciphers, the vault rows,
 is now keyed by cipher (§3.6).
 
-### 5.3 `window.minSize`
+### 5.2 `window.minSize`
 
 See ADR 0002. The app keeps its own minimum-window gate.
 
