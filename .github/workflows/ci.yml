@@ -93,4 +93,9 @@ jobs:
         run: nsh check
 
       - name: Headless tests
+        # The Rust suite shares process-wide state (the diagnostic log ring, the
+        # daemon's XDG_RUNTIME_DIR), so libtest's default parallelism makes it
+        # flaky. `nsh test` passes the environment through to `cargo test`.
+        env:
+          RUST_TEST_THREADS: "1"
         run: nsh test
