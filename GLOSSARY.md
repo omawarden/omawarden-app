@@ -70,7 +70,10 @@ item view and the empty state, so the list and the search stay where they are
 instead of being covered by a dialog. A draft is a snapshot of the fields as
 the form opened plus the live edits; "unsaved changes" means the two differ.
 The form owns the keyboard while it is open: vault shortcuts and the search
-stand down, and closing it hands the keyboard back to the search.
+stand down, and closing it hands the keyboard back to the search. Tab walks its
+fields and then its own buttons as one ring, and a move that would leave the
+form — a list row, a category tab, a scope, a folder, the Trash — asks first
+when the draft has changed.
 
 ## Type Picker
 
