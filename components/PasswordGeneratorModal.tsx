@@ -1,65 +1,54 @@
-import { Text, View } from "nsh";
+import { effect, keymap, signal, Text, View } from "nsh";
 import { Input, Switch } from "nsh/base";
-import { signal } from "nsh";
 import * as store from "../store/appStore";
+import {
+  avoidAmbiguous,
+  capitalize,
+  lengthText,
+  lowercase,
+  minNumbers,
+  minSpecial,
+  mode,
+  numbers,
+  passphraseOptions,
+  passphraseWordsError,
+  passwordLengthError,
+  passwordOptions,
+  separator,
+  special,
+  uppercase,
+  wordsText,
+} from "../store/generatorOptions";
 import { strengthColor, tint } from "../theme/palette";
 import { Icon } from "./Icon";
 import { ActionButton, Chip, ModalShell, Panel, SectionTitle, SmallButton } from "./ui";
 import { TabButton, inputStyle } from "./AuthView";
 
-const PASSWORD_LENGTH_ERROR =
-  "Password length must be between 5 and 128 characters. Use 14 or more characters for a strong password.";
-const PASSPHRASE_WORDS_ERROR = "Passphrase word count must be between 3 and 20 words.";
-
-const mode = signal<"password" | "passphrase">("password");
-const lengthText = signal("20");
-const uppercase = signal(true);
-const lowercase = signal(true);
-const numbers = signal(true);
-const special = signal(true);
-const avoidAmbiguous = signal(false);
-const minNumbers = signal(1);
-const minSpecial = signal(1);
-const wordsText = signal("5");
-const separator = signal("-");
-const capitalize = signal(false);
 const localError = signal<string | null>(null);
 
 export function PasswordGeneratorModal() {
   const palette = store.palette;
   const secret = store.generatedSecret;
+  const fill = () => store.generatorFillMode();
   const accent = () =>
     secret()?.ok ? strengthColor(secret()!.entropy, store.theme()) : palette().danger;
 
   const generate = () => {
     localError.set(null);
     if (mode() === "password") {
-      const length = Number.parseInt(lengthText(), 10);
-      if (!Number.isFinite(length) || length < 5 || length > 128) {
-        localError.set(PASSWORD_LENGTH_ERROR);
+      const error = passwordLengthError();
+      if (error) {
+        localError.set(error);
         return;
       }
-      store.generatePassword({
-        length,
-        uppercase: uppercase(),
-        lowercase: lowercase(),
-        numbers: numbers(),
-        special: special(),
-        avoidAmbiguous: avoidAmbiguous(),
-        minNumbers: minNumbers(),
-        minSpecial: minSpecial(),
-      });
+      store.generatePassword(passwordOptions());
     } else {
-      const words = Number.parseInt(wordsText(), 10);
-      if (!Number.isFinite(words) || words < 3 || words > 20) {
-        localError.set(PASSPHRASE_WORDS_ERROR);
+      const error = passphraseWordsError();
+      if (error) {
+        localError.set(error);
         return;
       }
-      store.generatePassphrase({
-        words,
-        separator: separator() || "-",
-        capitalize: capitalize(),
-      });
+      store.generatePassphrase(passphraseOptions());
     }
   };
 
@@ -72,11 +61,33 @@ export function PasswordGeneratorModal() {
     store.closeModal();
   };
 
+  const usePassword = () => {
+    if (!secret()?.ok || !secret()?.value) {
+      localError.set("Generate a secret first.");
+      return;
+    }
+    store.useGeneratedPassword();
+  };
+
+  // In fill mode the dialog's whole point is the Enter key. It stays bound
+  // while the options are edited, so tuning the length does not cost the
+  // shortcut that puts the result in the form.
+  effect(() => {
+    if (!fill()) {
+      return;
+    }
+    return keymap.bind({ enter: () => usePassword() }, { when: "always" });
+  });
+
   return (
     <ModalShell
-      title="Password Generator"
+      title={fill() ? "Generate Password" : "Password Generator"}
       testID="password-generator-modal"
-      subtitle="Generate strong passwords and passphrases locally."
+      subtitle={
+        fill()
+          ? "Enter fills the form's password field; the secret skips the clipboard."
+          : "Generate strong passwords and passphrases locally."
+      }
       width={640}
     >
       <View style={{ flexDirection: "row", gap: 6 }}>
@@ -154,6 +165,7 @@ export function PasswordGeneratorModal() {
               testID="generator-length"
               value={lengthText()}
               keyboardType="numeric"
+              autoFocus={fill()}
               onChange={({ value }) => lengthText.set(value)}
               style={{ ...inputStyle(), width: 110 }}
             />
@@ -216,6 +228,7 @@ export function PasswordGeneratorModal() {
               testID="generator-words"
               value={wordsText()}
               keyboardType="numeric"
+              autoFocus={fill()}
               onChange={({ value }) => wordsText.set(value)}
               style={{ ...inputStyle(), width: 110 }}
             />
@@ -245,7 +258,22 @@ export function PasswordGeneratorModal() {
           tone="primary"
           onPress={generate}
         />
-        <ActionButton label="Copy & Close" testID="generator-copy-close" onPress={copyAndClose} />
+        <If
+          when={fill()}
+          else={
+            <ActionButton
+              label="Copy & Close"
+              testID="generator-copy-close"
+              onPress={copyAndClose}
+            />
+          }
+        >
+          <ActionButton
+            label="Use Password"
+            testID="generator-use-password"
+            onPress={usePassword}
+          />
+        </If>
       </View>
     </ModalShell>
   );
