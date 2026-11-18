@@ -2,6 +2,10 @@ import { effect, keymap, signal, Text, View } from "nsh";
 import { Input, Switch } from "nsh/base";
 import * as store from "../store/appStore";
 import {
+  MAX_PASSPHRASE_WORDS,
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSPHRASE_WORDS,
+  MIN_PASSWORD_LENGTH,
   avoidAmbiguous,
   capitalize,
   lengthText,
@@ -16,6 +20,8 @@ import {
   passwordOptions,
   separator,
   special,
+  stepLength,
+  stepWords,
   uppercase,
   wordsText,
 } from "../store/generatorOptions";
@@ -51,6 +57,24 @@ export function PasswordGeneratorModal() {
       store.generatePassphrase(passphraseOptions());
     }
   };
+
+  // The preview is always what the current options produce: a length, a
+  // toggle, or a mode change regenerates at once, so there is never a stale
+  // secret behind the Regenerate button. An entry outside the range keeps the
+  // last secret and says why, and the stepper snaps it back into range.
+  effect(() => {
+    const error = mode() === "password" ? passwordLengthError() : passphraseWordsError();
+    if (error) {
+      localError.set(error);
+      return;
+    }
+    localError.set(null);
+    if (mode() === "password") {
+      store.generatePassword(passwordOptions());
+    } else {
+      store.generatePassphrase(passphraseOptions());
+    }
+  });
 
   const copyAndClose = () => {
     if (!secret()?.ok || !secret()?.value) {
@@ -157,19 +181,16 @@ export function PasswordGeneratorModal() {
       {mode() === "password" ? (
         <Panel>
           <SectionTitle>Password Options</SectionTitle>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-            <Text style={{ color: palette().muted, fontSize: store.type().base, width: store.lengths().generatorLabel }}>
-              Length (5–128)
-            </Text>
-            <Input
-              testID="generator-length"
-              value={lengthText()}
-              keyboardType="numeric"
-              autoFocus={fill()}
-              onChange={({ value }) => lengthText.set(value)}
-              style={{ ...inputStyle(), width: 110 }}
-            />
-          </View>
+          <NumberRow
+            label={`Length (${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH})`}
+            testID="generator-length"
+            value={lengthText()}
+            min={MIN_PASSWORD_LENGTH}
+            max={MAX_PASSWORD_LENGTH}
+            autoFocus={fill()}
+            onChange={(value: string) => lengthText.set(value)}
+            onStep={stepLength}
+          />
 
           <SwitchRow
             label="Uppercase"
@@ -220,19 +241,16 @@ export function PasswordGeneratorModal() {
       ) : (
         <Panel>
           <SectionTitle>Passphrase Options</SectionTitle>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-            <Text style={{ color: palette().muted, fontSize: store.type().base, width: store.lengths().generatorLabel }}>
-              Words (3–20)
-            </Text>
-            <Input
-              testID="generator-words"
-              value={wordsText()}
-              keyboardType="numeric"
-              autoFocus={fill()}
-              onChange={({ value }) => wordsText.set(value)}
-              style={{ ...inputStyle(), width: 110 }}
-            />
-          </View>
+          <NumberRow
+            label={`Words (${MIN_PASSPHRASE_WORDS}–${MAX_PASSPHRASE_WORDS})`}
+            testID="generator-words"
+            value={wordsText()}
+            min={MIN_PASSPHRASE_WORDS}
+            max={MAX_PASSPHRASE_WORDS}
+            autoFocus={fill()}
+            onChange={(value: string) => wordsText.set(value)}
+            onStep={stepWords}
+          />
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             <Text style={{ color: palette().muted, fontSize: store.type().base, width: store.lengths().generatorLabel }}>Separator</Text>
             <Input
@@ -253,7 +271,7 @@ export function PasswordGeneratorModal() {
 
       <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
         <ActionButton
-          label="Generate"
+          label="Regenerate"
           testID="generator-generate"
           tone="primary"
           onPress={generate}
@@ -318,8 +336,8 @@ function SwitchRow(props: {
         testID={props.testID}
         checked={props.checked}
         onChange={({ checked }) => props.onChange(checked)}
-        trackClass="h-5 w-9 rounded-full"
-        thumbClass="h-4 w-4 rounded-full"
+        trackClass="w-11 rounded-full p-0.5 transition-colors"
+        thumbClass="size-5 rounded-full shadow-sm transition-transform checked:translate-x-5"
         trackStyle={{
           backgroundColor: props.checked
             ? palette().popups.selectedBackground
@@ -341,7 +359,15 @@ function Stepper(props: {
 }) {
   const palette = store.palette;
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+    <View
+      onWheel={(event) => {
+        if (event.delta.y === 0) {
+          return;
+        }
+        props.onChange(Math.max(0, props.value + (event.delta.y < 0 ? 1 : -1)));
+      }}
+      style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+    >
       <Text style={{ color: palette().muted, fontSize: store.type().base }}>{props.label}</Text>
       <SmallButton
         testID={`${props.testID}-decrease`}
@@ -368,6 +394,78 @@ function Stepper(props: {
       >
         <Icon name="plus" size={12} color={palette().popups.text} />
       </SmallButton>
+    </View>
+  );
+}
+
+/**
+ * A number the panel steps with `−` / `+`, or with the wheel over the row.
+ *
+ * The field stays an input, so an exact value can still be typed; the buttons
+ * and the wheel keep the common case — a few characters more or less — on one
+ * hand. The wheel listener sits on the row, nearer than the dialog's scroll
+ * view, so spinning it changes the number instead of scrolling the panel.
+ */
+function NumberRow(props: {
+  label: string;
+  testID: string;
+  value: string;
+  min: number;
+  max: number;
+  autoFocus?: boolean;
+  onChange: (value: string) => void;
+  onStep: (delta: number) => void;
+}) {
+  const palette = store.palette;
+  const typed = () => Number.parseInt(props.value, 10);
+  const atMin = () => Number.isFinite(typed()) && typed() <= props.min;
+  const atMax = () => Number.isFinite(typed()) && typed() >= props.max;
+  return (
+    <View
+      testID={`${props.testID}-stepper`}
+      onWheel={(event) => {
+        if (event.delta.y === 0) {
+          return;
+        }
+        props.onStep(event.delta.y < 0 ? 1 : -1);
+      }}
+      style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+    >
+      <Text
+        style={{
+          color: palette().muted,
+          fontSize: store.type().base,
+          width: store.lengths().generatorLabel,
+        }}
+      >
+        {props.label}
+      </Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <SmallButton
+          testID={`${props.testID}-decrease`}
+          disabled={atMin()}
+          accessibilityLabel={`Decrease ${props.label}`}
+          onPress={() => props.onStep(-1)}
+        >
+          <Icon name="minus" size={12} color={palette().popups.text} />
+        </SmallButton>
+        <Input
+          testID={props.testID}
+          value={props.value}
+          keyboardType="numeric"
+          autoFocus={props.autoFocus}
+          onChange={({ value }) => props.onChange(value)}
+          style={{ ...inputStyle(), width: 72, textAlign: "center" }}
+        />
+        <SmallButton
+          testID={`${props.testID}-increase`}
+          disabled={atMax()}
+          accessibilityLabel={`Increase ${props.label}`}
+          onPress={() => props.onStep(1)}
+        >
+          <Icon name="plus" size={12} color={palette().popups.text} />
+        </SmallButton>
+      </View>
     </View>
   );
 }

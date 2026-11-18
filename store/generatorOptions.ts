@@ -12,12 +12,19 @@ import type { PassphraseGenInput, PasswordGenInput } from "omawarden-app/native"
 
 export type GeneratorMode = "password" | "passphrase";
 
+export const MIN_PASSWORD_LENGTH = 5;
+export const MAX_PASSWORD_LENGTH = 128;
+export const DEFAULT_PASSWORD_LENGTH = 20;
+export const MIN_PASSPHRASE_WORDS = 3;
+export const MAX_PASSPHRASE_WORDS = 20;
+export const DEFAULT_PASSPHRASE_WORDS = 5;
+
 export const PASSWORD_LENGTH_ERROR =
   "Password length must be between 5 and 128 characters. Use 14 or more characters for a strong password.";
 export const PASSPHRASE_WORDS_ERROR = "Passphrase word count must be between 3 and 20 words.";
 
 export const mode = signal<GeneratorMode>("password");
-export const lengthText = signal("20");
+export const lengthText = signal(String(DEFAULT_PASSWORD_LENGTH));
 export const uppercase = signal(true);
 export const lowercase = signal(true);
 export const numbers = signal(true);
@@ -25,20 +32,59 @@ export const special = signal(true);
 export const avoidAmbiguous = signal(false);
 export const minNumbers = signal(1);
 export const minSpecial = signal(1);
-export const wordsText = signal("5");
+export const wordsText = signal(String(DEFAULT_PASSPHRASE_WORDS));
 export const separator = signal("-");
 export const capitalize = signal(false);
+
+/** A value kept inside `min..max`. */
+function clamped(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
 
 /** The length typed into the panel, or null when it is out of range. */
 function parsedLength(): number | null {
   const length = Number.parseInt(lengthText(), 10);
-  return Number.isFinite(length) && length >= 5 && length <= 128 ? length : null;
+  return Number.isFinite(length) && length >= MIN_PASSWORD_LENGTH && length <= MAX_PASSWORD_LENGTH
+    ? length
+    : null;
 }
 
 /** The word count typed into the panel, or null when it is out of range. */
 function parsedWords(): number | null {
   const words = Number.parseInt(wordsText(), 10);
-  return Number.isFinite(words) && words >= 3 && words <= 20 ? words : null;
+  return Number.isFinite(words) && words >= MIN_PASSPHRASE_WORDS && words <= MAX_PASSPHRASE_WORDS
+    ? words
+    : null;
+}
+
+/**
+ * The length one stepper press lands on, kept inside the allowed range.
+ *
+ * A typed value outside the range snaps into it on the first press, so the
+ * stepper is also a way back from a rejected length; a value that is not a
+ * number at all steps from the default.
+ */
+export function steppedLength(delta: number): number {
+  const typed = Number.parseInt(lengthText(), 10);
+  const from = Number.isFinite(typed) ? typed : DEFAULT_PASSWORD_LENGTH;
+  return clamped(from + delta, MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH);
+}
+
+/** Moves the typed length by `delta`, one step of the panel's stepper. */
+export function stepLength(delta: number): void {
+  lengthText.set(String(steppedLength(delta)));
+}
+
+/** The word count one stepper press lands on, on the length's rule. */
+export function steppedWords(delta: number): number {
+  const typed = Number.parseInt(wordsText(), 10);
+  const from = Number.isFinite(typed) ? typed : DEFAULT_PASSPHRASE_WORDS;
+  return clamped(from + delta, MIN_PASSPHRASE_WORDS, MAX_PASSPHRASE_WORDS);
+}
+
+/** Moves the typed word count by `delta`, one step of the panel's stepper. */
+export function stepWords(delta: number): void {
+  wordsText.set(String(steppedWords(delta)));
 }
 
 /** The validation error the panel shows, or null when the length is usable. */
@@ -58,7 +104,7 @@ export function passphraseWordsError(): string | null {
  */
 export function passwordOptions(): PasswordGenInput {
   return {
-    length: parsedLength() ?? 20,
+    length: parsedLength() ?? DEFAULT_PASSWORD_LENGTH,
     uppercase: uppercase(),
     lowercase: lowercase(),
     numbers: numbers(),
@@ -72,7 +118,7 @@ export function passwordOptions(): PasswordGenInput {
 /** The passphrase options to generate with, on the same rule as the password's. */
 export function passphraseOptions(): PassphraseGenInput {
   return {
-    words: parsedWords() ?? 5,
+    words: parsedWords() ?? DEFAULT_PASSPHRASE_WORDS,
     separator: separator() || "-",
     capitalize: capitalize(),
   };

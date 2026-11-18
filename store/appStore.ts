@@ -58,11 +58,6 @@ import {
   resetCipherFields,
 } from "./cipherFormFocus";
 import { buildDiagnosticReport } from "./diagnosticReport";
-import {
-  mode as generatorMode,
-  passphraseOptions,
-  passwordOptions,
-} from "./generatorOptions";
 
 export type ModalKind =
   | "none"
@@ -1957,16 +1952,12 @@ export function closeModal(): void {
   clearActionFocus();
 }
 
-/** Generates with the panel's current mode and options. */
-function secretFromGeneratorOptions(): GeneratedSecretView {
-  return generatorMode() === "passphrase"
-    ? OmawardenBridge.generatePassphrase(passphraseOptions())
-    : OmawardenBridge.generatePassword(passwordOptions());
-}
-
+/**
+ * Opens the generator. The panel regenerates from its own options as it mounts
+ * and on every change, so opening it needs no secret of its own.
+ */
 export function openGenerator(): void {
   generatorFillMode.set(false);
-  generatedSecret.set(secretFromGeneratorOptions());
   openModal("generator");
 }
 
