@@ -2649,14 +2649,14 @@ test("creating a login from the Logins tab adds a row", async () => {
 
   await app.press("id:category-login");
   await app.press("id:create-login");
-  expect(app.shows("id:cipher-form-modal")).toBe(true);
+  expect(app.shows("id:inspector-form")).toBe(true);
 
-  await app.type("id:cipher-form-name", "GitLab");
-  await app.type("id:cipher-form-username", "dev");
-  await app.type("id:cipher-form-password", "hunter2");
-  await app.press("id:cipher-form-submit");
+  await app.type("id:inspector-form-name", "GitLab");
+  await app.type("id:inspector-form-username", "dev");
+  await app.type("id:inspector-form-password", "hunter2");
+  await app.press("id:inspector-form-submit");
 
-  expect(app.shows("id:cipher-form-modal")).toBe(false);
+  expect(app.shows("id:inspector-form")).toBe(false);
   expect(app.shows("id:cipher-row-mock-cipher")).toBe(true);
   expect(app.texts()).toContain("GitLab");
 });
@@ -2672,12 +2672,12 @@ test("a new login appears in the list before the vault is synced", async () => {
 
   await app.press("id:category-login");
   await app.press("id:create-login");
-  await app.type("id:cipher-form-name", "GitLab");
-  await app.type("id:cipher-form-username", "dev");
-  await app.type("id:cipher-form-password", "hunter2");
-  await app.press("id:cipher-form-submit");
+  await app.type("id:inspector-form-name", "GitLab");
+  await app.type("id:inspector-form-username", "dev");
+  await app.type("id:inspector-form-password", "hunter2");
+  await app.press("id:inspector-form-submit");
 
-  expect(app.shows("id:cipher-form-modal")).toBe(false);
+  expect(app.shows("id:inspector-form")).toBe(false);
   expect(app.texts()).toContain("GitLab");
 });
 
@@ -2686,11 +2686,11 @@ test("creating a login selects it and shows it in the inspector", async () => {
 
   await app.press("id:category-login");
   await app.press("id:create-login");
-  await app.type("id:cipher-form-name", "GitLab");
-  await app.type("id:cipher-form-username", "dev");
-  await app.type("id:cipher-form-password", "hunter2");
-  await app.type("id:cipher-form-uri-0", "https://gitlab.example.com");
-  await app.press("id:cipher-form-submit");
+  await app.type("id:inspector-form-name", "GitLab");
+  await app.type("id:inspector-form-username", "dev");
+  await app.type("id:inspector-form-password", "hunter2");
+  await app.type("id:inspector-form-uri-0", "https://gitlab.example.com");
+  await app.press("id:inspector-form-submit");
 
   // The new row is selected, so the inspector shows its website. A list row
   // never shows a URL, so this only appears when the item is inspected.
@@ -2705,12 +2705,12 @@ test("creating a secure note from its tab adds a note", async () => {
 
   await app.press("id:category-secureNote");
   await app.press("id:create-secure-note");
-  expect(app.shows("id:cipher-form-modal")).toBe(true);
+  expect(app.shows("id:inspector-form")).toBe(true);
 
-  await app.type("id:cipher-form-name", "Recovery codes");
-  await app.press("id:cipher-form-submit");
+  await app.type("id:inspector-form-name", "Recovery codes");
+  await app.press("id:inspector-form-submit");
 
-  expect(app.shows("id:cipher-form-modal")).toBe(false);
+  expect(app.shows("id:inspector-form")).toBe(false);
   expect(app.shows("id:cipher-row-mock-cipher")).toBe(true);
   expect(app.texts()).toContain("Recovery codes");
 });
@@ -2720,9 +2720,9 @@ test("the create form requires a name", async () => {
 
   await app.press("id:category-login");
   await app.press("id:create-login");
-  await app.press("id:cipher-form-submit");
+  await app.press("id:inspector-form-submit");
 
-  expect(app.shows("id:cipher-form-modal")).toBe(true);
+  expect(app.shows("id:inspector-form")).toBe(true);
   expect(app.texts()).toContain("Enter an item name before saving.");
 });
 
@@ -2732,50 +2732,50 @@ test("the create form takes its type from the tab and hides the type switch", as
   await app.press("id:category-login");
   await app.press("id:create-login");
   expect(app.texts()).toContain("New Login");
-  expect(app.shows("id:cipher-form-username")).toBe(true);
+  expect(app.shows("id:inspector-form-username")).toBe(true);
   // The type is fixed by the entry point, so no Login/Secure Note switch.
   expect(app.shows("id:cipher-type-login")).toBe(false);
   expect(app.shows("id:cipher-type-note")).toBe(false);
-  await app.press("id:cipher-form-cancel");
+  await app.press("id:inspector-form-cancel");
 
   await app.press("id:category-secureNote");
   await app.press("id:create-secure-note");
   expect(app.texts()).toContain("New Secure Note");
-  expect(app.shows("id:cipher-form-username")).toBe(false);
-  expect(app.shows("id:cipher-form-password")).toBe(false);
+  expect(app.shows("id:inspector-form-username")).toBe(false);
+  expect(app.shows("id:inspector-form-password")).toBe(false);
   expect(app.shows("id:cipher-type-login")).toBe(false);
   expect(app.shows("id:cipher-type-note")).toBe(false);
 });
 
-test("editing a single field through the modal updates the inspector", async () => {
+test("editing a single field in the Inspector updates the item", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
   await app.press("id:cipher-row-login1");
   expect(app.shows("id:inspector-login")).toBe(true);
 
   await app.press("id:edit-cipher");
-  expect(app.shows("id:cipher-form-modal")).toBe(true);
+  expect(app.shows("id:inspector-form")).toBe(true);
 
-  await app.clear("id:cipher-form-username");
-  await app.type("id:cipher-form-username", "new-user");
-  await app.press("id:cipher-form-submit");
+  await app.clear("id:inspector-form-username");
+  await app.type("id:inspector-form-username", "new-user");
+  await app.press("id:inspector-form-submit");
 
-  expect(app.shows("id:cipher-form-modal")).toBe(false);
+  expect(app.shows("id:inspector-form")).toBe(false);
   expect(app.texts()).toContain("new-user");
 });
 
-test("the edit modal opens from the inspector and saves changes", async () => {
+test("the edit form opens from the inspector and saves changes", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
   await app.press("id:cipher-row-login1");
   await app.press("id:edit-cipher");
-  expect(app.shows("id:cipher-form-modal")).toBe(true);
+  expect(app.shows("id:inspector-form")).toBe(true);
 
-  await app.clear("id:cipher-form-name");
-  await app.type("id:cipher-form-name", "GitHub Cloud");
-  await app.press("id:cipher-form-submit");
+  await app.clear("id:inspector-form-name");
+  await app.type("id:inspector-form-name", "GitHub Cloud");
+  await app.press("id:inspector-form-submit");
 
-  expect(app.shows("id:cipher-form-modal")).toBe(false);
+  expect(app.shows("id:inspector-form")).toBe(false);
   expect(app.texts()).toContain("GitHub Cloud");
 });
 
@@ -2877,19 +2877,73 @@ test("toggling favorite updates the row before the vault is synced", async () =>
   expect(app.shows("id:cipher-favorite-login1")).toBe(true);
 });
 
-test("Ctrl+N opens the create form and Ctrl+D opens delete", async () => {
+test("Ctrl+N opens the Type Picker and Ctrl+D opens delete", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
   await app.keyboard.press("mod+n");
-  expect(app.shows("id:cipher-form-modal")).toBe(true);
-  await app.press("id:cipher-form-cancel");
-  expect(app.shows("id:cipher-form-modal")).toBe(false);
+  expect(app.shows("id:type-picker")).toBe(true);
+  expect(app.shows("id:inspector-form")).toBe(false);
+
+  // Login is the default, so Enter takes it without another key.
+  await app.keyboard.press("enter");
+  expect(app.shows("id:type-picker")).toBe(false);
+  expect(app.shows("id:inspector-form")).toBe(true);
+  expect(app.shows("id:inspector-form-username")).toBe(true);
+  await app.keyboard.press("escape");
+  expect(app.shows("id:inspector-form")).toBe(false);
 
   await app.press("id:cipher-row-login1");
   await app.keyboard.press("mod+d");
   expect(app.shows("id:cipher-delete-modal")).toBe(true);
   await app.press("id:cipher-delete-cancel");
   expect(app.shows("id:cipher-delete-modal")).toBe(false);
+});
+
+test("the Type Picker takes N, the arrows, and a second Ctrl+N", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.keyboard.press("mod+n");
+  expect(app.texts()).toContain("Enter creates a Login. Press Ctrl+N again to switch.");
+
+  // A second Ctrl+N toggles the highlighted choice without moving a hand.
+  await app.keyboard.press("mod+n");
+  expect(app.texts()).toContain("Enter creates a Secure Note. Press Ctrl+N again to switch.");
+
+  // The arrows move it back, and Enter creates what is highlighted.
+  await app.keyboard.press("up");
+  expect(app.texts()).toContain("Enter creates a Login. Press Ctrl+N again to switch.");
+  await app.keyboard.press("down");
+  await app.keyboard.press("enter");
+
+  expect(app.shows("id:inspector-form")).toBe(true);
+  expect(app.texts()).toContain("New Secure Note");
+  expect(app.shows("id:inspector-form-username")).toBe(false);
+});
+
+test("L and N choose a type in one keystroke", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.keyboard.press("mod+n");
+  await app.keyboard.press("n");
+  expect(app.shows("id:inspector-form")).toBe(true);
+  expect(app.texts()).toContain("New Secure Note");
+  await app.keyboard.press("escape");
+
+  await app.keyboard.press("mod+n");
+  await app.keyboard.press("l");
+  expect(app.shows("id:inspector-form")).toBe(true);
+  expect(app.texts()).toContain("New Login");
+});
+
+test("Esc closes the Type Picker without opening a form", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.keyboard.press("mod+n");
+  expect(app.shows("id:type-picker")).toBe(true);
+  await app.keyboard.press("escape");
+
+  expect(app.shows("id:type-picker")).toBe(false);
+  expect(app.shows("id:inspector-form")).toBe(false);
 });
 
 test("going to an item by exact name selects it", async () => {
@@ -2945,27 +2999,137 @@ test("a login can be created without a password", async () => {
 
   await app.press("id:category-login");
   await app.press("id:create-login");
-  await app.type("id:cipher-form-name", "No Password Yet");
-  await app.press("id:cipher-form-submit");
+  await app.type("id:inspector-form-name", "No Password Yet");
+  await app.press("id:inspector-form-submit");
 
-  expect(app.shows("id:cipher-form-modal")).toBe(false);
+  expect(app.shows("id:inspector-form")).toBe(false);
   expect(app.shows("id:cipher-row-mock-cipher")).toBe(true);
 });
 
-test("the form's Generate button fills a 16-character password", async () => {
+test("the form's Generate button opens the generator and fills the password", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
   await app.press("id:category-login");
   await app.press("id:create-login");
-  expect(app.value("id:cipher-form-password") ?? "").toBe("");
+  expect(app.value("id:inspector-form-password") ?? "").toBe("");
 
-  await app.press("id:cipher-form-generate");
-  expect((app.value("id:cipher-form-password") ?? "").length).toBe(16);
+  await app.press("id:inspector-form-generate");
+  expect(app.shows("id:password-generator-modal")).toBe(true);
+  expect(app.shows("id:generator-use-password")).toBe(true);
 
-  await app.type("id:cipher-form-name", "Generated");
-  await app.press("id:cipher-form-submit");
-  expect(app.shows("id:cipher-form-modal")).toBe(false);
+  await app.press("id:generator-generate");
+  await app.press("id:generator-use-password");
+
+  expect(app.shows("id:password-generator-modal")).toBe(false);
+  expect((app.value("id:inspector-form-password") ?? "").length).toBeGreaterThan(0);
+  // A fill goes into the field, never the clipboard.
+  expect(app.texts().join(" ")).not.toContain("Copied generated secret");
+
+  await app.type("id:inspector-form-name", "Generated");
+  await app.press("id:inspector-form-submit");
+  expect(app.shows("id:inspector-form")).toBe(false);
   expect(app.shows("id:cipher-row-mock-cipher")).toBe(true);
+});
+
+test("Enter in the fill-mode generator fills the password field", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:category-login");
+  await app.press("id:create-login");
+  await app.press("id:inspector-form-generate");
+  await app.press("id:generator-generate");
+  await app.keyboard.press("enter");
+
+  expect(app.shows("id:password-generator-modal")).toBe(false);
+  expect((app.value("id:inspector-form-password") ?? "").length).toBeGreaterThan(0);
+});
+
+test("Ctrl+G in the form opens the generator instead of the loose one", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:category-login");
+  await app.press("id:create-login");
+  await app.keyboard.press("mod+g");
+
+  expect(app.shows("id:password-generator-modal")).toBe(true);
+  // The stand-alone generator copies and closes; the form's fills instead.
+  expect(app.shows("id:generator-use-password")).toBe(true);
+  expect(app.shows("id:generator-copy-close")).toBe(false);
+});
+
+test("Esc closes a clean form without asking", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:category-login");
+  await app.press("id:create-login");
+  expect(app.shows("id:inspector-form")).toBe(true);
+  await app.keyboard.press("escape");
+
+  expect(app.shows("id:inspector-form-discard-confirm")).toBe(false);
+  expect(app.shows("id:inspector-form")).toBe(false);
+});
+
+test("Esc on a changed form asks before discarding the draft", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:category-login");
+  await app.press("id:create-login");
+  await app.type("id:inspector-form-name", "Half Typed");
+  await app.keyboard.press("escape");
+
+  expect(app.shows("id:inspector-form-discard-confirm")).toBe(true);
+  expect(app.shows("id:inspector-form")).toBe(true);
+
+  // Keeping the draft leaves every field as it was.
+  await app.press("id:inspector-form-keep");
+  expect(app.shows("id:inspector-form-discard-confirm")).toBe(false);
+  expect(app.value("id:inspector-form-name")).toBe("Half Typed");
+
+  // A new Esc asks again; Discard closes without creating a row.
+  await app.keyboard.press("escape");
+  await app.press("id:inspector-form-discard");
+  expect(app.shows("id:inspector-form")).toBe(false);
+  expect(app.texts()).not.toContain("Half Typed");
+});
+
+test("Ctrl+S saves the form", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:category-login");
+  await app.press("id:create-login");
+  await app.type("id:inspector-form-name", "Key Saved");
+  await app.keyboard.press("mod+s");
+
+  expect(app.shows("id:inspector-form")).toBe(false);
+  expect(app.texts()).toContain("Key Saved");
+});
+
+test("Ctrl+E edits the selected item in place", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:cipher-row-login1");
+  await app.keyboard.press("mod+e");
+
+  expect(app.shows("id:inspector-form")).toBe(true);
+  expect(app.value("id:inspector-form-name")).toBe("GitHub");
+});
+
+test("the open form keeps global shortcuts and the search to itself", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:category-login");
+  await app.press("id:create-login");
+  await app.type("id:inspector-form-name", "abc");
+
+  await app.keyboard.press("mod+k");
+  expect(app.shows("id:action-palette-modal")).toBe(false);
+
+  await app.keyboard.press("mod+d");
+  expect(app.shows("id:cipher-delete-modal")).toBe(false);
+
+  // The keystrokes landed in the form, not in the vault query behind it.
+  expect(app.value("id:vault-search") ?? "").toBe("");
+  expect(app.value("id:inspector-form-name")).toBe("abc");
 });
 
 test("the create form stores every website URL", async () => {
@@ -2973,13 +3137,13 @@ test("the create form stores every website URL", async () => {
 
   await app.press("id:category-login");
   await app.press("id:create-login");
-  await app.type("id:cipher-form-name", "Two URLs");
-  await app.type("id:cipher-form-uri-0", "https://one.example.com");
-  await app.press("id:cipher-form-uri-add");
-  await app.type("id:cipher-form-uri-1", "https://two.example.com");
-  await app.press("id:cipher-form-submit");
+  await app.type("id:inspector-form-name", "Two URLs");
+  await app.type("id:inspector-form-uri-0", "https://one.example.com");
+  await app.press("id:inspector-form-uri-add");
+  await app.type("id:inspector-form-uri-1", "https://two.example.com");
+  await app.press("id:inspector-form-submit");
 
-  expect(app.shows("id:cipher-form-modal")).toBe(false);
+  expect(app.shows("id:inspector-form")).toBe(false);
   await app.press("id:cipher-row-mock-cipher");
   expect(app.texts()).toContain("https://one.example.com");
   expect(app.texts()).toContain("https://two.example.com");
@@ -3003,13 +3167,13 @@ test("the edit form only lets the first URL change and keeps the rest", async ()
   await app.press("id:edit-cipher");
 
   // Only the first row is an input; the second is read-only text.
-  expect(app.shows("id:cipher-form-uri-0")).toBe(true);
-  expect(app.shows("id:cipher-form-uri-1")).toBe(true);
-  expect(app.shows("id:cipher-form-uri-add")).toBe(false);
+  expect(app.shows("id:inspector-form-uri-0")).toBe(true);
+  expect(app.shows("id:inspector-form-uri-1")).toBe(true);
+  expect(app.shows("id:inspector-form-uri-add")).toBe(false);
 
-  await app.clear("id:cipher-form-uri-0");
-  await app.type("id:cipher-form-uri-0", "https://renamed.example.com");
-  await app.press("id:cipher-form-submit");
+  await app.clear("id:inspector-form-uri-0");
+  await app.type("id:inspector-form-uri-0", "https://renamed.example.com");
+  await app.press("id:inspector-form-submit");
 
   expect(app.texts()).toContain("https://renamed.example.com");
   expect(app.texts()).toContain("https://two.example.com");
@@ -3020,9 +3184,9 @@ test("editing another field leaves the untouched password alone", async () => {
 
   await app.press("id:cipher-row-login1");
   await app.press("id:edit-cipher");
-  await app.clear("id:cipher-form-name");
-  await app.type("id:cipher-form-name", "GitHub Renamed");
-  await app.press("id:cipher-form-submit");
+  await app.clear("id:inspector-form-name");
+  await app.type("id:inspector-form-name", "GitHub Renamed");
+  await app.press("id:inspector-form-submit");
 
   expect(app.texts()).toContain("GitHub Renamed");
   await app.press("id:reveal-password");
