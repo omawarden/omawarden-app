@@ -70,6 +70,9 @@ export function SearchHeader() {
           autoCapitalize="none"
           autoCorrect={false}
           submitBehavior="submit"
+          // The Inspector Form owns the keyboard while a draft is open: a click
+          // on the search must not let typing filter the list behind it.
+          readonly={store.cipherForm() !== null}
           onSubmit={() => store.primaryCopy()}
           onChange={({ value }) => store.setSearch(value)}
           style={{ ...inputStyle(), flex: 1 }}

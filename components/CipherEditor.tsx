@@ -1,11 +1,15 @@
-import { Scroll, Text, View } from "nsh";
+import { effect, Scroll, Text, View } from "nsh";
 import { Input } from "nsh/base";
 import type { CipherMutationInput } from "omawarden-app/native";
 import * as store from "../store/appStore";
-import { setCipherPasswordField } from "../store/cipherFormFocus";
+import {
+  markCipherFieldFocus,
+  registerCipherField,
+  setCipherPasswordField,
+} from "../store/cipherFormFocus";
 import { tint } from "../theme/palette";
 import { inputStyle } from "./AuthView";
-import { ActionButton, Panel, SectionTitle, SmallButton } from "./ui";
+import { ActionButton, actionID, Panel, SectionTitle, SmallButton } from "./ui";
 
 function isLoginDraft(draft: CipherMutationInput | null): boolean {
   const type = (draft?.cipherType ?? "login").toLowerCase();
@@ -43,6 +47,29 @@ export function CipherEditor() {
     return editing() && list.length === 0 ? [""] : list;
   };
 
+  // The form's buttons in the order they read, top to bottom. The platform
+  // reports the controls in the order it mounted them, which is breadth first
+  // and would put Cancel and Create before the Generate… button above them;
+  // Tab follows this list instead.
+  effect(() => {
+    if (draft() === null) {
+      return;
+    }
+    const ids = [actionID("inspector-form-generate")];
+    if (!editing()) {
+      ids.push(actionID("inspector-form-uri-add"));
+      for (let index = 0; index < uriList(draft()).length; index += 1) {
+        ids.push(actionID(`inspector-form-uri-remove-${index}`));
+      }
+    }
+    if (store.cipherFormDiscardConfirm()) {
+      ids.push(actionID("inspector-form-keep"), actionID("inspector-form-discard"));
+    }
+    ids.push(actionID("inspector-form-cancel"), actionID("inspector-form-submit"));
+    store.setCipherFormActionRing(ids);
+    return () => store.setCipherFormActionRing([]);
+  });
+
   return (
     <View testID="inspector-form" style={{ flex: 1, overflow: "hidden" }}>
       <Scroll style={{ flex: 1 }} contentStyle={{ padding: 12 }}>
@@ -71,6 +98,7 @@ export function CipherEditor() {
             <SectionTitle hint="The name is what the vault list shows.">Details</SectionTitle>
             <FormInput
               label="Name"
+              fieldKey="name"
               testID="inspector-form-name"
               value={textOf(draft(), "name")}
               autoFocus
@@ -81,6 +109,7 @@ export function CipherEditor() {
             <If when={login()}>
               <FormInput
                 label="Username"
+                fieldKey="username"
                 testID="inspector-form-username"
                 value={textOf(draft(), "username")}
                 readOnly={busy()}
@@ -105,7 +134,12 @@ export function CipherEditor() {
                 </View>
                 <Input
                   testID="inspector-form-password"
-                  ref={setCipherPasswordField}
+                  ref={(ref) => {
+                    setCipherPasswordField(ref);
+                    registerCipherField("password", ref);
+                  }}
+                  onFocus={() => markCipherFieldFocus("password", true)}
+                  onBlur={() => markCipherFieldFocus("password", false)}
                   value={textOf(draft(), "password")}
                   masked
                   readonly={busy()}
@@ -160,6 +194,9 @@ export function CipherEditor() {
                       >
                         <Input
                           testID={`inspector-form-uri-${index()}`}
+                          ref={(ref) => registerCipherField(`uri-${index()}`, ref)}
+                          onFocus={() => markCipherFieldFocus(`uri-${index()}`, true)}
+                          onBlur={() => markCipherFieldFocus(`uri-${index()}`, false)}
                           value={uri()}
                           readonly={busy()}
                           autoCapitalize="none"
@@ -197,6 +234,9 @@ export function CipherEditor() {
               <Text style={{ color: palette().muted, fontSize: store.type().base }}>Notes</Text>
               <Input
                 testID="inspector-form-notes"
+                ref={(ref) => registerCipherField("notes", ref)}
+                onFocus={() => markCipherFieldFocus("notes", true)}
+                onBlur={() => markCipherFieldFocus("notes", false)}
                 value={textOf(draft(), "notes")}
                 multiline
                 readonly={busy()}
@@ -272,7 +312,7 @@ export function CipherEditor() {
             />
           </View>
           <Text style={{ color: palette().muted, fontSize: store.type().xs }}>
-            Ctrl+S saves · Esc cancels
+            Tab moves between the fields and the buttons · Ctrl+S saves · Esc cancels
           </Text>
         </View>
       </Scroll>
@@ -282,6 +322,8 @@ export function CipherEditor() {
 
 function FormInput(props: {
   label: string;
+  /** The field's place in the Inspector Form's Tab ring. */
+  fieldKey: string;
   testID: string;
   value: string;
   onChange: (value: string) => void;
@@ -295,6 +337,9 @@ function FormInput(props: {
       <Text style={{ color: palette().muted, fontSize: store.type().base }}>{props.label}</Text>
       <Input
         testID={props.testID}
+        ref={(ref) => registerCipherField(props.fieldKey, ref)}
+        onFocus={() => markCipherFieldFocus(props.fieldKey, true)}
+        onBlur={() => markCipherFieldFocus(props.fieldKey, false)}
         value={props.value}
         autoFocus={props.autoFocus}
         readonly={props.readOnly}

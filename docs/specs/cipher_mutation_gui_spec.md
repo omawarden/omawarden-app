@@ -96,6 +96,74 @@ replaces a terminal primitive rather than copying it.
     the toast. The app does not pre-filter them out, so the message always comes
     from the daemon that owns the rule.
 
+### The Inspector Form issue
+
+The follow-up issue that moved the form into the Inspector restates the GUI half
+as 22 stories. Each is covered as follows. The form calls its first field `Name`
+where the stories say "Title", because that is the vault's own field name.
+
+1. `Ctrl+N` opens the Type Picker instead of creating a Login outright, so the
+   two create paths have one shortcut.
+2. The picker opens on `Login`, so `Enter` starts a Login.
+3. `L` chooses Login in one keystroke.
+4. `N` chooses Secure Note in one keystroke.
+5. A second `Ctrl+N` while the picker is open toggles the highlight, so the
+   choice changes without moving a finger off the modifier.
+6. Up and Down move the highlight.
+7. `Esc` closes the picker and leaves the Inspector exactly as it was, with no
+   draft and no selection change.
+8. Create renders in the Inspector pane itself: the list, the tabs, and the
+   search stay visible and no scrim covers them.
+9. `Ctrl+E` opens the same pane in edit mode, so editing and creating share one
+   view and one save path.
+10. The Name field takes the keyboard as the form opens.
+11. The form owns the keyboard while it is open: the vault's search, list
+    arrows, and global shortcuts stand down, and the search field is `readonly`
+    so a click on it cannot turn typing into a filter behind the form.
+12. `Tab` and `Shift+Tab` walk the form's fields and then its buttons, and the
+    focused button runs on `Enter` or `Space`. See the deviations below for the
+    two fields the form does not carry.
+13. `Generate…` opens the Password Generator with its own length, character-set,
+    and passphrase controls, and the fill uses those rules rather than a fixed
+    default.
+14. `Ctrl+G` does the same from anywhere in the form, which is where the
+    password field already has the keyboard.
+15. The generator's primary action in fill mode is `Use Password`, and `Enter`
+    runs it, writing the secret into the password field.
+16. The fill never touches the clipboard; only the loose generator's own action
+    copies.
+17. `Ctrl+S` and the `Create Item` / `Save Changes` button submit through the
+    same validation and the same `mutateCipher` call.
+18. Submitting disables the fields and buttons and shows `Saving…` on the save
+    button, so a second press cannot start a second mutation.
+19. A successful save closes the form, selects the saved row, and leaves the
+    Inspector in view mode on the persisted item.
+20. `Esc` or `Cancel` on a clean draft closes at once.
+21. A changed draft asks first, and the prompt covers leaving as well as
+    cancelling: a list row, a category tab, a scope, a folder, and the Trash all
+    queue the move behind the same inline `Discard` / `Keep Editing` strip.
+22. Every colour and type size comes from the palette and the type scale, so the
+    form follows the host theme in both modes.
+
+Two stories are covered with a deliberate difference, and one field list is
+narrower than story 12 asks:
+
+- Story 12 lists Folder and Custom Fields among the fields. The daemon's create
+  and update drafts carry neither, and a custom-field editor that could not save
+  is worse than none, so the form edits Name, Username, Password, Websites, and
+  Notes and leaves the rest to the daemon. The ring is those fields in reading
+  order, then the form's own buttons: `Generate…`, `Add URL` and the per-row
+  `Remove`, `Keep Editing` / `Discard` while the prompt is up, then `Cancel` and
+  `Create Item` / `Save Changes`. Tab moves the real keyboard focus onto a
+  button, which is why `Enter` and `Space` reach it at all, and `Shift+Tab` on
+  the first stop wraps to the save button so the fields are never a trap.
+- Story 15 asks for the filled password to be "made visible immediately". The
+  field stays masked. A secret that the user just asked the app to keep is not
+  revealed in a pane that a passer-by can read, and the form already shows the
+  generator's own preview before the fill. This is the one place the GUI
+  deliberately reads the story's intent (the secret is in the field) rather than
+  its wording.
+
 ## Implementation Decisions
 
 - The mutation seam is `src/cipher_mutation.rs`. A `CipherEngine` trait with an
@@ -146,7 +214,25 @@ replaces a terminal primitive rather than copying it.
 - The form owns the keyboard while it is open: the vault shortcuts, the list
   arrows, and the search stand down, and `Ctrl+S`, `Ctrl+G`, and `Esc` are bound
   with `when: "always"` so they reach the form through a focused field. Closing
-  it returns the keyboard to the search and leaves the query alone.
+  it returns the keyboard to the search and leaves the query alone. The search
+  field is `readonly` for as long as a draft is open, so a click on it cannot
+  turn typing into a filter behind the form.
+- Tab around the form is the app's own ring, as it is for the vault. The ring
+  reads the form's text fields in the order they read, then the buttons the form
+  declares with `setCipherFormActionRing`; the action registry's order cannot be
+  used because it reports the order the platform mounted the controls in, which
+  is breadth first and puts `Cancel` and `Create Item` ahead of `Generate…`.
+  Moving onto a button blurs the fields and focuses the control itself
+  (`registerActionElement`), because a focused text input keeps every key —
+  `Enter` and `Space` included — and the app's ring is only a highlight.
+  `Shift+Tab` on the first stop wraps to the save button, so the fields are
+  never a trap; `Esc` is how the form is left.
+- Leaving the form is a navigation, so `guardCipherFormLeave` runs before
+  `selectCipher`, `setCategory`, `setScope`, `setFolder`, and `openTrash`. A
+  clean draft closes and the move goes on; a changed one remembers the move and
+  shows the same discard strip, whose `Discard` closes the form and then runs
+  it, while `Keep Editing` drops it. A save closes the form before the row
+  selection, so the guard never asks on the save path.
 - `Generate…` (in the password field) and `Ctrl+G` open the Password Generator
   in fill mode: the primary action is `Use Password` (`Enter`), which writes the
   secret into the field and closes the dialog without copying it. The options
@@ -203,6 +289,12 @@ replaces a terminal primitive rather than copying it.
   read-only custom-fields label, the resolver's exact-match, candidate-list, and
   not-found paths, and the category gate that keeps Cards and Identities
   read-only.
+- The same file covers the keyboard and draft-protection stories: five Tabs from
+  the Name field reach `Generate…` and `Enter` opens the generator in fill mode,
+  `Shift+Tab` on the first stop wraps onto the save button and runs it, a dirty
+  draft makes a list row, a category tab, and the Trash ask before leaving (and
+  `Discard` then completes the move), and a clean draft leaves the form without
+  a prompt.
 
 ## Out of Scope
 
