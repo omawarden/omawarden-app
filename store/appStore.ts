@@ -1,4 +1,4 @@
-import { computed, fontScale, host, signal, untracked } from "nsh";
+import { computed, fontScale, host, signal, untracked, type ViewRef } from "nsh";
 import {
   OmawardenBridge,
   type AppPhase,
@@ -47,7 +47,16 @@ import {
 } from "../theme/palette";
 import { scaleType, type TypeScale } from "../theme/typeScale";
 import { clearAuthSecrets, clearTwoFactorCodes, serverPanelOpen } from "./authForm";
-import { blurCipherPassword, focusCipherPassword } from "./cipherFormFocus";
+import {
+  blurCipherFields,
+  blurCipherPassword,
+  cipherFieldKeys,
+  focusCipherField,
+  focusCipherPassword,
+  focusedCipherField,
+  markCipherFieldFocus,
+  resetCipherFields,
+} from "./cipherFormFocus";
 import { buildDiagnosticReport } from "./diagnosticReport";
 import {
   mode as generatorMode,
@@ -214,6 +223,18 @@ export const cipherFormId = signal<string | null>(null);
 export const cipherFormOutcome = signal<CipherMutationOutcomeView | null>(null);
 /** Whether the form asks before throwing an unsaved draft away. */
 export const cipherFormDiscardConfirm = signal(false);
+/**
+ * The form's buttons in the order they read, as the form declares them.
+ *
+ * The action registry reports the order the platform mounted the controls in,
+ * which is breadth first and puts the panel's buttons after the row below it;
+ * the form names its own order so Tab walks the screen top to bottom.
+ */
+export const cipherFormActionRing = signal<string[]>([]);
+
+// What to do after the form's discard strip is answered: a navigation that
+// asked to leave the open form (a list row, a scope, the Trash) waits here.
+let pendingCipherFormLeave: (() => void) | null = null;
 /** The Type Picker's highlighted choice: 0 is Login, 1 is Secure Note. */
 export const typePickerIndex = signal(0);
 /** Whether the password generator fills the open form instead of the clipboard. */
@@ -525,7 +546,23 @@ function currentLayer(): string {
     return "ssh";
   }
   const modal = activeModal();
-  return modal === "none" ? "base" : `modal:${modal}`;
+  if (modal !== "none") {
+    return `modal:${modal}`;
+  }
+  // The Inspector Form is not a dialog, but it owns the keyboard while it is
+  // open: Tab walks its fields and its buttons, not the vault's controls.
+  return cipherForm() !== null ? "form" : "base";
+}
+
+/** The native view behind each action, so the ring can move focus onto it. */
+const actionElements = new Map<string, ViewRef | null>();
+
+export function registerActionElement(id: string, ref: ViewRef | null): void {
+  if (ref) {
+    actionElements.set(id, ref);
+    return;
+  }
+  actionElements.delete(id);
 }
 
 export function registerAction(id: string, handler: () => void): void {
@@ -579,6 +616,66 @@ export function activateFocusedAction(): boolean {
 
 export function clearActionFocus(): void {
   focusedAction.set(null);
+}
+
+/** The Inspector Form's button order for Tab, set by the form itself. */
+export function setCipherFormActionRing(ids: string[]): void {
+  cipherFormActionRing.set(ids);
+}
+
+/**
+ * Tab's two stops: the vault's controls, or the Inspector Form's ring.
+ *
+ * Both the default Tab binding and the vault's `always` one call this, so the
+ * order the platform resolves them in cannot change what Tab does.
+ */
+export function cycleVaultFocus(delta: number): void {
+  if (cipherForm() !== null) {
+    cycleCipherFormFocus(delta);
+    return;
+  }
+  cycleAction(delta);
+}
+
+/**
+ * Moves the keyboard one stop around the open Inspector Form.
+ *
+ * The ring is the form's text fields in the order they read, then its buttons:
+ * the desktop's native traversal reaches text fields only, so the app walks the
+ * buttons itself, as it does for the vault. Shift+Tab on the first stop wraps
+ * to the last, so the ring is closed and the fields are never a trap (the form
+ * is left with Esc).
+ */
+export function cycleCipherFormFocus(delta: number): void {
+  // A dialog over the form owns the keyboard; nothing behind it moves.
+  if (activeModal() !== "none") {
+    return;
+  }
+  const layer = currentLayer();
+  const declared = cipherFormActionRing().filter((id) => actionEntries.get(id)?.layer === layer);
+  const actions =
+    declared.length > 0
+      ? declared
+      : actionOrder.filter((id) => actionEntries.get(id)?.layer === layer);
+  const stops = [...cipherFieldKeys().map((key) => `field:${key}`), ...actions];
+  if (stops.length === 0) {
+    return;
+  }
+  const focused = focusedCipherField();
+  const current = focused ? `field:${focused}` : focusedAction();
+  const index = current ? stops.indexOf(current) : -1;
+  const from = index < 0 ? (delta > 0 ? -1 : 0) : index;
+  const next = stops[(from + delta + stops.length) % stops.length];
+  if (next.startsWith("field:")) {
+    clearActionFocus();
+    focusCipherField(next.slice(6));
+    return;
+  }
+  blurCipherFields();
+  focusedAction.set(next);
+  // Real focus on the control, not just the app's ring: a text input holding
+  // the keyboard would otherwise keep every key, Enter and Space included.
+  actionElements.get(next)?.focus();
 }
 
 // ---------------------------------------------------------------------------
@@ -1075,23 +1172,48 @@ export function setSearch(text: string): void {
   query(keepId);
 }
 
+/**
+ * Runs a navigation that would leave the open Inspector Form behind.
+ *
+ * A clean draft closes at once and the navigation proceeds; a changed one asks
+ * with the form's own discard strip and remembers what to do after. Returns
+ * true when the navigation was deferred, so the caller stops.
+ */
+function guardCipherFormLeave(proceed: () => void): boolean {
+  if (cipherForm() === null) {
+    return false;
+  }
+  if (cipherFormIsDirty()) {
+    pendingCipherFormLeave = proceed;
+    cipherFormDiscardConfirm.set(true);
+    return true;
+  }
+  closeCipherEditor();
+  return false;
+}
+
 export function setCategory(next: ItemCategory): void {
   if (category() === next) return;
+  if (guardCipherFormLeave(() => setCategory(next))) return;
   category.set(next);
   query();
 }
 
 export function setScope(next: string): void {
-  scopeId.set(next);
+  // The dropdown the row was picked from closes either way; a deferred move
+  // must not leave it hanging over the form's discard strip.
   scopeOpen.set(false);
+  if (guardCipherFormLeave(() => setScope(next))) return;
+  scopeId.set(next);
   // A scope belongs to the active vault: picking one leaves the Trash.
   leaveTrash();
   query();
 }
 
 export function setFolder(next: string | null): void {
-  folderId.set(next);
   scopeOpen.set(false);
+  if (guardCipherFormLeave(() => setFolder(next))) return;
+  folderId.set(next);
   leaveTrash();
   query();
 }
@@ -1109,6 +1231,7 @@ export function toggleScope(): void {
  */
 export function openTrash(): void {
   scopeOpen.set(false);
+  if (guardCipherFormLeave(openTrash)) return;
   vaultView.set("trash");
   resetVisibleLimit();
   selectedIndex.set(0);
@@ -1208,6 +1331,7 @@ export function restoreCipher(id: string): void {
 }
 
 export function selectCipher(index: number): void {
+  if (guardCipherFormLeave(() => selectCipher(index))) return;
   expandVisibleLimitForSelection(index);
   selectedIndex.set(index);
   reveal.set(defaultReveal());
@@ -2081,6 +2205,7 @@ export function cipherFormIsDirty(): boolean {
 
 /** Puts the Inspector into form view, closing any dialog that opened it. */
 function openCipherEditor(draft: CipherMutationInput, id: string | null): void {
+  pendingCipherFormLeave = null;
   cipherForm.set(draft);
   cipherFormBaseline.set({
     ...draft,
@@ -2093,6 +2218,9 @@ function openCipherEditor(draft: CipherMutationInput, id: string | null): void {
   activeModal.set("none");
   scopeOpen.set(false);
   clearActionFocus();
+  // Name carries `autoFocus`, so the ring starts there whatever the platform
+  // reports about focus; a Tab from the form's entry is a Tab from the title.
+  markCipherFieldFocus("name", true);
 }
 
 /** Opens the create form in the Inspector for a login or secure note. */
@@ -2172,6 +2300,10 @@ export function submitCipherForm(input: CipherMutationInput, id: string | null):
       // the daemon's cached `list` may still hold the pre-save rows, so a query
       // here would drop the change until the next sync.
       const receiptId = outcome.id;
+      // Leave form view before the list moves: the selection is a navigation,
+      // and a saved draft is not one the discard strip should offer to throw
+      // away.
+      closeCipherEditor();
       if (id === null) {
         if (receiptId) {
           rawItems.update((rows) => [...rows, rowFromForm(receiptId, input)]);
@@ -2189,13 +2321,6 @@ export function submitCipherForm(input: CipherMutationInput, id: string | null):
       }
       notify(outcome.outcome || (id ? "Item saved." : "Item created."), "success");
       refreshInspector();
-      cipherForm.set(null);
-      cipherFormBaseline.set(null);
-      cipherFormId.set(null);
-      cipherFormDiscardConfirm.set(false);
-      cipherCandidates.set(null);
-      activeModal.set("none");
-      clearActionFocus();
     } else {
       notify(outcome.error ?? "Could not save the item.", "error");
     }
@@ -2253,6 +2378,7 @@ function closeCipherEditor(): void {
   cipherFormOutcome.set(null);
   cipherFormDiscardConfirm.set(false);
   cipherCandidates.set(null);
+  resetCipherFields();
   clearActionFocus();
 }
 
@@ -2264,9 +2390,9 @@ export function cancelCipherForm(): void {
   if (isSubmitting()) {
     return;
   }
-  // Esc on the prompt itself goes back to editing rather than asking again.
+  // Esc goes back to editing from the prompt itself rather than asking again.
   if (cipherFormDiscardConfirm()) {
-    cipherFormDiscardConfirm.set(false);
+    keepCipherFormEditing();
     return;
   }
   if (cipherFormIsDirty()) {
@@ -2278,11 +2404,17 @@ export function cancelCipherForm(): void {
 
 /** Throws the unsaved draft away, after the form asked. */
 export function confirmCipherFormDiscard(): void {
+  // A navigation that asked to leave runs once the draft is gone, so the row,
+  // scope or Trash the user picked arrives without a second press.
+  const leave = pendingCipherFormLeave;
+  pendingCipherFormLeave = null;
   closeCipherEditor();
+  leave?.();
 }
 
-/** Goes back to editing after the discard prompt. */
+/** Goes back to editing after the discard prompt, dropping a pending move. */
 export function keepCipherFormEditing(): void {
+  pendingCipherFormLeave = null;
   cipherFormDiscardConfirm.set(false);
 }
 

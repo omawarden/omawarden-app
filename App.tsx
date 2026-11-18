@@ -292,14 +292,15 @@ keymap.bind({
 });
 
 // Linux/GTK's native Tab traversal only visits text fields, so the app moves
-// its own focus between the action controls. The default binding is enough
-// while no input is being edited; the vault search's focused case is covered
-// by the `always` bindings below.
-keymap.bind("tab", whenWindowFits(() => store.cycleAction(1)), {
+// its own focus between the action controls and, while the Inspector Form is
+// open, between its fields and buttons. The default binding is enough while no
+// input is being edited; the vault search's focused case is covered by the
+// `always` bindings below.
+keymap.bind("tab", whenWindowFits(() => store.cycleVaultFocus(1)), {
   when: "notEditing",
   repeat: true,
 });
-keymap.bind("shift+tab", whenWindowFits(() => store.cycleAction(-1)), {
+keymap.bind("shift+tab", whenWindowFits(() => store.cycleVaultFocus(-1)), {
   when: "notEditing",
   repeat: true,
 });
@@ -345,11 +346,11 @@ effect(() => {
     {
       tab: () => {
         blurSearch();
-        store.cycleAction(1);
+        store.cycleVaultFocus(1);
       },
       "shift+tab": () => {
         blurSearch();
-        store.cycleAction(-1);
+        store.cycleVaultFocus(-1);
       },
     },
     { when: "always", repeat: true },
@@ -365,8 +366,8 @@ keymap.bind("space", whenWindowFits(() => store.activateFocusedAction()), {
 });
 
 // The Inspector Form is not a dialog: it takes the keyboard from the vault
-// (see `canUseVaultShortcuts`) and these three keys reach it even while a
-// field has the focus, which is where the user spends the whole form.
+// (see `canUseVaultShortcuts`) and these keys reach it even while a field has
+// the focus, which is where the user spends the whole form.
 effect(() => {
   if (store.cipherForm() === null) {
     return;
@@ -374,7 +375,7 @@ effect(() => {
   if (windowBelowMinimum()) {
     return;
   }
-  return keymap.bind(
+  const unbindForm = keymap.bind(
     {
       "mod+s": () => {
         if (store.activeModal() === "none") {
@@ -398,6 +399,20 @@ effect(() => {
     },
     { when: "always" },
   );
+  // Tab is the app's own ring here, as it is for the vault: `always`, so the
+  // platform's traversal — which reaches text fields only — never takes the key
+  // and strands the buttons.
+  const unbindTabs = keymap.bind(
+    {
+      tab: () => store.cycleCipherFormFocus(1),
+      "shift+tab": () => store.cycleCipherFormFocus(-1),
+    },
+    { when: "always", repeat: true },
+  );
+  return () => {
+    unbindForm();
+    unbindTabs();
+  };
 });
 
 // A form that closes hands the keyboard back to the search. The query stays as

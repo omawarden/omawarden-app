@@ -3132,6 +3132,90 @@ test("the open form keeps global shortcuts and the search to itself", async () =
   expect(app.value("id:inspector-form-name")).toBe("abc");
 });
 
+test("Tab reaches the form's buttons and Enter runs the focused one", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:category-login");
+  await app.press("id:create-login");
+
+  // Name holds the keyboard when the form opens, so five tabs walk the rest of
+  // the fields and land on the first button, Generate….
+  for (let index = 0; index < 5; index += 1) {
+    await app.keyboard.press("tab");
+  }
+  await app.keyboard.press("enter");
+
+  // Enter runs the focused button: Generate… opens the generator in fill mode.
+  expect(app.shows("id:password-generator-modal")).toBe(true);
+  expect(app.shows("id:generator-use-password")).toBe(true);
+
+  // The generator closes first, and the form is still there behind it.
+  await app.keyboard.press("escape");
+  expect(app.shows("id:password-generator-modal")).toBe(false);
+  expect(app.shows("id:inspector-form")).toBe(true);
+});
+
+test("Shift+Tab wraps the form's ring onto the save button", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:category-login");
+  await app.press("id:create-login");
+  await app.type("id:inspector-form-name", "Wrapped");
+
+  // The ring is closed: Shift+Tab on the first stop lands on the last one, the
+  // save button, so the fields are not a keyboard trap.
+  await app.keyboard.press("shift+tab");
+  await app.keyboard.press("enter");
+
+  expect(app.shows("id:inspector-form")).toBe(false);
+  expect(app.texts()).toContain("Wrapped");
+});
+
+test("a dirty draft guards a list row, a category, and the Trash", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:category-login");
+  await app.press("id:create-login");
+  await app.type("id:inspector-form-name", "Half Typed");
+
+  // A row press would leave the form, so it asks first and keeps the draft.
+  await app.press("id:cipher-row-login1");
+  expect(app.shows("id:inspector-form-discard-confirm")).toBe(true);
+  await app.press("id:inspector-form-keep");
+  expect(app.shows("id:inspector-form-discard-confirm")).toBe(false);
+  expect(app.value("id:inspector-form-name")).toBe("Half Typed");
+
+  // The category tabs, the scope rows, and the Trash ask the same way.
+  await app.press("id:category-all");
+  expect(app.shows("id:inspector-form-discard-confirm")).toBe(true);
+  await app.press("id:inspector-form-keep");
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  expect(app.shows("id:inspector-form-discard-confirm")).toBe(true);
+  await app.press("id:inspector-form-keep");
+  expect(app.texts()).not.toContain("Scope: Trash");
+
+  // Discard drops the draft and runs the move that was waiting.
+  await app.press("id:cipher-row-login1");
+  await app.press("id:inspector-form-discard");
+  expect(app.shows("id:inspector-form")).toBe(false);
+  expect(app.shows("id:item-inspector")).toBe(true);
+  expect(app.texts()).toContain("GitHub");
+  expect(app.texts()).not.toContain("Half Typed");
+});
+
+test("a clean draft leaves the form without a prompt", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:category-login");
+  await app.press("id:create-login");
+  await app.press("id:cipher-row-login1");
+
+  expect(app.shows("id:inspector-form-discard-confirm")).toBe(false);
+  expect(app.shows("id:inspector-form")).toBe(false);
+  expect(app.shows("id:item-inspector")).toBe(true);
+});
+
 test("the create form stores every website URL", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
 

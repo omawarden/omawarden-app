@@ -137,6 +137,7 @@ export function ActionButton(props: {
   return (
     <Button
       testID={props.testID}
+      ref={(node) => store.registerActionElement(id, node)}
       disabled={props.disabled}
       onPress={props.onPress}
       style={{
@@ -193,6 +194,7 @@ export function SmallButton(props: {
   return (
     <Button
       testID={props.testID}
+      ref={(node) => store.registerActionElement(id, node)}
       accessibilityLabel={props.accessibilityLabel}
       disabled={props.disabled}
       onPress={props.onPress}
