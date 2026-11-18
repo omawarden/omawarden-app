@@ -62,6 +62,23 @@ inspector, with no confirmation, and it leaves the user in the Trash. A failed
 restore reports the daemon's error and changes nothing. Restore is the inverse
 of a Soft Delete, not a third kind of delete; the active vault never offers it.
 
+## Inspector Form
+
+The create/edit view that takes the Inspector pane's place while a Login or a
+Secure Note is being written. It is the third state of that pane, beside the
+item view and the empty state, so the list and the search stay where they are
+instead of being covered by a dialog. A draft is a snapshot of the fields as
+the form opened plus the live edits; "unsaved changes" means the two differ.
+The form owns the keyboard while it is open: vault shortcuts and the search
+stand down, and closing it hands the keyboard back to the search.
+
+## Type Picker
+
+The `Ctrl+N` step that asks which kind of item to create, because that shortcut
+is the only create entry point that does not already know. It offers Login and
+Secure Note and hands the answer to the Inspector Form. The `+` buttons and the
+palette's create rows name their type themselves, so they skip it.
+
 ## In-Process Engine
 
 The `omawarden` Rust crate linked directly into the `nsh` host binary and
