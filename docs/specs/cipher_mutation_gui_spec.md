@@ -125,7 +125,8 @@ where the stories say "Title", because that is the vault's own field name.
     two fields the form does not carry.
 13. `Generate…` opens the Password Generator with its own length, character-set,
     and passphrase controls, and the fill uses those rules rather than a fixed
-    default.
+    default. The length and word count are steppers (`−`/`+` buttons and the
+    mouse wheel), and every option change regenerates the preview at once.
 14. `Ctrl+G` does the same from anywhere in the form, which is where the
     password field already has the keyboard.
 15. The generator's primary action in fill mode is `Use Password`, and `Enter`
@@ -237,7 +238,8 @@ narrower than story 12 asks:
   in fill mode: the primary action is `Use Password` (`Enter`), which writes the
   secret into the field and closes the dialog without copying it. The options
   live in `store/generatorOptions.ts` and are shared with the loose generator,
-  so both modes generate under the same rules.
+  so both modes generate under the same rules. The preview regenerates on every
+  option change, so the fill always carries the rules it shows.
 - Creating from the Trash switches the list back to the active vault first, so
   the saved row cannot land in a list that hides it.
 - The target resolver reuses the CLI's precedence: exact id, then exact name,

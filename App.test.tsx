@@ -1,4 +1,4 @@
-import { expect, open, test } from "nsh/test";
+import { expect, open, test, type App } from "nsh/test";
 import { OmawardenBridge } from "omawarden-app/native";
 import { buildDiagnosticReport, DIAGNOSTIC_SCOPE } from "./store/diagnosticReport";
 import { formatLocalDateTime } from "./store/DateTime";
@@ -1579,6 +1579,68 @@ test("passphrase generator rejects out-of-range word counts without clamping", a
 
   await app.press("id:generator-copy-close");
   expect(app.shows("id:password-generator-modal")).toBe(false);
+});
+
+/**
+ * The secret the generator's preview shows, rebuilt from the screen's texts:
+ * the parts between the mode tabs and the strength chip. The preview splits
+ * digits into their own runs, so joining puts the secret back together.
+ */
+function generatedSecret(app: App): string {
+  const texts = app.texts();
+  const start = texts.indexOf("Passphrase") + 1;
+  const end = texts.findIndex(
+    (text, index) => index >= start && (text.includes(" bits") || text === "No secret yet"),
+  );
+  return texts.slice(start, end).join("");
+}
+
+test("the generator regenerates as soon as an option changes", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:open-generator");
+  expect(generatedSecret(app).length).toBe(20);
+
+  // The length is a stepper: two presses make a 22-character secret, with no
+  // Generate press in between.
+  await app.press("id:generator-length-increase");
+  await app.press("id:generator-length-increase");
+  expect(app.value("id:generator-length")).toBe("22");
+  expect(generatedSecret(app).length).toBe(22);
+
+  await app.press("id:generator-length-decrease");
+  expect(app.value("id:generator-length")).toBe("21");
+  expect(generatedSecret(app).length).toBe(21);
+
+  // A toggle regenerates too, under the rules it just changed.
+  const before = generatedSecret(app);
+  await app.press("id:generator-special");
+  expect(generatedSecret(app)).not.toBe(before);
+
+  // The passphrase options do the same on their side.
+  await app.press("id:generator-tab-passphrase");
+  const words = generatedSecret(app).split("-");
+  expect(words.length).toBe(5);
+  await app.press("id:generator-words-increase");
+  expect(generatedSecret(app).split("-").length).toBe(6);
+});
+
+test("the length stepper stops at the ends of its range", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:open-generator");
+  await app.clear("id:generator-length");
+  await app.type("id:generator-length", "5");
+  expect(app.enabled("id:generator-length-decrease")).toBe(false);
+  expect(app.enabled("id:generator-length-increase")).toBe(true);
+  await app.press("id:generator-length-increase");
+  expect(app.value("id:generator-length")).toBe("6");
+
+  await app.clear("id:generator-length");
+  await app.type("id:generator-length", "128");
+  expect(app.enabled("id:generator-length-increase")).toBe(false);
+  await app.press("id:generator-length-decrease");
+  expect(app.value("id:generator-length")).toBe("127");
 });
 
 // ---------------------------------------------------------------------------

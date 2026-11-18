@@ -394,9 +394,10 @@ The card keeps the width it asks for, and the header wraps to fit it: the title 
 2. **`components/PasswordGeneratorModal.tsx` (`Ctrl+G`)**:
    - Mode tabs: **Password** vs **Passphrase**.
    - Dynamic wrapping secret preview container with digit highlighting and entropy strength badge (`bits` + Weak/Fair/Good/Strong/Very Strong).
-   - Password controls: Length input (`5..=128`, explicit validation error if out of bounds — NO silent clamping!), Uppercase, Lowercase, Numbers, Special, Avoid Ambiguous toggles, Min Numbers & Min Special steppers.
-   - Passphrase controls: Word count input (`3..=20`, explicit validation error if out of bounds — NO silent clamping!), Separator input, Capitalize toggle.
-   - Regenerate and Copy & Close buttons.
+   - Password controls: Length stepper (`5..=128`) — a `−`/`+` pair around a typed field, the mouse wheel over the row steps it one notch per event, and a typed value outside the range is reported not rewritten (the first stepper press snaps it into range); Uppercase, Lowercase, Numbers, Special, Avoid Ambiguous toggles whose thumb slides like an iOS switch, Min Numbers & Min Special steppers.
+   - Passphrase controls: Word count stepper (`3..=20`) on the same rules, Separator input, Capitalize toggle.
+   - The preview regenerates as soon as any option changes — a length, word count, toggle, separator or mode change re-rolls under the new rules, so the **Regenerate** button only re-rolls the same options; an invalid entry keeps the last secret and shows the validation error.
+   - Copy & Close button.
    - The form's `Generate…` / `Ctrl+G` opens it in **fill mode**: the primary action becomes **Use Password** (`Enter`), which puts the secret straight into the open form's password field and never touches the clipboard. Both modes share the same option signals (`store/generatorOptions.ts`), so the rules a password was generated with do not change between the loose dialog and the form.
 3. **`components/SshKeyModal.tsx`**:
    - Supports `"create"` (Generate new `ed25519`, `rsa-2048`, `rsa-4096`, `ecdsa-p256`, `ecdsa-p384` or Import existing OpenSSH private key into vault) and `"export"` (Write selected SSH key item to `~/.ssh/<filename>` with `0600`/`0644` permissions).
