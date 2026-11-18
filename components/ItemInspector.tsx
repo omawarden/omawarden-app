@@ -11,6 +11,7 @@ import { scaleLength } from "../theme/layout";
 import { tint } from "../theme/palette";
 import { noteLineHeight } from "../theme/typeScale";
 import { ActionButton } from "./ui";
+import { CipherEditor } from "./CipherEditor";
 import { GhostIconButton } from "./GhostIconButton";
 import { EmptyInspector } from "./EmptyInspector";
 import { Icon, type IconName } from "./Icon";
@@ -18,15 +19,25 @@ import { Icon, type IconName } from "./Icon";
 export function ItemInspector() {
   return (
     <>
-      <If when={store.vaultView() === "trash"}>
-        <If when={store.selectedCipher()} else={<EmptyInspector />}>
-          {(row) => <TrashInspector row={row} />}
-        </If>
+      {/* The form takes the pane's place while it is open, so the list and the
+          search stay in view and the same pane alternates between the item,
+          the empty state, and the form. */}
+      <If when={store.cipherForm() !== null}>
+        <CipherEditor />
       </If>
-      <If when={store.vaultView() === "active"}>
-        <If when={store.inspector()} else={<EmptyInspector />}>
-          {(item) => <InspectorBody item={item} />}
-        </If>
+      <If when={store.cipherForm() === null}>
+        <>
+          <If when={store.vaultView() === "trash"}>
+            <If when={store.selectedCipher()} else={<EmptyInspector />}>
+              {(row) => <TrashInspector row={row} />}
+            </If>
+          </If>
+          <If when={store.vaultView() === "active"}>
+            <If when={store.inspector()} else={<EmptyInspector />}>
+              {(item) => <InspectorBody item={item} />}
+            </If>
+          </If>
+        </>
       </If>
     </>
   );

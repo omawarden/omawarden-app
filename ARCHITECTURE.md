@@ -339,7 +339,7 @@ engine's `Config`. The daemon and the CLI must never gain a presentation field.
    - **`components/SearchHeader.tsx`**:
      - Search input with instant fuzzy filtering, a match counter pill (`visible / total`), a clear button, and the `"Scope"` selector trigger. Global actions live in the footer.
      - `Ctrl+F` puts the keyboard in the search box and selects the query already there, so the first keystroke replaces it while the filtered list stays put. It answers only while the vault is usable — unlocked, no dialog, window at or above its minimum — and the command palette carries the same row as `Search Vault`.
-     - The field is the vault's home position for the keyboard: unlocking or showing the vault focuses it, and the minimum-window gate or an open dialog blurs it, so a dialog's own fields and Escape get the keyboard. Closing a dialog does not give the focus back; only the palette's `Search Vault` asks for it.
+     - The field is the vault's home position for the keyboard: unlocking or showing the vault focuses it, and the minimum-window gate or an open dialog blurs it, so a dialog's own fields and Escape get the keyboard. Closing a dialog does not give the focus back; only the palette's `Search Vault` asks for it. The Inspector Form is the exception: closing it, saved or discarded, hands the keyboard back to the search with the query left as it was.
      - While the field holds the keyboard, NSH would hand every non-character key to it, so the vault's arrows and `Ctrl+Enter` are re-bound with `when: "always"` while the vault is usable. `Enter` submits through the field's own `onSubmit` (the primary copy, caret kept), and Tab blurs the field before moving the action ring so `Space` can activate the focused action. Escape stays the input's.
    - **`components/ScopeDropdown.tsx`**:
      - Filter by Vault Scope (`All Vaults`, `My Vault (Personal)`, or specific `Organizations` & `Collections`) and `Folders`, with live item counts per scope/folder.
@@ -358,6 +358,12 @@ engine's `Config`. The daemon and the CLI must never gain a presentation field.
        - **Attachments**: Filename, human-readable size, ghost preview (inline image/text preview panel) and ghost download actions.
        - **Metadata**: Created/Updated timestamps on the reader's clock and the Password History entry point.
      - Field-level actions use the shared 22x22 `components/GhostIconButton.tsx`; chunky text buttons are reserved for panel-level actions.
+   - **`components/CipherEditor.tsx` — the Inspector Form**:
+     - Personal Login and Secure Note creation and editing render in the Inspector pane itself, not in a dialog: the same pane alternates between the item view, the empty state, and the form, and the list and search stay visible. `Ctrl+E` opens it for the selected Login or Secure Note; `Ctrl+N` reaches it through the Type Picker.
+     - Fields: Name (focused on entry), Username, Password with `Generate…`, Websites (every row on a create; only the first on an edit, because an update replaces just the first URL), and Notes. Folder, favorite, and custom fields are not editable here.
+     - Save sends one `cipher_update` (or a create) with the name plus only the fields whose values differ from the snapshot taken when the form opened, so an untouched password is never cleared. `Ctrl+S` saves, `Esc` cancels and asks before discarding a changed draft with an inline `Discard` / `Keep Editing` strip. The form owns the keyboard while it is open: the vault shortcuts, the list arrows, and the search stand down, and closing it returns the keyboard to the search.
+   - **`components/TypePickerModal.tsx` (`Ctrl+N`)**:
+     - A compact dialog offering `Login` (default, `L`, Enter) and `Secure Note` (`N`); the arrows move the highlight and a second `Ctrl+N` toggles it. `Esc` closes it without a draft, and the chosen type opens the Inspector Form.
    - **`components/FooterBar.tsx`**:
      - Clickable ghost actions with shortcut badges: `Actions` (`Ctrl+K`), `Generate` (`Ctrl+G`), `Sync` (`Ctrl+R`), `Lock` (`Ctrl+L`), `Settings` (`Ctrl+,`).
      - A subtle rotating sync indicator appears beside `Sync` while a sync is in flight.
@@ -373,7 +379,7 @@ engine's `Config`. The daemon and the CLI must never gain a presentation field.
   - It has no controls. Only a resize clears it, and every keyboard path stands down while it is up.
   - It is an overlay rather than a replacement: the views beneath stay mounted, so a shrink-and-restore cycle preserves form input, modal state and scroll position. The vault shortcuts, the settings shortcut and the tab/space bindings stand down while it is up, and the vault search gives up the keyboard so typing goes nowhere until the window grows back.
 
-### 5.3 All 7 Modals
+### 5.3 All 8 Modals
 
 Every dialog is built on `components/ui.tsx`'s `ModalShell`: a centred card capped at 92% of the window height, with the body in a `Scroll` that has `flexShrink: 1`. The shrink is what bounds the body: NSH defaults `flexShrink` to 0, so a body left at `flexGrow: 0` sizes itself to its content, reports no scroll range, and strands every row below the window's bottom edge. Modals taller than the window (Settings at the 900 × 620 floor) must scroll.
 
@@ -389,6 +395,7 @@ The card keeps the width it asks for, and the header wraps to fit it: the title 
    - Password controls: Length input (`5..=128`, explicit validation error if out of bounds — NO silent clamping!), Uppercase, Lowercase, Numbers, Special, Avoid Ambiguous toggles, Min Numbers & Min Special steppers.
    - Passphrase controls: Word count input (`3..=20`, explicit validation error if out of bounds — NO silent clamping!), Separator input, Capitalize toggle.
    - Regenerate and Copy & Close buttons.
+   - The form's `Generate…` / `Ctrl+G` opens it in **fill mode**: the primary action becomes **Use Password** (`Enter`), which puts the secret straight into the open form's password field and never touches the clipboard. Both modes share the same option signals (`store/generatorOptions.ts`), so the rules a password was generated with do not change between the loose dialog and the form.
 3. **`components/SshKeyModal.tsx`**:
    - Supports `"create"` (Generate new `ed25519`, `rsa-2048`, `rsa-4096`, `ecdsa-p256`, `ecdsa-p384` or Import existing OpenSSH private key into vault) and `"export"` (Write selected SSH key item to `~/.ssh/<filename>` with `0600`/`0644` permissions).
 4. **`components/SshApprovalModal.tsx`**:
@@ -405,6 +412,8 @@ The card keeps the width it asks for, and the header wraps to fit it: the title 
      - **About**: App & Engine version, Git commit hash, Build date, Update check button (`checkUpdates(true)`), View Release Notes button, GitHub repository links.
 7. **`components/ReleaseNotesModal.tsx`**:
    - Displays latest release version, title, publication time on the reader's clock, markdown release notes (`<TextView markdown={...} />`), and link to release page.
+8. **`components/TypePickerModal.tsx` (`Ctrl+N`)**:
+   - A compact `Login` / `Secure Note` choice with single-key, arrow, and Enter selection; it hands the type to the Inspector Form, which is what the old centred cipher form used to do after asking the tab instead.
 
 ### 5.4 Shell Layout Sizes (`theme/layout.ts`)
 

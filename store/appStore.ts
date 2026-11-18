@@ -47,13 +47,18 @@ import {
 } from "../theme/palette";
 import { scaleType, type TypeScale } from "../theme/typeScale";
 import { clearAuthSecrets, clearTwoFactorCodes, serverPanelOpen } from "./authForm";
+import { blurCipherPassword, focusCipherPassword } from "./cipherFormFocus";
 import { buildDiagnosticReport } from "./diagnosticReport";
+import {
+  mode as generatorMode,
+  passphraseOptions,
+  passwordOptions,
+} from "./generatorOptions";
 
 export type ModalKind =
   | "none"
   | "actionPalette"
-  | "cipherForm"
-  | "cipherEdit"
+  | "typePicker"
   | "cipherDelete"
   | "cipherResolve"
   | "generator"
@@ -199,14 +204,20 @@ export const isRestoring = signal(false);
 export const repromptCipherId = signal<string | null>(null);
 export const repromptError = signal<string | null>(null);
 
-/** The cipher mutation form's live draft, or null when the form is closed. */
+/** The Inspector Form's live draft, or null when the form is closed. */
 export const cipherForm = signal<CipherMutationInput | null>(null);
-/** The draft fields the user changed since the form opened. */
-export const cipherFormDirty = signal<string[]>([]);
+/** The draft as the form opened it: what "unsaved changes" compares against. */
+export const cipherFormBaseline = signal<CipherMutationInput | null>(null);
 /** The id being edited, or null when the form is a create. */
 export const cipherFormId = signal<string | null>(null);
-/** The outcome of the last mutation, shown inline until the modal closes. */
+/** The outcome of the last mutation, shown inline until the form closes. */
 export const cipherFormOutcome = signal<CipherMutationOutcomeView | null>(null);
+/** Whether the form asks before throwing an unsaved draft away. */
+export const cipherFormDiscardConfirm = signal(false);
+/** The Type Picker's highlighted choice: 0 is Login, 1 is Secure Note. */
+export const typePickerIndex = signal(0);
+/** Whether the password generator fills the open form instead of the clipboard. */
+export const generatorFillMode = signal(false);
 /** The target-resolution menu, when a name matched more than one cipher. */
 export const cipherCandidates = signal<CipherTargetCandidateView[] | null>(null);
 /** The name typed into the "go to item" resolver. */
@@ -1815,24 +1826,61 @@ export function closeModal(): void {
     cipherCandidates.set(null);
     cipherResolveError.set(null);
   }
+  if (activeModal() === "generator") {
+    generatorFillMode.set(false);
+  }
   activeModal.set("none");
   clearActionFocus();
 }
 
+/** Generates with the panel's current mode and options. */
+function secretFromGeneratorOptions(): GeneratedSecretView {
+  return generatorMode() === "passphrase"
+    ? OmawardenBridge.generatePassphrase(passphraseOptions())
+    : OmawardenBridge.generatePassword(passwordOptions());
+}
+
 export function openGenerator(): void {
-  generatedSecret.set(
-    OmawardenBridge.generatePassword({
-      length: 20,
-      uppercase: true,
-      lowercase: true,
-      numbers: true,
-      special: true,
-      avoidAmbiguous: false,
-      minNumbers: 1,
-      minSpecial: 1,
-    }),
-  );
+  generatorFillMode.set(false);
+  generatedSecret.set(secretFromGeneratorOptions());
   openModal("generator");
+}
+
+/**
+ * Opens the generator over the Inspector Form to fill its password field.
+ *
+ * The password field lets go of the keyboard first: the dialog sits above it,
+ * and the length the user types would otherwise edit the hidden secret.
+ */
+export function openGeneratorFill(): void {
+  if (!cipherForm()) {
+    return;
+  }
+  blurCipherPassword();
+  openGenerator();
+  generatorFillMode.set(true);
+}
+
+/**
+ * Fills the open form's password with the generated secret.
+ *
+ * The secret goes straight into the field: it never reaches the clipboard, so
+ * a fill cannot leave the generated password behind for a clipboard monitor.
+ */
+export function useGeneratedPassword(): void {
+  const secret = generatedSecret();
+  if (!cipherForm()) {
+    return;
+  }
+  if (!secret?.ok || !secret.value) {
+    notify("Generate a secret first.", "error");
+    return;
+  }
+  updateCipherDraft({ password: secret.value });
+  generatorFillMode.set(false);
+  activeModal.set("none");
+  clearActionFocus();
+  focusCipherPassword(secret.value.length);
 }
 
 export function openSettings(): void {
@@ -1982,23 +2030,89 @@ function patchRowFromMutation(
   return next;
 }
 
-/** Opens the create form for a login or secure note cipher. */
-export function openCipherForm(cipherType: "login" | "note" = "login"): void {
-  cipherForm.set({
-    cipherType,
-    name: null,
-    username: null,
-    password: null,
-    notes: null,
-    uris: cipherType === "login" ? [""] : null,
-    folderId: null,
-    favorite: null,
+/**
+ * Whether two draft values are the same for the purpose of "unsaved changes".
+ *
+ * Website rows compare without their blank scaffolding: adding a row, or
+ * typing into it and clearing it again, is not a change the user would expect
+ * to be told they are about to lose.
+ */
+function sameFormValue(left: unknown, right: unknown): boolean {
+  if (Array.isArray(left) || Array.isArray(right)) {
+    const clean = (value: unknown) =>
+      (Array.isArray(value) ? value : [])
+        .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+        .filter((entry) => entry !== "");
+    const leftUris = clean(left);
+    const rightUris = clean(right);
+    return (
+      leftUris.length === rightUris.length &&
+      leftUris.every((uri, index) => uri === rightUris[index])
+    );
+  }
+  return (left ?? "") === (right ?? "");
+}
+
+/** The draft fields that differ from the baseline, in payload-key order. */
+export function cipherFormChangedFields(): string[] {
+  const draft = cipherForm();
+  const baseline = cipherFormBaseline();
+  if (!draft || !baseline) {
+    return [];
+  }
+  const changed: string[] = [];
+  const source = draft as unknown as Record<string, unknown>;
+  const original = baseline as unknown as Record<string, unknown>;
+  for (const key of Object.keys(source)) {
+    if (key === "cipherType") {
+      continue;
+    }
+    if (!sameFormValue(source[key], original[key])) {
+      changed.push(key);
+    }
+  }
+  return changed;
+}
+
+/** Whether the form holds changes a cancel or Esc would throw away. */
+export function cipherFormIsDirty(): boolean {
+  return cipherFormChangedFields().length > 0;
+}
+
+/** Puts the Inspector into form view, closing any dialog that opened it. */
+function openCipherEditor(draft: CipherMutationInput, id: string | null): void {
+  cipherForm.set(draft);
+  cipherFormBaseline.set({
+    ...draft,
+    uris: draft.uris ? [...draft.uris] : null,
   });
-  cipherFormId.set(null);
-  cipherFormDirty.set([]);
+  cipherFormId.set(id);
   cipherFormOutcome.set(null);
+  cipherFormDiscardConfirm.set(false);
   cipherCandidates.set(null);
-  openModal("cipherForm");
+  activeModal.set("none");
+  scopeOpen.set(false);
+  clearActionFocus();
+}
+
+/** Opens the create form in the Inspector for a login or secure note. */
+export function openCipherForm(cipherType: "login" | "note" = "login"): void {
+  // Creating is a vault-wide action and the new row belongs to the active
+  // vault, so a Trash view would hide it as soon as it was saved.
+  closeTrash();
+  openCipherEditor(
+    {
+      cipherType,
+      name: null,
+      username: null,
+      password: null,
+      notes: null,
+      uris: cipherType === "login" ? [""] : null,
+      folderId: null,
+      favorite: null,
+    },
+    null,
+  );
 }
 
 /** The selected cipher when it is a login or a secure note, else null. */
@@ -2018,7 +2132,7 @@ function editableCipher(): CipherRowView | null {
   return cipher;
 }
 
-/** Opens the edit form pre-filled from the selected cipher. */
+/** Opens the edit form in the Inspector, pre-filled from the selected cipher. */
 export function openCipherEdit(): void {
   const cipher = editableCipher();
   if (!cipher) {
@@ -2027,29 +2141,30 @@ export function openCipherEdit(): void {
   const detail = inspector();
   // An update can only replace the first URL, so the form carries the whole
   // list and only the first row is editable; the rest are preserved.
-  cipherForm.set({
-    cipherType: cipher.category === "secureNote" ? "note" : "login",
-    name: cipher.title,
-    username: detail?.username ?? null,
-    password: null,
-    notes: detail?.notes ?? null,
-    uris: (detail?.uris ?? []).map((uri) => uri.uri),
-    folderId: cipher.folder ?? null,
-    favorite: cipher.favorite,
-  });
-  cipherFormId.set(cipher.id);
-  cipherFormDirty.set([]);
-  cipherFormOutcome.set(null);
-  cipherCandidates.set(null);
-  openModal("cipherEdit");
+  openCipherEditor(
+    {
+      cipherType: cipher.category === "secureNote" ? "note" : "login",
+      name: cipher.title,
+      username: detail?.username ?? null,
+      password: null,
+      notes: detail?.notes ?? null,
+      uris: (detail?.uris ?? []).map((uri) => uri.uri),
+      folderId: cipher.folder ?? null,
+      favorite: cipher.favorite,
+    },
+    cipher.id,
+  );
 }
 
 /** Submits the create/edit form through the daemon. */
 export function submitCipherForm(input: CipherMutationInput, id: string | null): void {
+  if (isSubmitting()) {
+    return;
+  }
   isSubmitting.set(true);
   notify(id ? "Saving item…" : "Creating item…", "info");
   defer(() => {
-    const payload = id === null ? input : editPayload(input, cipherFormDirty());
+    const payload = id === null ? input : editPayload(input);
     const outcome: CipherMutationOutcomeView = OmawardenBridge.mutateCipher(payload, id);
     cipherFormOutcome.set(outcome);
     if (outcome.ok) {
@@ -2075,7 +2190,9 @@ export function submitCipherForm(input: CipherMutationInput, id: string | null):
       notify(outcome.outcome || (id ? "Item saved." : "Item created."), "success");
       refreshInspector();
       cipherForm.set(null);
+      cipherFormBaseline.set(null);
       cipherFormId.set(null);
+      cipherFormDiscardConfirm.set(false);
       cipherCandidates.set(null);
       activeModal.set("none");
       clearActionFocus();
@@ -2086,32 +2203,40 @@ export function submitCipherForm(input: CipherMutationInput, id: string | null):
   });
 }
 
-/** Updates one field of the live cipher form draft. */
+/**
+ * Validates the live draft and saves it: the form's Save button and `Ctrl+S`
+ * share this one path, so both answer a missing name the same way.
+ */
+export function submitCipherFormDraft(): void {
+  const input = cipherForm();
+  if (!input || isSubmitting()) {
+    return;
+  }
+  const name = (input.name ?? "").trim();
+  if (!name) {
+    notify("Enter an item name before saving.", "error");
+    return;
+  }
+  submitCipherForm({ ...input, name }, cipherFormId());
+}
+
+/** Updates one field of the live Inspector Form draft. */
 export function updateCipherDraft(fields: Partial<CipherMutationInput>): void {
   cipherForm.update((current) => (current ? { ...current, ...fields } : current));
-  cipherFormDirty.update((current) => {
-    const next = [...current];
-    for (const key of Object.keys(fields)) {
-      if (!next.includes(key)) {
-        next.push(key);
-      }
-    }
-    return next;
-  });
 }
 
 /**
  * On an edit, sends the name plus only the fields the user changed, so an
  * untouched password is left alone instead of being cleared.
  */
-function editPayload(input: CipherMutationInput, dirty: string[]): CipherMutationInput {
+function editPayload(input: CipherMutationInput): CipherMutationInput {
   const payload: CipherMutationInput = {
     cipherType: input.cipherType,
     name: input.name,
   };
   const target = payload as unknown as Record<string, unknown>;
   const source = input as unknown as Record<string, unknown>;
-  for (const key of dirty) {
+  for (const key of cipherFormChangedFields()) {
     if (key === "name" || key === "cipherType") {
       continue;
     }
@@ -2120,36 +2245,77 @@ function editPayload(input: CipherMutationInput, dirty: string[]): CipherMutatio
   return payload;
 }
 
-/**
- * Fills the open cipher form's password with a generated 16-character secret,
- * the GUI's answer to the CLI's Enter-at-the-prompt generator.
- */
-export function generateCipherPassword(): void {
-  const secret: GeneratedSecretView = OmawardenBridge.generatePassword({
-    length: 16,
-    uppercase: true,
-    lowercase: true,
-    numbers: true,
-    special: true,
-    avoidAmbiguous: false,
-    minNumbers: 1,
-    minSpecial: 1,
-  });
-  if (!secret.ok || !secret.value) {
-    notify(secret.error ?? "Could not generate a password.", "error");
-    return;
-  }
-  updateCipherDraft({ password: secret.value });
-}
-
-/** Cancels the create/edit form, discarding the draft. */
-export function cancelCipherForm(): void {
+/** Leaves form view without saving. */
+function closeCipherEditor(): void {
   cipherForm.set(null);
+  cipherFormBaseline.set(null);
   cipherFormId.set(null);
   cipherFormOutcome.set(null);
+  cipherFormDiscardConfirm.set(false);
   cipherCandidates.set(null);
+  clearActionFocus();
+}
+
+/**
+ * Cancels the form: a clean draft closes at once, a changed one asks first, so
+ * a typed secret is not thrown away by a stray Esc.
+ */
+export function cancelCipherForm(): void {
+  if (isSubmitting()) {
+    return;
+  }
+  // Esc on the prompt itself goes back to editing rather than asking again.
+  if (cipherFormDiscardConfirm()) {
+    cipherFormDiscardConfirm.set(false);
+    return;
+  }
+  if (cipherFormIsDirty()) {
+    cipherFormDiscardConfirm.set(true);
+    return;
+  }
+  closeCipherEditor();
+}
+
+/** Throws the unsaved draft away, after the form asked. */
+export function confirmCipherFormDiscard(): void {
+  closeCipherEditor();
+}
+
+/** Goes back to editing after the discard prompt. */
+export function keepCipherFormEditing(): void {
+  cipherFormDiscardConfirm.set(false);
+}
+
+// ---------------------------------------------------------------------------
+// Type Picker
+// ---------------------------------------------------------------------------
+
+/** Opens the Type Picker: the "which kind?" step behind `Ctrl+N`. */
+export function openTypePicker(): void {
+  typePickerIndex.set(0);
+  openModal("typePicker");
+}
+
+/** Moves the highlighted choice, keeping it inside the two options. */
+export function moveTypePicker(delta: number): void {
+  typePickerIndex.update((current) => (current + delta + 2) % 2);
+}
+
+/** `Ctrl+N` again while the picker is open toggles the highlighted choice. */
+export function cycleTypePicker(): void {
+  moveTypePicker(1);
+}
+
+/** Creates the type the picker highlights. */
+export function chooseTypePickerSelection(): void {
+  selectTypePicker(typePickerIndex() === 0 ? "login" : "note");
+}
+
+/** Closes the picker and opens the Inspector Form for the chosen type. */
+export function selectTypePicker(cipherType: "login" | "note"): void {
   activeModal.set("none");
   clearActionFocus();
+  openCipherForm(cipherType);
 }
 
 /** Opens the "go to item" resolver, which targets a cipher by name or id. */
