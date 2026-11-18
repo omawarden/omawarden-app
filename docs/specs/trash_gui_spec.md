@@ -203,7 +203,10 @@ confirm `Delete Permanently`), reachable only from the Trash. The active
 vault's delete stays soft only; `openCipherDelete(true)` is guarded and
 unreachable from it. Confirming calls `deleteTrashCipher`, re-reads the Trash
 with `reloadTrash()`, clamps the selection, and stays in the Trash. Cancelling
-leaves the row in place and sends no request. Daemon errors surface as-is.
+leaves the row in place and sends no request. Daemon errors surface as-is. The
+daemon call blocks the app's thread, so confirming first paints a `Deleting…`
+state with the confirm and cancel buttons disabled, then runs the purge after a
+frame; the same treatment covers the soft delete in the active vault.
 
 ## Tests
 
@@ -219,8 +222,9 @@ seeded daemon rejection leaving the row in place, and the action being absent
 from the active inspector. The Permanent Delete tests cover the `Delete
 Permanently` button opening the modal with `Permanently Delete?`, `This cannot
 be undone.`, `Delete Permanently`; confirming purges the row and keeps the Trash
-open; cancelling leaves the row and sends no request; the active vault's delete
-stays soft with `The item can be restored from the trash.` copy; a seeded
+open; confirming first shows the disabled `Deleting…` state before the row
+disappears; cancelling leaves the row and sends no request; the active vault's
+delete stays soft with `The item can be restored from the trash.` copy; a seeded
 daemon rejection leaves the row in place. Rust tests in `src/lib.rs` and
 `src/projection.rs` cover the adapters and the sort; `src/cipher_mutation.rs`
 covers the `cipher_restore` and `cipher_delete_trash` payloads, their receipts

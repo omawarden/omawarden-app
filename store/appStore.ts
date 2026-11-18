@@ -204,6 +204,8 @@ export const isSubmitting = signal(false);
 export const isSyncing = signal(false);
 /** Whether a Trash restore is in flight, so a double press cannot fire twice. */
 export const isRestoring = signal(false);
+/** Whether a delete (soft or Trash purge) is in flight, so the dialog can say so. */
+export const isDeleting = signal(false);
 /** The cipher whose master-password re-prompt grant is active. */
 export const repromptCipherId = signal<string | null>(null);
 export const repromptError = signal<string | null>(null);
@@ -730,9 +732,10 @@ function applySnapshot(next: VaultSnapshotView): void {
     vaultView.set("active");
     trashItems.set(null);
     // A new session re-reads the active rows on unlock, so neither a pending
-    // Trash refresh nor an in-flight restore flag survives the lock.
+    // Trash refresh nor an in-flight restore or delete survives the lock.
     activeRowsStale = false;
     isRestoring.set(false);
+    isDeleting.set(false);
   }
   if (next.twoFactor) {
     selectedProvider.set(next.twoFactor.selectedProvider);
@@ -2525,26 +2528,44 @@ export function pickCipherCandidate(candidate: CipherTargetCandidateView): void 
   clearActionFocus();
 }
 
-/** Confirms a delete of the selected cipher. */
+/**
+ * Confirms a delete of the selected cipher.
+ *
+ * The daemon call blocks the app's thread, so it is deferred by a frame: the
+ * dialog paints its "Deleting…" state first, then the call runs. A failure
+ * leaves the dialog open so the error toast is read against the row.
+ */
 export function confirmDeleteCipher(permanent: boolean): void {
+  if (isDeleting()) {
+    return;
+  }
   const cipher = editableCipher();
   if (!cipher) {
     return;
   }
-  const outcome: CipherMutationOutcomeView = OmawardenBridge.deleteCipher(cipher.id, permanent);
-  if (outcome.ok) {
-    notify(
-      outcome.outcome || (permanent ? "Item deleted." : "Item deleted; pending sync."),
-      "success",
-    );
-    inspector.set(null);
-    selectedIndex.set(0);
-    reloadVault();
-    activeModal.set("none");
-    clearActionFocus();
-  } else {
-    notify(outcome.error ?? "Could not delete the item.", "error");
-  }
+  isDeleting.set(true);
+  defer(() => {
+    try {
+      const outcome: CipherMutationOutcomeView = OmawardenBridge.deleteCipher(cipher.id, permanent);
+      if (outcome.ok) {
+        notify(
+          outcome.outcome || (permanent ? "Item deleted." : "Item deleted; pending sync."),
+          "success",
+        );
+        inspector.set(null);
+        selectedIndex.set(0);
+        reloadVault();
+        activeModal.set("none");
+        clearActionFocus();
+      } else {
+        notify(outcome.error ?? "Could not delete the item.", "error");
+      }
+    } catch (error) {
+      notify(`Delete failed: ${String(error)}`, "error");
+    } finally {
+      isDeleting.set(false);
+    }
+  });
 }
 
 /** Opens the permanent-delete confirmation for the selected Trash row. */
@@ -2560,24 +2581,39 @@ export function openTrashDelete(): void {
   openModal("cipherDelete");
 }
 
-/** Confirms a permanent delete of the selected Trash row. */
+/**
+ * Confirms a permanent delete of the selected Trash row.
+ *
+ * The purge blocks on the daemon, so it is deferred by a frame: the dialog
+ * paints its "Deleting…" state first, then the call runs. A failure keeps the
+ * row and the dialog so the error toast is read against it.
+ */
 export function confirmDeleteTrashCipher(): void {
-  if (vaultView() !== "trash") {
+  if (vaultView() !== "trash" || isDeleting()) {
     return;
   }
   const row = selectedCipher();
   if (!row) {
     return;
   }
-  const outcome: CipherMutationOutcomeView = OmawardenBridge.deleteTrashCipher(row.id);
-  if (outcome.ok) {
-    notify(outcome.outcome || "Item permanently deleted.", "success");
-    reloadTrash();
-    activeModal.set("none");
-    clearActionFocus();
-  } else {
-    notify(outcome.error ?? "Could not permanently delete the item.", "error");
-  }
+  isDeleting.set(true);
+  defer(() => {
+    try {
+      const outcome: CipherMutationOutcomeView = OmawardenBridge.deleteTrashCipher(row.id);
+      if (outcome.ok) {
+        notify(outcome.outcome || "Item permanently deleted.", "success");
+        reloadTrash();
+        activeModal.set("none");
+        clearActionFocus();
+      } else {
+        notify(outcome.error ?? "Could not permanently delete the item.", "error");
+      }
+    } catch (error) {
+      notify(`Delete failed: ${String(error)}`, "error");
+    } finally {
+      isDeleting.set(false);
+    }
+  });
 }
 
 /** Opens the delete confirmation dialog for the selected cipher. */

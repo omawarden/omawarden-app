@@ -1012,6 +1012,31 @@ test("a failed permanent delete shows the daemon error and leaves the row in pla
   expect(OmawardenBridge.mockTrashQueries()).toBe(1);
 });
 
+test("a permanent delete shows a loading state before the purge finishes", async () => {
+  const app = await openMockWithClock({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+
+  await app.press("id:scope-trigger");
+  await app.press("id:scope-trash");
+  await app.press("id:cipher-row-trashed1");
+  await app.press("id:trash-delete-permanent");
+  expect(app.shows("id:cipher-delete-modal")).toBe(true);
+
+  // The purge is a blocking daemon call, so it must not run before the press
+  // paints: the modal stays up with a disabled confirm that says it is working.
+  await app.press("id:cipher-delete-confirm");
+  expect(app.shows("id:cipher-delete-modal")).toBe(true);
+  expect(app.enabled("id:cipher-delete-confirm")).toBe(false);
+  expect(app.texts()).toContain("Deleting…");
+
+  // Once the deferred work runs, the modal closes and the row is gone.
+  await app.wait(100);
+  expect(app.shows("id:cipher-delete-modal")).toBe(false);
+  expect(app.shows("id:cipher-row-trashed1")).toBe(false);
+});
+
 test("active vault delete stays soft and never reaches permanent mode", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM, MAIL_ITEM] });
 
