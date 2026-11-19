@@ -84,7 +84,7 @@ pub(crate) struct Mock;
 
 impl DiagnosticsEngine for Mock {
     fn dependencies(&self) -> DependencyStatusView {
-        with_mock(|state| mock_dependencies(&state.dependencies_missing))
+        with_mock(|state| mock_dependencies(&state.dependencies_missing, &state.daemon_source))
     }
 
     fn install_missing(&self, packages: Vec<String>) -> bool {
@@ -144,13 +144,15 @@ fn package_status(
 
 /// The real dependency check.
 fn real_dependencies() -> DependencyStatusView {
+    let daemon_source = crate::daemon_source::view();
     let packages = vec![
-        package_status(
-            "omawarden",
-            "omawarden",
-            "Omawarden engine and daemon",
-            true,
-        ),
+        PackageStatusView {
+            name: "omawarden".to_string(),
+            description: "Omawarden daemon".to_string(),
+            required: true,
+            installed: daemon_source.resolved_path.is_some(),
+            version: daemon_source.resolved_version.clone(),
+        },
         package_status(
             "secret-tool",
             "libsecret",
@@ -180,13 +182,19 @@ fn real_dependencies() -> DependencyStatusView {
         packages,
         missing_packages,
         missing_required,
+        daemon_source,
     }
 }
 
 /// The mock dependency check.
-fn mock_dependencies(missing: &[String]) -> DependencyStatusView {
+fn mock_dependencies(
+    missing: &[String],
+    stored: &crate::daemon_source::DaemonSource,
+) -> DependencyStatusView {
+    let daemon_missing = missing.iter().any(|entry| entry == "omawarden");
+    let daemon_source = crate::daemon_source::mock_view(stored, daemon_missing);
     let packages = vec![
-        ("omawarden", "Omawarden engine and daemon", true),
+        ("omawarden", "Omawarden daemon", true),
         ("libsecret", "Secret Service keyring bridge", true),
         ("wl-clipboard", "Wayland clipboard", true),
         ("libfido2", "FIDO2 security keys (optional)", false),
@@ -215,6 +223,7 @@ fn mock_dependencies(missing: &[String]) -> DependencyStatusView {
         packages,
         missing_packages,
         missing_required,
+        daemon_source,
     }
 }
 

@@ -9,6 +9,9 @@ import {
   type CipherRowView,
   type CipherTargetCandidateView,
   type CopyOutcomeView,
+  type DaemonCandidateView,
+  type DaemonSourceMode,
+  type DaemonSourceView,
   type DaemonTickView,
   type DependencyStatusView,
   type GeneratedSecretView,
@@ -163,6 +166,10 @@ let activeRowsStale = false;
 export const phase = computed<AppPhase>(() => snapshot().phase);
 export const sshPrompt = computed(() => snapshot().sshPrompt);
 export const dependencies = signal<DependencyStatusView | null>(null);
+/** Which daemon executable the app launches, and how it resolved. */
+export const daemonSource = signal<DaemonSourceView | null>(null);
+/** Every daemon binary the app could launch, refreshed when the tab opens. */
+export const daemonCandidates = signal<DaemonCandidateView[]>([]);
 export const inspector = signal<InspectorView | null>(null);
 export const settings = signal<SettingsSnapshotView | null>(null);
 export const settingsDraft = signal<SettingsUpdateInput>({});
@@ -833,6 +840,7 @@ export function bootApp(): void {
     selectFirstIfNeeded();
   }
   loadUiPrefs();
+  loadDaemonSource();
   if (next.phase !== "dependencyCheck") {
     loadSettings();
   }
@@ -947,6 +955,60 @@ export function installMissingDependencies(): void {
       notify("Could not launch the package installer.", "error");
     }
   });
+}
+
+// ---------------------------------------------------------------------------
+// Daemon source
+// ---------------------------------------------------------------------------
+
+/**
+ * Reads the stored daemon source and how it resolves right now.
+ *
+ * The choice names an executable that receives vault credentials, so it is
+ * read on boot beside the settings rather than derived from the theme or the
+ * package dependency list.
+ */
+export function loadDaemonSource(): void {
+  daemonSource.set(OmawardenBridge.getDaemonSource());
+}
+
+/**
+ * Re-lists the daemon binaries the app could launch.
+ *
+ * Called whenever the Engine tab opens: a `PATH` change or a package upgrade
+ * should show up without restarting the app, and nothing watches the disk.
+ */
+export function refreshDaemonCandidates(): void {
+  daemonCandidates.set(OmawardenBridge.listDaemonCandidates());
+}
+
+/**
+ * Stores the daemon source. A rejected choice leaves the previous one in
+ * place and surfaces the resolver's own message.
+ */
+export function selectDaemonSource(mode: DaemonSourceMode, path?: string | null): void {
+  const next = OmawardenBridge.setDaemonSource({ mode, path: path ?? null });
+  daemonSource.set(next);
+  if (next.problem) {
+    notify(next.problem, "error");
+    return;
+  }
+  if (mode !== "bundled" && !next.matchesPinned) {
+    // The protocol handshake is the real gate; this only says the binary was
+    // built from something other than the revision this app pins.
+    notify(
+      "That daemon was not built from the pinned engine revision. It will still be used.",
+      "info",
+    );
+    return;
+  }
+  const label = next.resolvedPath ?? mode;
+  notify(`Daemon source set to ${label}. It applies the next time no daemon is running.`, "success");
+}
+
+/** Picks an external daemon binary, returning the chosen path. */
+export function pickDaemonBinary(): string | null {
+  return OmawardenBridge.pickDaemonBinary();
 }
 
 // ---------------------------------------------------------------------------

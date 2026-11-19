@@ -1,7 +1,12 @@
 import { Text, View } from "nsh";
 import { Input, Slider } from "nsh/base";
 import { signal } from "nsh";
-import type { SshAgentPolicy, ThemeAppearance } from "omawarden-app/native";
+import type {
+  DaemonCandidateView,
+  DaemonSourceMode,
+  SshAgentPolicy,
+  ThemeAppearance,
+} from "omawarden-app/native";
 import * as store from "../store/appStore";
 import { tint } from "../theme/palette";
 import { TabButton, inputStyle } from "./AuthView";
@@ -14,16 +19,26 @@ import {
   type ParsedLogLine,
 } from "../store/diagnosticReport";
 
-type SettingsTab = "general" | "appearance" | "security" | "diagnose" | "logs" | "about";
+type SettingsTab =
+  | "general"
+  | "appearance"
+  | "security"
+  | "engine"
+  | "diagnose"
+  | "logs"
+  | "about";
 type LogFilter = "all" | "errors" | "info";
 
 const tab = signal<SettingsTab>("general");
 const logFilter = signal<LogFilter>("all");
+/** A mismatched external binary the user pressed, pending confirmation. */
+const enginePending = signal<{ path: string; mode: DaemonSourceMode } | null>(null);
 
 const TABS: Array<{ id: SettingsTab; label: string; testID: string }> = [
   { id: "general", label: "General", testID: "settings-tab-general" },
   { id: "appearance", label: "Appearance", testID: "settings-tab-appearance" },
   { id: "security", label: "Security", testID: "settings-tab-security" },
+  { id: "engine", label: "Engine", testID: "settings-tab-engine" },
   { id: "diagnose", label: "Diagnose", testID: "settings-tab-diagnose" },
   { id: "logs", label: "Logs", testID: "settings-tab-logs" },
   { id: "about", label: "About", testID: "settings-tab-about" },
@@ -86,7 +101,14 @@ export function SettingsModal() {
                     label={entry().label}
                     testID={entry().testID}
                     active={tab() === entry().id}
-                    onPress={() => tab.set(entry().id)}
+                    onPress={() => {
+                      tab.set(entry().id);
+                      // The list is a snapshot of PATH and the app directory;
+                      // reopening the tab is what picks up a new package.
+                      if (entry().id === "engine") {
+                        store.refreshDaemonCandidates();
+                      }
+                    }}
                   />
                 )}
               </Each>
@@ -351,6 +373,8 @@ export function SettingsModal() {
               </Panel>
             ) : null}
 
+            {tab() === "engine" ? <EnginePanel /> : null}
+
             {tab() === "diagnose" ? (
               <View style={{ gap: 12 }}>
                 <Panel testID="settings-diagnose">
@@ -609,6 +633,223 @@ export function SettingsModal() {
         );
       }}
     </If>
+  );
+}
+
+/** The first seven characters of a commit, as the engine prints it. */
+function shortCommit(commit: string): string {
+  return commit.slice(0, 7);
+}
+
+/**
+ * The Engine tab: which executable the app starts when no daemon answers.
+ *
+ * The choice is stored as soon as it is made, because it is an execution
+ * decision rather than a draft. An external binary that was not built from the
+ * pinned revision asks for a second press: it will hold the vault session, and
+ * the app does not supervise it.
+ */
+function EnginePanel() {
+  const palette = store.palette;
+  const source = store.daemonSource;
+  const candidates = store.daemonCandidates;
+
+  const bundled = () => candidates().find((candidate) => candidate.kind === "bundled");
+  const external = () => candidates().filter((candidate) => candidate.kind !== "bundled");
+  const mode = () => source()?.mode ?? "bundled";
+  const customPath = () => (mode() === "custom" ? (source()?.configuredPath ?? null) : null);
+
+  const choose = (candidate: DaemonCandidateView) => {
+    if (!candidate.selectable) {
+      return;
+    }
+    enginePending.set(null);
+    if (candidate.kind === "bundled") {
+      store.selectDaemonSource("bundled", null);
+      return;
+    }
+    const nextMode: DaemonSourceMode = candidate.kind === "custom" ? "custom" : "system";
+    if (!candidate.matchesPinned) {
+      enginePending.set({ path: candidate.path, mode: nextMode });
+      return;
+    }
+    store.selectDaemonSource(nextMode, candidate.path);
+  };
+
+  const chooseCustom = () => {
+    const path = customPath();
+    if (!path) {
+      return;
+    }
+    const known = candidates().find((candidate) => candidate.path === path);
+    if (known) {
+      choose({ ...known, kind: "custom" });
+      return;
+    }
+    store.selectDaemonSource("custom", path);
+  };
+
+  const pick = () => {
+    const path = store.pickDaemonBinary();
+    if (!path) {
+      return;
+    }
+    enginePending.set(null);
+    store.selectDaemonSource("custom", path);
+    store.refreshDaemonCandidates();
+  };
+
+  const candidateLabel = (candidate: DaemonCandidateView, active: boolean) => {
+    const parts = [active ? "●" : "○", candidate.path];
+    if (candidate.version) {
+      parts.push(candidate.version);
+    }
+    if (candidate.commit) {
+      parts.push(shortCommit(candidate.commit));
+    }
+    if (!candidate.selectable) {
+      parts.push("· not selectable");
+    } else if (!candidate.matchesPinned) {
+      parts.push("· different build");
+    } else {
+      parts.push("· matches engine");
+    }
+    return parts.join(" ");
+  };
+
+  const bundledLabel = () => {
+    const entry = bundled();
+    if (!entry) {
+      return "○ Bundled daemon · not shipped with this build";
+    }
+    return candidateLabel(entry, mode() === "bundled");
+  };
+
+  const runningText = () => {
+    const version = source()?.runningVersion;
+    if (!version) {
+      return "Running daemon: none. The selected source starts one on demand.";
+    }
+    const commit = source()?.runningCommit;
+    return `Running daemon: ${version}${commit ? ` (${shortCommit(commit)})` : ""}`;
+  };
+
+  return (
+    <Panel testID="settings-engine">
+      <SectionTitle hint="Which daemon this app starts when none is running.">
+        Engine
+      </SectionTitle>
+
+      <ActionButton
+        label={bundledLabel()}
+        testID="daemon-source-bundled"
+        tone={mode() === "bundled" ? "primary" : "secondary"}
+        disabled={!bundled()}
+        onPress={() => {
+          const entry = bundled();
+          if (entry) {
+            choose(entry);
+          }
+        }}
+      />
+      {!bundled() ? (
+        <Text
+          testID="daemon-source-bundled-missing"
+          style={{ color: palette().muted, fontSize: store.type().sm }}
+        >
+          This build did not ship a daemon. Install omawarden-bin or choose a binary.
+        </Text>
+      ) : null}
+
+      <Each of={external()} key="index">
+        {(candidate, index) => (
+          <ActionButton
+            label={candidateLabel(candidate(), candidate().path === source()?.resolvedPath)}
+            testID={`daemon-source-candidate-${index()}`}
+            tone={candidate().path === source()?.resolvedPath ? "primary" : "secondary"}
+            disabled={!candidate().selectable}
+            onPress={() => choose(candidate())}
+          />
+        )}
+      </Each>
+
+      <ActionButton
+        label={
+          customPath()
+            ? `○ Custom · ${customPath()}`
+            : mode() === "custom"
+              ? "○ Custom · not configured"
+              : "○ Custom…"
+        }
+        testID="daemon-source-custom"
+        tone={mode() === "custom" ? "primary" : "secondary"}
+        disabled={!customPath()}
+        onPress={chooseCustom}
+      />
+      <ActionButton label="Choose Binary…" testID="daemon-source-pick" onPress={pick} />
+
+      {enginePending() ? (
+        <View
+          testID="daemon-source-warning"
+          style={{
+            backgroundColor: tint(palette().warning, palette().popups.background, 0.14),
+            borderColor: tint(palette().warning, palette().popups.background, 0.4),
+            borderWidth: 1,
+            borderRadius: 8,
+            padding: 8,
+            gap: 6,
+          }}
+        >
+          <Text style={{ color: palette().popups.text, fontSize: store.type().base }}>
+            This binary will receive your vault credentials. The app does not supervise or stop
+            it.
+          </Text>
+          <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
+            {enginePending()?.path}
+          </Text>
+          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+            <ActionButton
+              label="Use This Binary"
+              testID="daemon-source-use-anyway"
+              tone="danger"
+              onPress={() => {
+                const pending = enginePending();
+                enginePending.set(null);
+                if (pending) {
+                  store.selectDaemonSource(pending.mode, pending.path);
+                }
+              }}
+            />
+            <ActionButton
+              label="Cancel"
+              testID="daemon-source-cancel"
+              onPress={() => enginePending.set(null)}
+            />
+          </View>
+        </View>
+      ) : null}
+
+      <Text
+        testID="daemon-source-running"
+        style={{ color: palette().popups.text, fontSize: store.type().base }}
+      >
+        {runningText()}
+      </Text>
+      <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
+        Changes apply the next time no daemon is running. Pinned engine revision:{" "}
+        {source()?.pinnedRev ? shortCommit(source()!.pinnedRev) : "unknown"}.
+      </Text>
+      {source()?.note ? (
+        <Text style={{ color: palette().warning, fontSize: store.type().sm }}>
+          {source()?.note}
+        </Text>
+      ) : null}
+      {source()?.problem ? (
+        <Text style={{ color: palette().danger, fontSize: store.type().sm }}>
+          {source()?.problem}
+        </Text>
+      ) : null}
+    </Panel>
   );
 }
 
