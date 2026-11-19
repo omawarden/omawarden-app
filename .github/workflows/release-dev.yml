@@ -93,10 +93,28 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           nsh --version
 
+      # The bundled daemon is built from the same revision the app links, so
+      # the engine checkout has to exist before Rust's cache step can key the
+      # two workspaces.
+      - name: Check out the pinned engine
+        run: |
+          set -euo pipefail
+          REV=$(sed -n 's/^omawarden[[:space:]]*=.*rev[[:space:]]*=[[:space:]]*"\([0-9a-f]\{40\}\)".*/\1/p' Cargo.toml)
+          if [ -z "$REV" ]; then
+            echo "::error::Cargo.toml does not pin the engine by a 40-hex rev"
+            exit 1
+          fi
+          git clone --filter=blob:none https://github.com/icyleaf/omarchy-bitwarden.git engine
+          git -C engine checkout "$REV"
+          echo "ENGINE_REV=$REV" >> "$GITHUB_ENV"
+
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           key: release-dev-${{ matrix.target }}
+          workspaces: |
+            . -> target
+            engine/omawarden -> target
 
       - name: Validate version consistency
         run: |
@@ -110,6 +128,27 @@ jobs:
       - name: Package native Linux app via nsh
         run: |
           nsh package --target linux --out dist-pkg
+
+      # The AppImage and the tarball carry the daemon, built from the revision
+      # Cargo.toml pins. `-V` is part of the contract the Engine tab parses, so
+      # a binary that does not name this revision must not ship.
+      - name: Build the pinned daemon
+        run: |
+          set -euo pipefail
+          cargo build --release --bin omawarden \
+            --manifest-path engine/omawarden/Cargo.toml
+          PKG_DIR="dist-pkg/Omawarden"
+          if [ ! -d "$PKG_DIR" ]; then
+            PKG_DIR=$(find dist-pkg -mindepth 1 -maxdepth 1 -type d | head -n 1)
+          fi
+          install -m 755 engine/omawarden/target/release/omawarden "$PKG_DIR/omawarden"
+          SHORT=${ENGINE_REV:0:7}
+          VERSION_LINE=$("$PKG_DIR/omawarden" -V)
+          if ! printf '%s\n' "$VERSION_LINE" | grep -q "$SHORT"; then
+            echo "::error::the bundled daemon does not report $SHORT: $VERSION_LINE"
+            exit 1
+          fi
+          echo "bundled daemon: $VERSION_LINE"
 
       - name: Bundle release tarball and AppImage
         env:

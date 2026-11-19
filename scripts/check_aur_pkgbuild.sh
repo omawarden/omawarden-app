@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Guard the generated AUR PKGBUILD against the two mistakes that are cheap to
-# make here and expensive to discover at install time:
+# Guard the generated AUR PKGBUILD against the mistakes that are cheap to make
+# here and expensive to discover at install time:
 #
 # 1. Installing the polkit action. It belongs to the daemon, which is its
 #    subject, and omawarden-bin already installs it; shipping it in the app
 #    package makes pacman abort with "conflicting files".
 # 2. Pointing the source URLs at a filename the release does not publish. The
 #    dev channel uses one stable name per target, with no commit SHA.
+# 3. Installing the daemon from the shared tarball, or forgetting to depend on
+#    the package that owns it.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -35,6 +37,16 @@ for arch in x86_64 aarch64; do
     status=1
   fi
 done
+
+if ! grep -q "'omawarden-bin'" "$WORK/out/PKGBUILD"; then
+  echo "::error::the app package must depend on omawarden-bin"
+  status=1
+fi
+
+if grep -q '/usr/lib/omawarden-app/omawarden"' "$WORK/out/PKGBUILD"; then
+  echo "::error::the app package installs a daemon; omawarden-bin owns that path"
+  status=1
+fi
 
 if [ "$status" -eq 0 ]; then
   echo "AUR PKGBUILD is clean."

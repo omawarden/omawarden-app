@@ -65,7 +65,7 @@ pkgdesc="Omawarden desktop app for Bitwarden/Vaultwarden (prebuilt development b
 arch=('x86_64' 'aarch64')
 url="https://github.com/$GITHUB_REPOSITORY"
 license=('MIT')
-depends=('gtk4' 'webkitgtk-6.0' 'libsecret' 'polkit' 'wl-clipboard')
+depends=('gtk4' 'webkitgtk-6.0' 'libsecret' 'polkit' 'wl-clipboard' 'omawarden-bin')
 optdepends=('libfido2: WebAuthn / Passkey / FIDO2 security key support')
 # The package was called omawarden-app-dev-bin before the rename. Naming the
 # old package in conflicts makes pacman replace it on upgrade instead of
@@ -87,6 +87,9 @@ package() {
 
   install -Dm755 "\${appdir}/Omawarden" "\${pkgdir}/usr/lib/omawarden-app/Omawarden"
   cp -a "\${appdir}/nsh" "\${pkgdir}/usr/lib/omawarden-app/nsh"
+  # The shared tarball also carries the bundled daemon, but this package does
+  # not install it. omawarden-bin owns /usr/bin/omawarden and the polkit
+  # action, and one daemon version per machine is the point of the dependency.
   install -d "\${pkgdir}/usr/bin"
   ln -s /usr/lib/omawarden-app/Omawarden "\${pkgdir}/usr/bin/Omawarden"
 
