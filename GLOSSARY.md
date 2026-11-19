@@ -279,10 +279,11 @@ GitHub issue reader knows what is and is not included.
 ## Daemon Source
 
 The app-level setting that chooses which daemon executable to launch when no
-daemon is answering the shared Unix socket. The default is `bundled`; the user
-may opt into `system` and pick a candidate binary. A daemon that is already
-answering is always kept regardless of the source, and the app never sends
-`stop` to take the socket.
+daemon is answering the shared Unix socket. The default is `bundled`, the
+daemon shipped beside the app binary; `system` picks a binary from
+`which -a omawarden`; `custom` is a path the user chose in the file dialog.
+A daemon that is already answering is always kept regardless of the source,
+and the app never sends `stop` to take the socket.
 
 ## Bundled Daemon
 
