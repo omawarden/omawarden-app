@@ -275,3 +275,23 @@ health check results, process RSS, and the current `Log Viewer` contents.
 It **explicitly excludes** the daemon's stderr logs and any absolute paths
 or local filenames. The report header states the collection scope so a
 GitHub issue reader knows what is and is not included.
+
+## Daemon Source
+
+The app-level setting that chooses which daemon executable to launch when no
+daemon is answering the shared Unix socket. The default is `bundled`; the user
+may opt into `system` and pick a candidate binary. A daemon that is already
+answering is always kept regardless of the source, and the app never sends
+`stop` to take the socket.
+
+## Bundled Daemon
+
+The daemon executable shipped inside an `omawarden-app` release, placed beside
+the app binary in the app's private directory. It is the default `Daemon
+Source` and is built from the same engine commit the app links.
+
+## System Daemon
+
+The daemon executable installed by the OS package (e.g. `omawarden-bin` at
+`/usr/bin/omawarden`) or otherwise found on `PATH`. It is the alternative
+`Daemon Source` the user may select from the list of `omawarden` candidates.
