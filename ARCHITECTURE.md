@@ -203,8 +203,11 @@ pub mod native {
   Trash; `leaveTrash()` — the single way back used by `closeTrash()`,
   `setScope()`, `setFolder()` and `selectCipherById()` — applies that one
   `queryVault` when the user returns, so no cold path gains a second request.
-  A failure only toasts the daemon's error. Lock and logout clear the loaded
-  Trash rows, the pending refresh and the in-flight restore flag.
+  A failure only toasts the daemon's error. A delete — soft or Trash purge —
+  runs the blocking daemon call through the same `defer()` as the form save:
+  the dialog paints `Deleting…` with its buttons disabled first, so the window
+  never freezes without an acknowledgement. Lock and logout clear the loaded
+  Trash rows, the pending refresh and the in-flight restore and delete flags.
 - **Trash details come from the list reply, not a trash-aware `get_item` (#43).**
   `query_trash` keeps the reply's `VaultItem`s in a Trash-owned map beside the
   rows, so the inspector renders a deleted cipher's fields without a second

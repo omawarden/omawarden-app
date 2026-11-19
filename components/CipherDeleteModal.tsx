@@ -15,6 +15,7 @@ export function CipherDeleteModal() {
   const palette = store.palette;
   const cipher = store.selectedCipher;
   const permanent = store.cipherDeletePermanent;
+  const deleting = store.isDeleting;
   const inTrash = () => store.vaultView() === "trash";
 
   const isTrashPermanent = () => permanent() && inTrash();
@@ -31,7 +32,7 @@ export function CipherDeleteModal() {
             : "This moves the item to the trash and syncs the change."
       }
       width={520}
-      onClose={store.closeModal}
+      onClose={deleting() ? () => {} : store.closeModal}
     >
       <View style={{ gap: 6 }}>
         <Text style={{ color: palette().popups.text, fontSize: store.type().md }}>
@@ -66,11 +67,23 @@ export function CipherDeleteModal() {
       </View>
 
       <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
-        <ActionButton label="Cancel" testID="cipher-delete-cancel" onPress={store.closeModal} />
         <ActionButton
-          label={permanent() ? "Delete Permanently" : "Delete"}
+          label="Cancel"
+          testID="cipher-delete-cancel"
+          disabled={deleting()}
+          onPress={store.closeModal}
+        />
+        <ActionButton
+          label={
+            deleting()
+              ? "Deleting…"
+              : permanent()
+                ? "Delete Permanently"
+                : "Delete"
+          }
           testID="cipher-delete-confirm"
           tone="danger"
+          disabled={deleting()}
           onPress={() => (isTrashPermanent() ? store.confirmDeleteTrashCipher() : store.confirmDeleteCipher(permanent()))}
         />
       </View>
