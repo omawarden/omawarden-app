@@ -11,6 +11,9 @@ use crate::auth::{AuthEngine, InProcess as InProcessAuth, Mock as MockAuth};
 use crate::cipher_mutation::{CipherEngine, InProcess as InProcessCipher, Mock as MockCipher};
 use crate::clipboard::{ClipboardEngine, InProcess as InProcessClipboard, Mock as MockClipboard};
 use crate::daemon::{DaemonEngine, InProcess as InProcessDaemon, Mock as MockDaemon};
+use crate::daemon_source::{
+    DaemonSourceEngine, InProcess as InProcessDaemonSource, Mock as MockDaemonSource,
+};
 use crate::diagnostics::{
     DiagnosticsEngine, InProcess as InProcessDiagnostics, Mock as MockDiagnostics,
 };
@@ -128,6 +131,17 @@ pub(crate) fn daemon() -> &'static dyn DaemonEngine {
         &MOCK
     } else {
         static IN_PROCESS: InProcessDaemon = InProcessDaemon;
+        &IN_PROCESS
+    }
+}
+
+/// The daemon source adapter for the current run mode.
+pub(crate) fn daemon_source() -> &'static dyn DaemonSourceEngine {
+    if crate::with_mock(|state| state.enabled) {
+        static MOCK: MockDaemonSource = MockDaemonSource;
+        &MOCK
+    } else {
+        static IN_PROCESS: InProcessDaemonSource = InProcessDaemonSource;
         &IN_PROCESS
     }
 }

@@ -26,6 +26,9 @@ if [ "$cargo_version" != "$nsh_version" ]; then
   exit 1
 fi
 
+step "Check the engine pin"
+bash scripts/check_engine_pin.sh
+
 step "Reject private details"
 python3 scripts/check_privacy.py
 

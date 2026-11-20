@@ -6,6 +6,8 @@
 
 use nsh_core::prelude::*;
 
+use crate::DaemonSourceView;
+
 /// The exact validation message for an out-of-range password length.
 pub const ERR_PASSWORD_LENGTH: &str = "Password length must be between 5 and 128 characters. Use 14 or more characters for a strong password.";
 
@@ -119,6 +121,8 @@ pub struct DependencyStatusView {
     pub missing_packages: Vec<String>,
     /// The names of the missing required packages.
     pub missing_required: Vec<String>,
+    /// The daemon source the `omawarden` row reflects.
+    pub daemon_source: DaemonSourceView,
 }
 
 /// One two-factor provider the server offers.

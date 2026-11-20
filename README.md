@@ -53,7 +53,7 @@ omawarden Rust crate ── Unix socket ── omawarden daemon (separate proces
 - **Rust** `1.99.1` — pinned by [`rust-toolchain.toml`](rust-toolchain.toml).
 - **`nsh`** `0.5.1` — the Native Shell CLI.
 - **`mise`** — recommended for running the project tasks.
-- A sibling checkout of the engine at `../omarchy-bitwarden/omawarden`, because `Cargo.toml` links it by path.
+- A sibling checkout of the engine at `../omarchy-bitwarden/omawarden` is used when present: `Cargo.toml` pins the engine by revision and `.cargo/config.toml` patches it to that checkout. Without the checkout, Cargo fetches the pinned revision.
 - Runtime tools used by engine features: `secret-tool` (libsecret) for the keyring, `wl-copy` (wl-clipboard) for the Wayland clipboard, and optionally `fido2-token` (libfido2) for security keys.
 
 On Arch Linux:
@@ -62,6 +62,30 @@ On Arch Linux:
 sudo pacman -S --needed gtk4 webkitgtk-6.0 libsecret wl-clipboard
 sudo pacman -S --needed libfido2   # optional, for FIDO2 security keys
 ```
+
+### Daemon Source
+
+The app launches a separate `omawarden` daemon and never hosts it. Settings →
+Engine chooses which executable it starts when no daemon is answering:
+
+- **Bundled** (default in the AppImage and the release tarball): the
+  `omawarden` binary shipped beside `Omawarden`, built from the same engine
+  revision the app pins. No separate daemon package is needed.
+- **System**: a binary from `which -a omawarden`, typically
+  `/usr/bin/omawarden` installed by `omawarden-bin`.
+- **Custom**: an absolute path chosen in the file dialog.
+
+`OMA_DAEMON_BIN` overrides the setting for one launch. A development build with
+no bundled binary falls back to `../omarchy-bitwarden/omawarden/target/debug`,
+then `target/release`, then `PATH`. A daemon that already answers is kept,
+whichever source it came from; the setting only decides what to start when the
+socket is silent, and it takes effect on the next launch.
+
+| Channel | Daemon |
+| --- | --- |
+| AppImage | bundled, self-contained |
+| release tarball | bundled beside `Omawarden` |
+| AUR `omawarden-app-git-bin` | `depends=('omawarden-bin')`; the bundled copy in the shared tarball is not installed |
 
 ## Development commands
 
@@ -93,7 +117,7 @@ The app icon is declared in `nsh.json` (`"icon": "assets/icon.png"`), so packagi
 
 [`scripts/check_ci.sh`](scripts/check_ci.sh) runs every check from
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) locally, in the same order:
-version consistency, the privacy check, the AUR PKGBUILD check,
+version consistency, the engine pin, the privacy check, the AUR PKGBUILD check,
 `cargo fmt --all --check`, `nsh check`, then `nsh test`.
 
 ```sh

@@ -225,6 +225,119 @@ test("dependency check reports when every required package is installed", async 
   expect(app.enabled("id:install-dependencies")).toBe(false);
 });
 
+test("dependency check names the daemon source behind the omawarden row", async () => {
+  const app = await openMock({ phase: "dependencyCheck" });
+
+  expect(app.shows("id:dependency-daemon-source")).toBe(true);
+  const lines = app.texts().filter((text) => text.includes("Daemon Source: Bundled"));
+  expect(lines.length).toBe(1);
+  expect(lines[0]).toContain("/tmp/omawarden-mock/omawarden");
+  // A resolved source means the engine is installed, so there is nothing to
+  // install even though no `omawarden-bin` package was consulted.
+  expect(app.enabled("id:install-dependencies")).toBe(false);
+});
+
+test("dependency check keeps offering the daemon when the source is missing", async () => {
+  const app = await openMock({
+    phase: "dependencyCheck",
+    dependenciesMissing: ["omawarden"],
+  });
+
+  expect(app.shows("id:dependency-daemon-source")).toBe(true);
+  expect(app.texts()).toContain("⚡ Install Missing Packages (omawarden)");
+  expect(app.enabled("id:install-dependencies")).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
+// Daemon source
+// ---------------------------------------------------------------------------
+
+test("engine tab lists daemon candidates and stores a matching selection", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+  const pinned = OmawardenBridge.getDaemonSource().pinnedRev;
+  OmawardenBridge.configureMockState(
+    JSON.stringify({
+      daemonSource: { mode: "bundled" },
+      daemonCandidates: [
+        {
+          path: "/tmp/omawarden-app/omawarden",
+          kind: "bundled",
+          version: "0.12.0",
+          commit: pinned.slice(0, 7),
+        },
+        {
+          path: "/usr/bin/omawarden",
+          kind: "path",
+          version: "0.12.0",
+          commit: pinned.slice(0, 7),
+        },
+        {
+          path: "/opt/old/omawarden",
+          kind: "path",
+          version: "0.11.0",
+          commit: "8d88483",
+        },
+        { path: "/opt/broken/omawarden", kind: "path" },
+      ],
+    }),
+  );
+
+  await app.press("id:open-settings");
+  await app.press("id:settings-tab-engine");
+
+  expect(app.shows("id:settings-engine")).toBe(true);
+  expect(app.shows("id:daemon-source-bundled")).toBe(true);
+  expect(app.shows("id:daemon-source-candidate-0")).toBe(true);
+  expect(app.shows("id:daemon-source-candidate-1")).toBe(true);
+  expect(app.shows("id:daemon-source-candidate-2")).toBe(true);
+  expect(app.texts().some((text) => text.includes("different build"))).toBe(true);
+  expect(app.shows("id:daemon-source-running")).toBe(true);
+  expect(app.texts().some((text) => text.includes("Running daemon: mock"))).toBe(true);
+
+  // An unparseable `-V` is listed but cannot be chosen.
+  expect(app.enabled("id:daemon-source-candidate-2")).toBe(false);
+
+  await app.press("id:daemon-source-candidate-0");
+  expect(app.texts()).toContain(
+    "Daemon source set to /usr/bin/omawarden. It applies the next time no daemon is running.",
+  );
+});
+
+test("engine tab asks before storing an external binary from another build", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+  OmawardenBridge.configureMockState(
+    JSON.stringify({
+      daemonSource: { mode: "bundled" },
+      daemonCandidates: [
+        {
+          path: "/opt/old/omawarden",
+          kind: "path",
+          version: "0.11.0",
+          commit: "8d88483",
+        },
+      ],
+    }),
+  );
+
+  await app.press("id:open-settings");
+  await app.press("id:settings-tab-engine");
+
+  await app.press("id:daemon-source-candidate-0");
+  expect(app.shows("id:daemon-source-warning")).toBe(true);
+  expect(app.texts()).toContain(
+    "This binary will receive your vault credentials. The app does not supervise or stop it.",
+  );
+
+  await app.press("id:daemon-source-cancel");
+  expect(app.shows("id:daemon-source-warning")).toBe(false);
+
+  await app.press("id:daemon-source-candidate-0");
+  await app.press("id:daemon-source-use-anyway");
+  expect(app.texts()).toContain(
+    "Daemon source set to /opt/old/omawarden. It applies the next time no daemon is running.",
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Authentication
 // ---------------------------------------------------------------------------

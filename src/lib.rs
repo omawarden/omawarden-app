@@ -21,6 +21,7 @@ mod cipher_mutation;
 mod clipboard;
 mod config;
 mod daemon;
+mod daemon_source;
 mod diagnostics;
 mod engine;
 mod format;
@@ -34,6 +35,9 @@ mod types;
 mod ui_prefs;
 mod vault;
 
+pub use daemon_source::{
+    DaemonCandidateView, DaemonSourceMode, DaemonSourceUpdateInput, DaemonSourceView,
+};
 pub use settings::{SettingsSnapshotView, SettingsUpdateInput, SettingsView};
 pub use ui_prefs::{UiPrefsUpdateInput, UiPrefsView};
 
@@ -270,6 +274,9 @@ pub(crate) struct MockState {
     ssh_prompt: Option<SshPromptView>,
     settings: MockSettings,
     ui_prefs: UiPrefsView,
+    /// The daemon source the mock reports, and the candidates it lists.
+    daemon_source: crate::daemon_source::DaemonSource,
+    daemon_candidates: Vec<DaemonCandidateView>,
     update_available: bool,
     last_sync: Option<String>,
     error: Option<String>,
@@ -349,6 +356,8 @@ impl Default for MockState {
             ssh_prompt: None,
             settings: MockSettings::default(),
             ui_prefs: UiPrefsView::default(),
+            daemon_source: crate::daemon_source::DaemonSource::default(),
+            daemon_candidates: Vec::new(),
             update_available: false,
             last_sync: None,
             error: None,
@@ -852,6 +861,11 @@ fn configure_mock_from_json(state: &mut MockState, value: &Value) {
     if let Some(ui_prefs) = value.get("uiPrefs") {
         crate::ui_prefs::apply_mock_json(&mut state.ui_prefs, ui_prefs);
     }
+    crate::daemon_source::apply_mock_json(
+        &mut state.daemon_source,
+        &mut state.daemon_candidates,
+        &value,
+    );
 }
 
 /// The default two-factor provider list.
@@ -901,18 +915,65 @@ pub struct ActionOutcomeView {
 
 /// Ensures an Omawarden daemon answers `ping`, letting the engine start one.
 ///
-/// The engine resolves the standalone `omawarden` executable (`OMA_DAEMON_BIN`,
-/// this binary when it is the CLI, or `PATH`) and runs the daemon as its own
-/// process. Hosting the daemon here would tie the vault session to the window
-/// and let one `stop` take the GUI down with it, so the app only ever acts as
-/// a client.
+/// The daemon is a separate process, never hosted here: hosting it would tie
+/// the vault session to the window and let one `stop` take the GUI down with
+/// it. The app only ever acts as a client.
+///
+/// Which executable to launch comes from the `Daemon Source` setting, resolved
+/// by [`crate::daemon_source`]: `OMA_DAEMON_BIN`, the stored source, a
+/// development fallback, then `PATH`. A `system` or `custom` source that is
+/// gone is a hard error — launching a different daemon instead would make the
+/// setting a lie.
 ///
 /// A daemon that already answers is kept, whichever build it comes from: the
-/// engine's protocol handshake judges compatibility, and a commit difference
-/// no longer counts against it. A daemon that this process did not start may
-/// be serving the Overlay, so the app must never stop it to take the socket.
+/// engine pings before it resolves anything, and the protocol handshake judges
+/// compatibility. A daemon this process did not start may be serving the
+/// Overlay, so the app must never stop it to take the socket.
 fn ensure_app_daemon_running() -> Result<(), String> {
-    omawarden::daemon::ensure_daemon_running().map_err(|error| error.to_string())
+    use omawarden::daemon::{
+        DaemonClient, DaemonLaunchStrategy, DispatchError, ensure_daemon_running_with_strategy,
+    };
+
+    // A daemon that already answers keeps the socket. The source only decides
+    // what to launch when it is silent, so the ping comes first: an unresolved
+    // source must not turn a working daemon into a boot failure.
+    match DaemonClient::new().ping() {
+        Ok(_) => return Ok(()),
+        Err(error @ DispatchError::IncompatibleProtocol { .. }) => {
+            return Err(error.to_string());
+        }
+        Err(_) => {}
+    }
+
+    // An operator who disabled launching still gets to connect to a daemon that
+    // is already there, but the app must not spawn one behind their back.
+    if daemon_launch_disabled() {
+        return ensure_daemon_running_with_strategy(&DaemonLaunchStrategy::Disabled)
+            .map_err(|error| error.to_string());
+    }
+
+    let resolution = crate::daemon_source::resolve_live().map_err(|error| error.message())?;
+    let strategy = DaemonLaunchStrategy::Explicit(resolution.path.clone());
+
+    // `daemon_launch_strategy()` reads the process-global value before it reads
+    // `OMA_DAEMON_BIN`. Setting the global while the variable is set would
+    // silently beat what the operator asked for.
+    if crate::daemon_source::env_daemon_bin().is_none() {
+        omawarden::daemon::set_daemon_launch_strategy(strategy.clone());
+    }
+
+    ensure_daemon_running_with_strategy(&strategy).map_err(|error| error.to_string())
+}
+
+/// Whether `OMA_DAEMON_LAUNCH_STRATEGY` turns daemon launching off.
+fn daemon_launch_disabled() -> bool {
+    let Ok(value) = std::env::var("OMA_DAEMON_LAUNCH_STRATEGY") else {
+        return false;
+    };
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "disabled" | "none" | "off" | "false"
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1223,6 +1284,27 @@ impl OmawardenBridge {
     /// Update the interface preferences and return the stored snapshot.
     pub fn update_ui_prefs(input: UiPrefsUpdateInput) -> UiPrefsView {
         engine::ui_prefs().update(input)
+    }
+
+    /// The daemon source, and the binary it resolves to right now.
+    pub fn get_daemon_source() -> DaemonSourceView {
+        crate::daemon_source::view()
+    }
+
+    /// Store the daemon source. A path that cannot be launched is rejected and
+    /// the stored value is left alone; the returned view carries the reason.
+    pub fn set_daemon_source(input: DaemonSourceUpdateInput) -> DaemonSourceView {
+        crate::daemon_source::set(input)
+    }
+
+    /// The daemon binaries the app could launch, bundled first.
+    pub fn list_daemon_candidates() -> Vec<DaemonCandidateView> {
+        crate::daemon_source::candidates()
+    }
+
+    /// Pick a daemon binary with the native file dialog.
+    pub fn pick_daemon_binary() -> Option<String> {
+        engine::platform().pick_file(Some("Choose omawarden".to_string()), None, None)
     }
 
     /// Run system health diagnostics.
