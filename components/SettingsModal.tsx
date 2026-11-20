@@ -16,7 +16,6 @@ import {
   isProblemLine,
   logLevelColor,
   stableLogTestId,
-  type ParsedLogLine,
 } from "../store/diagnosticReport";
 
 type SettingsTab =
@@ -587,6 +586,19 @@ export function SettingsModal() {
                         store.openReleaseNotes();
                       }}
                     />
+
+                                        <ActionButton
+                      label="App Repository"
+                      testID="github-app"
+                      onPress={() => store.openUrl("https://github.com/omawarden/omawarden-app")}
+                    />
+                    <ActionButton
+                      label="Engine Repository"
+                      testID="github-engine"
+                      onPress={() =>
+                        store.openUrl("https://github.com/omawarden/omawarden-cli")
+                      }
+                    />
                   </View>
                   {store.updateStatus() ? (
                     <View style={{ gap: 2 }}>
@@ -606,26 +618,6 @@ export function SettingsModal() {
                       </Text>
                     </View>
                   ) : null}
-
-                  <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
-                    <Chip label="omawarden-app" color={palette().info} />
-                    <Chip label="omawarden-cli" color={palette().purple} />
-                  </View>
-
-                  <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                    <ActionButton
-                      label="App Repository"
-                      testID="github-app"
-                      onPress={() => store.openUrl("https://github.com/omawarden/omawarden-app")}
-                    />
-                    <ActionButton
-                      label="Engine Repository"
-                      testID="github-engine"
-                      onPress={() =>
-                        store.openUrl("https://github.com/omawarden/omawarden-cli")
-                      }
-                    />
-                  </View>
                 </Panel>
               </View>
             ) : null}
