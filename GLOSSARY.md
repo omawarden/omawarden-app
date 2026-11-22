@@ -208,7 +208,7 @@ toast stay mounted underneath, so shrinking and restoring preserves form input,
 open dialogs and scroll position.
 
 It does **not** resize the window or ask the window manager for a minimum size.
-NSH 0.5.1 offers `window.minSize` in `nsh.json`, and the app deliberately does
+NSH 0.6.1 offers `window.minSize` in `nsh.json`, and the app deliberately does
 not use it: a tiling compositor sizes the window rather than the user, so a size
 hint can be ignored, and the gate is what explains the requirement when it is.
 The floor is the app's own. It does not collapse the sidebar, reflow the
@@ -224,14 +224,16 @@ from, and what names the release artifacts and the AUR `pkgver`.
 
 It is **not** the `NSH Version`. The app version moves when the app ships and
 the NSH version when the framework it runs on moves; the two are independent,
-and were only briefly the same number (`0.4.0`).
+so an app release that changes nothing in the framework moves only the
+`App Version`.
 
 ## NSH Version
 
 The version of Native Shell the app is built on and run by: the `nsh` CLI
 pinned in `mise.toml` and installed by CI, moved together with the `nsh-core`
 and `nsh-base` crates in `Cargo.toml`. It is deliberately independent of the
-`App Version`: `omawarden-app` 0.5.0 is built on NSH 0.5.1.
+`App Version`: NSH `0.5.1` carried `omawarden-app` `0.5.0`, and NSH `0.6.1`
+carries `0.6.0`.
 
 ## Dev Release
 

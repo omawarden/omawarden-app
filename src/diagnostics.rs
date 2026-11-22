@@ -417,10 +417,10 @@ fn real_updates(force: bool) -> UpdateStatusView {
 /// The mock update check.
 fn mock_updates(update_available: bool) -> UpdateStatusView {
     let release = update_available.then(|| ReleaseNotesView {
-        version: "0.5.0".to_string(),
-        title: "Omawarden 0.5.0".to_string(),
+        version: "0.6.0".to_string(),
+        title: "Omawarden 0.6.0".to_string(),
         notes: "## What's new\n\n- Faster fuzzy search\n- Quick unlock improvements\n- SSH agent polish".to_string(),
-        url: "https://github.com/omawarden/omawarden-app/releases/tag/v0.5.0".to_string(),
+        url: "https://github.com/omawarden/omawarden-app/releases/tag/v0.6.0".to_string(),
         published_at: "2026-10-01".to_string(),
     });
     UpdateStatusView {

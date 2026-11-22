@@ -1,17 +1,17 @@
 [package]
 name = "nsh-app-omawarden-app"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 publish = false
 
 [workspace]
 
 [dependencies]
-nsh-core = "0.5.1"
+nsh-core = "0.6.1"
 # Not named anywhere in this crate's source: the Linux runner links `nsh-base`
 # unconditionally and the base components/theme come from it. Keep the pin so
 # the app is built against the same base the host resolves.
-nsh-base = "0.5.1"
+nsh-base = "0.6.1"
 # Pinned by revision, not branch: the release builds the bundled daemon from
 # this commit, and the app compares every external daemon against it. Update
 # the comment and the revision together. scripts/check_engine_pin.sh enforces it.

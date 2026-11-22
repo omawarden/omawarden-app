@@ -61,9 +61,9 @@ jobs:
       # The Linux archive carries this platform's runtimes next to `bin/nsh`,
       # which the CLI needs to run apps; keep the official installer's layout
       # (~/.nsh) instead of extracting the bare binary somewhere else.
-      - name: Install nsh CLI (v0.5.1)
+      - name: Install nsh CLI (v0.6.1)
         run: |
-          curl -fsSL https://github.com/longbridge/nsh/releases/download/v0.5.1/install.sh | NSH_VERSION=v0.5.1 sh
+          curl -fsSL https://github.com/longbridge/nsh/releases/download/v0.6.1/install.sh | NSH_VERSION=v0.6.1 sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/.local/bin:$PATH"
           nsh --version

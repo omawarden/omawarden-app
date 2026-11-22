@@ -13,7 +13,7 @@
 # and `nsh` in sync with the version installed by CI (.github/workflows/*.yml).
 [tools]
 rust = "1.99.1"
-"github:longbridge/nsh" = "0.5.1"
+"github:longbridge/nsh" = "0.6.1"
 
 [tasks.run]
 description = "Run the app in the native development host"
@@ -23,7 +23,7 @@ run = "nsh run"
 description = "Run the app with hot reload"
 run = "nsh dev"
 
-# GPUI is a development/embedding backend in NSH 0.5.1, not a packaged target:
+# GPUI is a development/embedding backend in NSH 0.6.1, not a packaged target:
 # `nsh package` only ships the GTK 4 Linux runner. NSH installs the GPUI
 # component on first use; pre-add it with `nsh component add gpui` when offline.
 # This task previews the app as GPUI and GPUI Kit apps that embed it would draw it.

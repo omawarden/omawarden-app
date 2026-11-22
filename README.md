@@ -51,7 +51,7 @@ omawarden Rust crate ── Unix socket ── omawarden daemon (separate proces
 
 - **Linux** (primary target) with GTK 4 and WebKitGTK 6.0.
 - **Rust** `1.99.1` — pinned by [`rust-toolchain.toml`](rust-toolchain.toml).
-- **`nsh`** `0.5.1` — the Native Shell CLI.
+- **`nsh`** `0.6.1` — the Native Shell CLI.
 - **`mise`** — recommended for running the project tasks.
 - A sibling checkout of the engine at `../omarchy-bitwarden/omawarden` is used when present: `Cargo.toml` pins the engine by revision and `.cargo/config.toml` patches it to that checkout. Without the checkout, Cargo fetches the pinned revision.
 - Runtime tools used by engine features: `secret-tool` (libsecret) for the keyring, `wl-copy` (wl-clipboard) for the Wayland clipboard, and optionally `fido2-token` (libfido2) for security keys.
@@ -130,7 +130,7 @@ means the push should pass CI.
 
 ### GPUI preview
 
-NSH 0.5.1 packages Linux with GTK 4 only. GPUI is a development and embedding
+NSH 0.6.1 packages Linux with GTK 4 only. GPUI is a development and embedding
 backend (`nsh run --target gpui`), not a package target: `nsh package` has no
 GPUI runner, so `mise run gpui` opens the app as GPUI apps that embed it draw
 it but does not produce a release artifact. NSH ships only the host platform's
