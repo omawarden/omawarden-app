@@ -230,9 +230,10 @@ daemon keep running, and the `Tray Icon` remains the way back.
 
 ## Tray Attention State
 
-The `Tray Icon` state that means the vault is unlocked while an SSH signing
-request is waiting for approval. It is the one tray state that asks for a
-decision rather than only reporting whether the vault is readable.
+The condition in which the vault is unlocked while an SSH signing request is
+waiting for approval. The tray names the waiting client in its tooltip and
+leaves the vault actions enabled; the icon itself is the app logo in every
+state.
 
 ## App Version
 

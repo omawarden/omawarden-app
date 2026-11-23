@@ -1,7 +1,7 @@
 import { expect, test } from "nsh/test";
 import type { MenuItem, TrayOptions } from "nsh/desktop";
 import type { AppPhase, SshPromptView } from "omawarden-app/native";
-import { paletteFor } from "../theme/palette";
+import appIcon from "../assets/icon.png";
 import { buildTrayOptions, type TrayContext, type TrayHandlers } from "./tray";
 
 type TrayMenuItem = Exclude<MenuItem, { type: "separator" }>;
@@ -32,7 +32,6 @@ function context(phase: AppPhase, overrides: Partial<TrayContext> = {}): TrayCon
     phase,
     sshPrompt: null,
     windowVisible: true,
-    palette: paletteFor("dark"),
     ...overrides,
   };
 }
@@ -52,29 +51,19 @@ function menuLabels(options: TrayOptions): string[] {
   );
 }
 
-test("the tray has a distinct icon for each state", () => {
-  const locked = buildTrayOptions(context("locked"), handlers);
-  const unlocked = buildTrayOptions(context("unlocked"), handlers);
-  const attention = buildTrayOptions(context("unlocked", { sshPrompt: prompt }), handlers);
-
-  for (const options of [locked, unlocked, attention]) {
-    expect(options.icon).toMatch(/^data:image\/svg\+xml/);
-  }
-  expect(new Set([locked.icon, unlocked.icon, attention.icon]).size).toBe(3);
-});
-
-test("every phase before the vault is unlocked shows the locked icon", () => {
-  const lockedIcon = buildTrayOptions(context("locked"), handlers).icon;
-  for (const phase of ["dependencyCheck", "login", "twoFactor", "locked"] as const) {
-    expect(buildTrayOptions(context(phase), handlers).icon).toBe(lockedIcon);
+test("the tray shows the app icon in every state", () => {
+  for (const state of [
+    context("locked"),
+    context("unlocked"),
+    context("unlocked", { sshPrompt: prompt }),
+  ]) {
+    expect(buildTrayOptions(state, handlers).icon).toBe(appIcon);
   }
 });
 
-test("a pending SSH request is the attention state, not the unlocked one", () => {
-  const unlocked = buildTrayOptions(context("unlocked"), handlers);
+test("a pending SSH request is named in the tooltip", () => {
   const attention = buildTrayOptions(context("unlocked", { sshPrompt: prompt }), handlers);
 
-  expect(attention.icon).not.toBe(unlocked.icon);
   expect(attention.tooltip).toContain("SSH");
   expect(attention.tooltip).toContain("git");
   expect(attention.tooltip).toContain("2 more");
@@ -104,15 +93,6 @@ test("the tooltip says what the app is doing in each state", () => {
   expect(buildTrayOptions(context("twoFactor"), handlers).tooltip).toContain("log in");
   expect(buildTrayOptions(context("locked"), handlers).tooltip).toContain("locked");
   expect(buildTrayOptions(context("unlocked"), handlers).tooltip).toContain("unlocked");
-});
-
-test("the icon color comes from the theme palette", () => {
-  const dark = buildTrayOptions(context("unlocked", { palette: paletteFor("dark") }), handlers);
-  const light = buildTrayOptions(context("unlocked", { palette: paletteFor("light") }), handlers);
-
-  expect(dark.icon).not.toBe(light.icon);
-  expect(dark.icon).toContain(encodeURIComponent(paletteFor("dark").success));
-  expect(light.icon).toContain(encodeURIComponent(paletteFor("light").success));
 });
 
 test("Lock Vault is enabled only while unlocked and Log Out only while signed in", () => {

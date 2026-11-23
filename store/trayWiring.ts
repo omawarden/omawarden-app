@@ -73,7 +73,6 @@ export function installTray(): void {
           phase: store.phase(),
           sshPrompt: store.sshPrompt() ?? null,
           windowVisible: win?.state()?.visible ?? false,
-          palette: store.palette(),
         },
         handlers,
       ),

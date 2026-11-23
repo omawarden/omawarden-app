@@ -1,7 +1,6 @@
+import appIcon from "../assets/icon.png";
 import type { MenuItem, TrayOptions } from "nsh/desktop";
 import type { AppPhase, SshPromptView } from "omawarden-app/native";
-import type { ThemePalette } from "../theme/palette";
-import { trayIcon, type TrayState } from "./trayIcons";
 
 /**
  * Everything the tray shows, as plain values. The builder reads nothing else:
@@ -13,8 +12,6 @@ export interface TrayContext {
   sshPrompt: SshPromptView | null;
   /** Whether the main window is on screen, which the Show/Hide item follows. */
   windowVisible: boolean;
-  /** The resolved palette, so the icon follows the theme and its overrides. */
-  palette: ThemePalette;
 }
 
 /** The app paths a tray item runs. The builder only calls them. */
@@ -28,7 +25,6 @@ export interface TrayHandlers {
 
 /** What the current phase means to the tray, derived once. */
 interface TrayStatus {
-  state: TrayState;
   /** The vault is unlocked, so Lock Vault can run. */
   unlocked: boolean;
   /** The user is past the login step, so Log Out can run. */
@@ -40,7 +36,6 @@ function statusFor(phase: AppPhase, sshPrompt: SshPromptView | null): TrayStatus
   switch (phase) {
     case "dependencyCheck":
       return {
-        state: "locked",
         unlocked: false,
         signedIn: false,
         tooltip: "Omawarden — checking dependencies",
@@ -48,14 +43,12 @@ function statusFor(phase: AppPhase, sshPrompt: SshPromptView | null): TrayStatus
     case "login":
     case "twoFactor":
       return {
-        state: "locked",
         unlocked: false,
         signedIn: false,
         tooltip: "Omawarden — log in to unlock",
       };
     case "locked":
       return {
-        state: "locked",
         unlocked: false,
         signedIn: true,
         tooltip: "Omawarden — vault locked",
@@ -65,14 +58,12 @@ function statusFor(phase: AppPhase, sshPrompt: SshPromptView | null): TrayStatus
         const more = sshPrompt.remaining > 0 ? ` (+${sshPrompt.remaining} more)` : "";
         const client = sshPrompt.client.trim() || "an app";
         return {
-          state: "attention",
           unlocked: true,
           signedIn: true,
           tooltip: `Omawarden — SSH approval waiting: ${client}${more}`,
         };
       }
       return {
-        state: "unlocked",
         unlocked: true,
         signedIn: true,
         tooltip: "Omawarden — vault unlocked",
@@ -84,7 +75,8 @@ function statusFor(phase: AppPhase, sshPrompt: SshPromptView | null): TrayStatus
 /**
  * The tray description for the current app state. It is a pure function: the
  * same context and handlers always produce the same options, and nothing here
- * reads a signal, touches the window, or performs IO.
+ * reads a signal, touches the window, or performs IO. The icon is the app's
+ * asset in every state; the tooltip and the menu carry the state.
  */
 export function buildTrayOptions(context: TrayContext, handlers: TrayHandlers): TrayOptions {
   const status = statusFor(context.phase, context.sshPrompt);
@@ -119,7 +111,7 @@ export function buildTrayOptions(context: TrayContext, handlers: TrayHandlers): 
   ];
 
   return {
-    icon: trayIcon(status.state, context.palette),
+    icon: appIcon,
     tooltip: status.tooltip,
     // The icon's primary click is the same toggle as the Show/Hide item.
     onClick: handlers.onToggleWindow,

@@ -29,28 +29,26 @@ pending SSH approval, never stored in the tray.
 | `unlocked` | `unlocked`, with no pending SSH approval | The vault is readable. |
 | `attention` | `unlocked`, with a pending SSH approval | The vault is readable and a signing request is waiting. |
 
-An approval arriving or leaving moves the icon between `unlocked` and
-`attention` on the next update; no extra event is needed.
+An approval arriving or leaving moves the tray description between `unlocked`
+and `attention` on the next update; no extra event is needed. The states are
+carried by the tooltip and the menu, not by the icon.
 
 ## Icon and Tooltip
 
-The icon answers "what state is the app in" at a glance. It is an inline SVG
-data URI, drawn at the 16–24 px panel size and filled rather than thin-stroked,
-so it survives being scaled down. The three shapes differ by silhouette as well
-as by color: a closed padlock with a keyhole, an open padlock, and a warning
-triangle. Their colors come from the resolved palette roles `muted`, `success`
-and `warning`, so appearance changes and user overrides follow without the tray
-reading the theme itself.
+The icon is the app's own `assets/icon.png`, the same logo used on the login
+screen, in every state. It is a recognizable presence in the panel rather than
+a state indicator: using the asset keeps the tray consistent with the app and
+avoids hand-drawn glyphs that drift from the logo.
 
 The tooltip answers "what exactly is happening". It names the phase in words
 (`checking dependencies`, `log in to unlock`, `vault locked`, `vault unlocked`)
-or names the waiting SSH client and the number of further requests. Color is
-never the only cue: a panel that tints every icon in its own text color still
-gets three distinct shapes.
+or names the waiting SSH client and the number of further requests. The menu
+adds the actionable part of the state: `Lock Vault` is enabled only when the
+vault is unlocked, and `Log Out` only after sign-in.
 
 The tray deliberately sets **no** `title` (colored text runs). Waybar and most
 Linux panels show only the icon, so a run added for macOS would be invisible
-where this app primarily runs.
+where this app primarily runs; state must not depend on it.
 
 ## Menu
 
@@ -101,11 +99,9 @@ itself is deferred and is not part of this specification.
 
 ## Test Boundary
 
-The mapping from app state to icon, tooltip and menu is a pure builder and is
+The mapping from app state to tooltip and menu is a pure builder and is
 unit-tested, including all three states, the phase-to-enabled matrix and the
-handler dispatch. Window actions have a small tested seam for show/hide. The
-tray wiring itself is a no-op in headless `nsh test`: there is no desktop tray
-there to assert against, so tests do not try to inspect a live icon. The
-automated tests check that the three icon descriptions differ and carry the
-palette colors. The shapes themselves were reviewed by rendering them offline
-at 16 px and 24 px in both palettes; that is a one-off review, not a test.
+handler dispatch. Tests also assert that the icon is the app asset in every
+state. Window actions have a small tested seam for show/hide. The tray wiring
+itself is a no-op in headless `nsh test`: there is no desktop tray there to
+assert against, so tests do not try to inspect a live icon.
