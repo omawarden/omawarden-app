@@ -39,7 +39,8 @@ export type IconName =
   | "pencil"
   | "trash"
   | "chevron-down"
-  | "chevron-right";
+  | "chevron-right"
+  | "panel-left";
 
 type Draw = (cx: CanvasRenderingContext2D) => void;
 
@@ -270,6 +271,19 @@ const glyphs: Record<IconName, Draw> = {
     line(c, [8, 6, 8, 4, 12, 4, 12, 6]);
     line(c, [8.5, 9, 8.5, 14]);
     line(c, [11.5, 9, 11.5, 14]);
+  },
+  // A frame whose left column is filled: the sidebar is drawn, so the control
+  // collapses it.
+  "panel-left": (c) => {
+    rect(c, 3, 4, 14, 12, 1.5);
+    line(c, [7, 4, 7, 16]);
+    c.beginPath();
+    c.moveTo(3.5, 5.5);
+    c.lineTo(6.5, 5.5);
+    c.lineTo(6.5, 14.5);
+    c.lineTo(3.5, 14.5);
+    c.closePath();
+    c.fill();
   },
 };
 

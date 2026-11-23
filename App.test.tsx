@@ -5,12 +5,21 @@ import { formatLocalDateTime } from "./store/DateTime";
 
 type MockState = Record<string, unknown>;
 
+// Every case that does not say otherwise runs the collapsed workspace, which is
+// the layout the app has always had. The expanded layout has its own cases.
+const COLLAPSED = { sidebarCollapsed: true };
+
+function withCollapsed(mockState: MockState): MockState {
+  const prefs = (mockState.uiPrefs ?? {}) as Record<string, unknown>;
+  return { ...mockState, uiPrefs: { ...COLLAPSED, ...prefs } };
+}
+
 function openMock(mockState: MockState, params: Record<string, unknown> = {}) {
   return open("./App.tsx", {
     width: 1440,
     height: 960,
     platform: "linux",
-    host: { params: { mock: true, mockState, ...params } },
+    host: { params: { mock: true, mockState: withCollapsed(mockState), ...params } },
   });
 }
 
@@ -20,7 +29,7 @@ function openMockWithClock(mockState: MockState, params: Record<string, unknown>
     height: 960,
     platform: "linux",
     clock: {},
-    host: { params: { mock: true, mockState, ...params } },
+    host: { params: { mock: true, mockState: withCollapsed(mockState), ...params } },
   });
 }
 
@@ -29,7 +38,26 @@ function openMockAt(width: number, height: number, mockState: MockState) {
     width,
     height,
     platform: "linux",
-    host: { params: { mock: true, mockState } },
+    host: { params: { mock: true, mockState: withCollapsed(mockState) } },
+  });
+}
+
+/**
+ * Opens the app with the sidebar expanded, which needs a window wide enough for
+ * it: 1440 clears `NAV_SIDEBAR_MIN_WINDOW_WIDTH`.
+ */
+function openExpanded(mockState: MockState, params: Record<string, unknown> = {}) {
+  return open("./App.tsx", {
+    width: 1440,
+    height: 960,
+    platform: "linux",
+    host: {
+      params: {
+        mock: true,
+        mockState: { ...mockState, uiPrefs: { ...(mockState.uiPrefs ?? {}), sidebarCollapsed: false } },
+        ...params,
+      },
+    },
   });
 }
 
@@ -1916,12 +1944,16 @@ test("SSH quick actions live on the SSH tab, not the search header", async () =>
   expect(app.shows("id:import-ssh-key")).toBe(true);
 });
 
-test("tab moves focus between action controls and enter activates them", async () => {
+test("tab moves focus between action controls and space activates them", async () => {
   const app = await openMock({ phase: "unlocked", items: VAULT_ITEMS });
 
+  // The ring starts at the search row's own furniture: the sidebar toggle is
+  // declared before the vault, so Tab leaves the search field there and Space
+  // presses it. Activating it expands the sidebar, which is the visible proof
+  // that the focused control was the one Space reached.
   await app.keyboard.press("tab");
   await app.keyboard.press("space");
-  expect(app.shows("id:item-inspector")).toBe(true);
+  expect(app.shows("id:nav-sidebar")).toBe(true);
 
   await app.keyboard.press("mod+g");
   expect(app.shows("id:password-generator-modal")).toBe(true);
@@ -2388,7 +2420,10 @@ test("settings switches between dark and light themes", async () => {
   expect(app.texts()).toContain("Theme: Light");
 
   // A reload starts a fresh app over the process-wide mock preferences, the
-  // same way a real launch reads `ui.json`; the theme must come back.
+  // same way a real launch reads `ui.json`; the theme must come back. No
+  // `mockState` is passed on purpose: the layout preference this case inherits
+  // is the collapsed one `openMock` left behind, so the case keeps testing the
+  // theme rather than becoming the first expanded-layout case.
   const reloaded = await open("./App.tsx", {
     width: 1440,
     height: 960,
@@ -3531,4 +3566,213 @@ test("cards and identities offer no cipher mutation", async () => {
   await app.keyboard.press("mod+d");
   expect(app.texts().join(" ")).toContain("Only logins and secure notes can be changed.");
   expect(app.shows("id:cipher-delete-modal")).toBe(false);
+});
+
+// ---------------------------------------------------------------------------
+// Navigation Sidebar
+// ---------------------------------------------------------------------------
+
+test("the expanded workspace lists vaults, folders, the Trash and the account", async () => {
+  const app = await openExpanded({
+    phase: "unlocked",
+    email: "user@example.com",
+    serverUrl: "https://vault.example.com",
+    items: VAULT_ITEMS,
+  });
+
+  expect(app.shows("id:nav-sidebar")).toBe(true);
+  expect(app.texts()).toContain("Omawarden");
+  expect(app.texts()).toContain("VAULTS");
+  expect(app.texts()).toContain("FOLDERS");
+
+  // Every scope in projection order, organizations included, each with a count.
+  expect(app.shows("id:nav-vault-all")).toBe(true);
+  expect(app.shows("id:nav-vault-personal")).toBe(true);
+  expect(app.shows("id:nav-vault-org:Acme")).toBe(true);
+
+  // The folder group starts with its reset row, then the folder itself.
+  expect(app.shows("id:nav-folder-all")).toBe(true);
+  expect(app.shows("id:nav-folder-folder:Work")).toBe(true);
+
+  // The foot is the Trash and the signed-in account.
+  expect(app.shows("id:nav-trash")).toBe(true);
+  expect(app.shows("id:nav-user")).toBe(true);
+  expect(app.texts()).toContain("user@example.com");
+  expect(app.texts()).toContain("vault.example.com");
+  expect(app.shows("id:nav-settings")).toBe(true);
+
+  // Expanded, the dropdown's trigger is gone: the sidebar is where a vault is
+  // picked, so there is no second way to the same filter.
+  expect(app.shows("id:scope-trigger")).toBe(false);
+  expect(app.shows("id:scope-dropdown")).toBe(false);
+});
+
+test("an empty folder group keeps its heading and shows a hint", async () => {
+  const app = await openExpanded({ phase: "unlocked", items: [MAIL_ITEM] });
+
+  // The layout must not move after a sync that brings folders, so the heading
+  // and the group's slot are there from the start.
+  expect(app.texts()).toContain("FOLDERS");
+  expect(app.texts()).toContain("No folders");
+  expect(app.shows("id:nav-folder-all")).toBe(true);
+  expect(app.shows("id:nav-folder-folder:Work")).toBe(false);
+});
+
+test("a vault row and a folder row filter independently and highlight together", async () => {
+  // Three rows over two dimensions: `GitHub` is Acme/Work, `Personal Mail` is
+  // personal/no folder, and `Work Mail` is personal/Work — the one row that is
+  // in both the vault and the folder the case picks.
+  const app = await openExpanded({
+    phase: "unlocked",
+    items: [
+      ...VAULT_ITEMS,
+      { id: "login3", title: "Work Mail", category: "login", username: "me@example.com", folder: "Work" },
+    ],
+  });
+
+  // A vault row narrows the list to that vault.
+  await app.press("id:nav-vault-personal");
+  expect(app.shows("id:cipher-row-login1")).toBe(false);
+  expect(app.shows("id:cipher-row-login2")).toBe(true);
+  expect(app.shows("id:cipher-row-login3")).toBe(true);
+  expect(app.viewStyle("id:nav-vault-personal")?.backgroundColor).toBeTruthy();
+  expect(app.viewStyle("id:nav-vault-all")?.backgroundColor).toBeUndefined();
+
+  // A folder row is a second, independent dimension: the list shows the
+  // intersection, and the vault row keeps its highlight.
+  await app.press("id:nav-folder-folder:Work");
+  expect(app.shows("id:cipher-row-login1")).toBe(false);
+  expect(app.shows("id:cipher-row-login2")).toBe(false);
+  expect(app.shows("id:cipher-row-login3")).toBe(true);
+  expect(app.viewStyle("id:nav-vault-personal")?.backgroundColor).toBeTruthy();
+  expect(app.viewStyle("id:nav-folder-folder:Work")?.backgroundColor).toBeTruthy();
+
+  // The reset row drops the folder filter and leaves the vault one alone.
+  await app.press("id:nav-folder-all");
+  expect(app.shows("id:cipher-row-login2")).toBe(true);
+  expect(app.shows("id:cipher-row-login3")).toBe(true);
+  expect(app.viewStyle("id:nav-vault-personal")?.backgroundColor).toBeTruthy();
+  expect(app.viewStyle("id:nav-folder-all")?.backgroundColor).toBeTruthy();
+});
+
+test("the Trash row dims both groups and a folder row leaves the Trash", async () => {
+  const app = await openExpanded({
+    phase: "unlocked",
+    items: [...VAULT_ITEMS, TRASHED_ITEM],
+  });
+
+  await app.press("id:nav-trash");
+  expect(app.shows("id:cipher-row-trashed1")).toBe(true);
+  expect(app.shows("id:cipher-row-login1")).toBe(false);
+
+  // The Trash is a view, not a scope: neither group highlights, both dim, and
+  // the rows still work because only their opacity changed.
+  expect(app.viewStyle("id:nav-vault-all")?.backgroundColor).toBeUndefined();
+  expect(app.viewStyle("id:nav-folder-all")?.backgroundColor).toBeUndefined();
+  expect(app.viewStyle("id:nav-vault-all")?.effectiveOpacity).toBeLessThan(1);
+  expect(app.viewStyle("id:nav-folder-all")?.effectiveOpacity).toBeLessThan(1);
+  expect(app.viewStyle("id:nav-trash")?.backgroundColor).toBeTruthy();
+
+  // A folder row is clickable in the Trash and leaves it.
+  await app.press("id:nav-folder-folder:Work");
+  expect(app.shows("id:cipher-row-trashed1")).toBe(false);
+  expect(app.shows("id:cipher-row-login1")).toBe(true);
+  expect(app.shows("id:cipher-row-login2")).toBe(false);
+  expect(app.viewStyle("id:nav-vault-all")?.effectiveOpacity).toBe(1);
+  expect(app.viewStyle("id:nav-folder-folder:Work")?.backgroundColor).toBeTruthy();
+});
+
+test("the toggle collapses and expands the sidebar", async () => {
+  const app = await openExpanded({ phase: "unlocked", items: VAULT_ITEMS });
+
+  expect(app.shows("id:nav-sidebar")).toBe(true);
+  await app.press("id:nav-sidebar-toggle");
+  expect(app.shows("id:nav-sidebar")).toBe(false);
+  // The collapsed workspace is the app's original one, dropdown and all.
+  expect(app.shows("id:scope-trigger")).toBe(true);
+
+  await app.press("id:nav-sidebar-toggle");
+  expect(app.shows("id:nav-sidebar")).toBe(true);
+  expect(app.shows("id:scope-trigger")).toBe(false);
+});
+
+test("Ctrl+\\ toggles the sidebar", async () => {
+  const app = await openMock({ phase: "unlocked", items: VAULT_ITEMS });
+
+  expect(app.shows("id:nav-sidebar")).toBe(false);
+  await app.keyboard.press("ctrl+\\");
+  expect(app.shows("id:nav-sidebar")).toBe(true);
+  await app.keyboard.press("ctrl+\\");
+  expect(app.shows("id:nav-sidebar")).toBe(false);
+});
+
+test("Ctrl+\\ keeps an open draft and its typing", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:cipher-row-login1");
+  await app.keyboard.press("mod+e");
+  await app.type("id:inspector-form-name", " typed");
+  expect(app.value("id:inspector-form-name")).toBe("GitHub typed");
+
+  // Collapsing is a layout change, not a navigation: the draft is not a
+  // navigation target, so the leave guard has nothing to ask and the form is
+  // still mounted with its typing when the sidebar comes back.
+  await app.keyboard.press("ctrl+\\");
+  expect(app.shows("id:nav-sidebar")).toBe(true);
+  expect(app.value("id:inspector-form-name")).toBe("GitHub typed");
+  await app.keyboard.press("ctrl+\\");
+  expect(app.shows("id:nav-sidebar")).toBe(false);
+  expect(app.value("id:inspector-form-name")).toBe("GitHub typed");
+});
+
+test("collapsing leaves the vault filters alone", async () => {
+  const app = await openExpanded({ phase: "unlocked", items: VAULT_ITEMS });
+
+  await app.press("id:nav-vault-personal");
+  expect(app.shows("id:cipher-row-login2")).toBe(true);
+
+  await app.press("id:nav-sidebar-toggle");
+  // The same filter, now shown through the collapsed header: hiding the
+  // sidebar is a layout change, not a filter change.
+  expect(app.texts()).toContain("Scope: My Vault");
+  expect(app.shows("id:cipher-row-login2")).toBe(true);
+  expect(app.shows("id:cipher-row-login1")).toBe(false);
+});
+
+test("a narrow window renders collapsed and disables the toggle without rewriting the preference", async () => {
+  const app = await openMockAt(900, 620, {
+    phase: "unlocked",
+    uiPrefs: { sidebarCollapsed: false },
+    items: VAULT_ITEMS,
+  });
+
+  // 900 is below NAV_SIDEBAR_MIN_WINDOW_WIDTH (1140): the workspace falls back
+  // to the collapsed layout even though the preference asks for the sidebar.
+  expect(app.shows("id:nav-sidebar")).toBe(false);
+  expect(app.shows("id:scope-trigger")).toBe(true);
+  expect(app.shows("id:nav-sidebar-toggle")).toBe(true);
+  expect(app.enabled("id:nav-sidebar-toggle")).toBe(false);
+
+  // Growing the window brings it back, so the preference was never rewritten.
+  await app.setViewport(1440, 960);
+  expect(app.shows("id:nav-sidebar")).toBe(true);
+  expect(app.shows("id:scope-trigger")).toBe(false);
+});
+
+test("the sidebar's preference survives a relaunch", async () => {
+  const app = await openExpanded({ phase: "unlocked", items: VAULT_ITEMS });
+
+  await app.press("id:nav-sidebar-toggle");
+  expect(app.shows("id:nav-sidebar")).toBe(false);
+
+  // A relaunch reads the same process-wide preferences a real launch reads
+  // from `ui.json`; the collapsed choice must come back with it.
+  const reloaded = await open("./App.tsx", {
+    width: 1440,
+    height: 960,
+    platform: "linux",
+    host: { params: { mock: true } },
+  });
+  expect(reloaded.shows("id:nav-sidebar")).toBe(false);
+  expect(reloaded.shows("id:scope-trigger")).toBe(true);
 });

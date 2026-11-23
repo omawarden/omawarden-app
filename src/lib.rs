@@ -1791,23 +1791,27 @@ mod tests {
         let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "unlocked",
-            "uiPrefs": { "theme": "light", "fontScale": 1.5 }
+            "uiPrefs": { "theme": "light", "fontScale": 1.5, "sidebarCollapsed": true }
         })));
 
         let prefs = OmawardenBridge::get_ui_prefs();
         assert_eq!(prefs.theme, ThemeAppearance::Light);
         assert_eq!(prefs.font_scale, 1.5);
+        assert!(prefs.sidebar_collapsed);
 
         let updated = OmawardenBridge::update_ui_prefs(UiPrefsUpdateInput {
             theme: Some(ThemeAppearance::Dark),
             font_scale: Some(9.0),
+            sidebar_collapsed: Some(false),
         });
         assert_eq!(updated.theme, ThemeAppearance::Dark);
         assert_eq!(updated.font_scale, 4.0);
+        assert!(!updated.sidebar_collapsed);
 
         let read_back = OmawardenBridge::get_ui_prefs();
         assert_eq!(read_back.theme, ThemeAppearance::Dark);
         assert_eq!(read_back.font_scale, 4.0);
+        assert!(!read_back.sidebar_collapsed);
     }
 
     #[test]

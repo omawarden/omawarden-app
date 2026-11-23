@@ -1,4 +1,4 @@
-import { computed, fontScale, host, signal, untracked, type ViewRef } from "nsh";
+import { computed, fontScale, host, signal, untracked, type ViewRef, windowSize } from "nsh";
 import {
   OmawardenBridge,
   type AppPhase,
@@ -40,7 +40,9 @@ import {
   OTP_CELL_HEIGHT,
   OTP_CELL_WIDTH,
   WIDE_INPUT_WIDTH,
+  itemListWidth,
   scaleLength,
+  sidebarForcedCollapsed,
 } from "../theme/layout";
 import {
   mergePalette,
@@ -929,6 +931,7 @@ export function flushAppFontScale(): void {
 function applyUiPrefs(prefs: UiPrefsView): void {
   theme.set(prefs.theme);
   appFontScale.set(prefs.fontScale);
+  sidebarCollapsed.set(prefs.sidebarCollapsed);
 }
 
 // ---------------------------------------------------------------------------
@@ -1280,6 +1283,82 @@ export function setFolder(next: string | null): void {
 
 export function toggleScope(): void {
   scopeOpen.update((open) => !open);
+}
+
+// ---------------------------------------------------------------------------
+// Navigation Sidebar
+// ---------------------------------------------------------------------------
+
+/** The persisted choice: whether the user asked for the sidebar to be collapsed. */
+export const sidebarCollapsed = signal(false);
+
+/**
+ * Whether the window is wide enough to draw the sidebar.
+ *
+ * Below `NAV_SIDEBAR_MIN_WINDOW_WIDTH` the sidebar renders collapsed whatever
+ * the preference says, because the detail pane would not have room otherwise.
+ */
+export const sidebarAllowed = computed(
+  () => !sidebarForcedCollapsed(windowSize().width),
+);
+
+/**
+ * Whether the Navigation Sidebar is drawn.
+ *
+ * The stored preference and the window's width both have to allow it. This is
+ * the one predicate the workspace's layout reads, so the two can never
+ * disagree.
+ */
+export const sidebarExpanded = computed(
+  () => !sidebarCollapsed() && sidebarAllowed(),
+);
+
+/**
+ * Whether the toggle has to be disabled: the user wants it, the window cannot.
+ *
+ * The preference is never rewritten by a window resize, so growing the window
+ * again restores what the user chose.
+ */
+export const sidebarToggleBlocked = computed(
+  () => !sidebarCollapsed() && !sidebarAllowed(),
+);
+
+/** Shows or hides the sidebar, closing the scope dropdown on the way in. */
+export function setSidebarCollapsed(collapsed: boolean): void {
+  if (collapsed) {
+    // `scopeOpen` outlives the component: a dropdown left open behind a hidden
+    // sidebar would still answer Escape.
+    scopeOpen.set(false);
+  }
+  sidebarCollapsed.set(collapsed);
+  defer(() => {
+    OmawardenBridge.updateUiPrefs({ sidebarCollapsed: collapsed });
+  });
+}
+
+/** What the toggle and `Ctrl+\` run. */
+export function toggleSidebar(): void {
+  setSidebarCollapsed(!sidebarCollapsed());
+}
+
+/**
+ * The Item List panel's width once the user has dragged its handle.
+ *
+ * `null` means "follow the curve": the panel asks for `itemListWidth(window)`
+ * and moves with the window. The first drag stores a number, and from then on a
+ * window resize leaves the user's width alone.
+ */
+export const itemListPanelWidth = signal<number | null>(null);
+
+/** The Item List panel's size: the user's drag, or the curve until then. */
+export const itemListPanelSize = computed(() => {
+  const dragged = itemListPanelWidth();
+  return dragged === null ? itemListWidth(windowSize().width) : dragged;
+});
+
+/** Records a completed drag of the Item List's handle. */
+export function markItemListWidthTouched(width: number): void {
+  itemListPanelWidth.set(Math.round(width));
 }
 
 /**

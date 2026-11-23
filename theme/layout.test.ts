@@ -6,6 +6,8 @@ import {
   LABEL_GUTTER_WIDTH,
   MIN_WINDOW_HEIGHT,
   MIN_LAYOUT_WIDTH,
+  NAV_SIDEBAR_MIN_WINDOW_WIDTH,
+  NAV_SIDEBAR_WIDTH,
   OTP_CELL_HEIGHT,
   OTP_CELL_WIDTH,
   ITEM_LIST_MAX_WIDTH,
@@ -18,6 +20,7 @@ import {
   scaleLength,
   itemListWidth,
   shellContentWidth,
+  sidebarForcedCollapsed,
   windowTooShort,
 } from "./layout";
 
@@ -28,6 +31,8 @@ test("layout module owns the shell's size constants", () => {
   expect(MIN_LAYOUT_WIDTH).toBe(900);
   expect(MIN_WINDOW_HEIGHT).toBe(620);
   expect(EMPTY_STATE_MAX_WIDTH).toBe(420);
+  expect(NAV_SIDEBAR_WIDTH).toBe(240);
+  expect(NAV_SIDEBAR_MIN_WINDOW_WIDTH).toBe(1140);
 });
 
 test("layout module owns the lengths that make room for text", () => {
@@ -110,4 +115,16 @@ test("the shell content keeps its floor and scrolls below it", () => {
   expect(shellContentWidth(899)).toBe(900);
   expect(shellContentWidth(400)).toBe(900);
   expect(shellContentWidth(0)).toBe(900);
+});
+
+test("the sidebar renders collapsed below its threshold", () => {
+  // 1140 is the exact 1139 rounded up: 240 sidebar + 20 padding + 320 list
+  // + 9 handle + 550 inspector.
+  expect(sidebarForcedCollapsed(1139)).toBe(true);
+  expect(sidebarForcedCollapsed(1140)).toBe(false);
+  expect(sidebarForcedCollapsed(1141)).toBe(false);
+  // Every window the shell lays out collapsed is also too narrow for the
+  // sidebar, so the two thresholds cannot contradict each other.
+  expect(sidebarForcedCollapsed(MIN_LAYOUT_WIDTH)).toBe(true);
+  expect(sidebarForcedCollapsed(1440)).toBe(false);
 });

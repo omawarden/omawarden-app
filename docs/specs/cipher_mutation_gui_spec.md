@@ -233,7 +233,13 @@ narrower than story 12 asks:
   clean draft closes and the move goes on; a changed one remembers the move and
   shows the same discard strip, whose `Discard` closes the form and then runs
   it, while `Keep Editing` drops it. A save closes the form before the row
-  selection, so the guard never asks on the save path.
+  selection, so the guard never asks on the save path. The Navigation Sidebar's
+  rows are navigation targets too, and they reach the same four entry points, so
+  a sidebar press while a draft is open asks through the same strip rather than
+  leaving the draft behind.
+  Collapsing or expanding the sidebar is not a navigation: `Ctrl+\` and the
+  toggle change the layout only, so they answer with the form open and the draft
+  untouched.
 - `Generate…` (in the password field) and `Ctrl+G` open the Password Generator
   in fill mode: the primary action is `Use Password` (`Enter`), which writes the
   secret into the field and closes the dialog without copying it. The options

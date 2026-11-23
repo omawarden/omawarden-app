@@ -86,9 +86,10 @@
 1. **Clean up `components/SearchHeader.tsx`**:
    - Remove `Generator`, `New SSH Key`, `Sync`, `Lock`, and `Settings` buttons from the header.
    - `SearchHeader` must only contain:
+     - The sidebar toggle at the far left (`nav-sidebar-toggle`), which is the one control that brings the Navigation Sidebar back.
      - Search input with search icon and clear 'x' button.
      - Match counter pill (`x / y`).
-     - Vault scope dropdown / selector.
+     - Vault scope dropdown / selector — collapsed layout only: while the sidebar is expanded it is where the vault is picked, and the trigger is not mounted (ADR 0005).
      - When active category is `sshKey`: small `+` (generate) and `⬇` (import) ghost icon buttons on the right of the tab bar.
 2. **Move Actions to `components/FooterBar.tsx`**:
    - Replace the static text labels with sleek, clickable Ghost Buttons on the bottom left:

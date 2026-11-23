@@ -21,7 +21,7 @@ The primary desktop target is Linux with GTK 4. The same TSX app is structured f
 
 ## Features
 
-- **Vault browsing** for Bitwarden and Vaultwarden: fuzzy search, scopes, folders, and category tabs.
+- **Vault browsing** for Bitwarden and Vaultwarden: a collapsible navigation sidebar beside the category tabs, fuzzy search, vaults, folders, and per-category tabs.
 - **Live TOTP codes** with remaining-validity feedback.
 - **Password generator** with strict length validation and entropy display.
 - **EFF Diceware passphrase generator** with strict word-count validation.

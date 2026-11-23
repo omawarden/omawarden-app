@@ -24,6 +24,12 @@ pub(crate) const MAX_FONT_SCALE: f64 = 4.0;
 /// The default text size factor.
 pub(crate) const DEFAULT_FONT_SCALE: f64 = 1.0;
 
+/// Whether the Navigation Sidebar starts collapsed.
+///
+/// A fresh install and an upgrade both open expanded, so the feature is not
+/// invisible on the first launch after it ships.
+pub(crate) const DEFAULT_SIDEBAR_COLLAPSED: bool = false;
+
 /// The interface preferences shown to the UI.
 #[derive(Clone, Debug, JsObject)]
 pub struct UiPrefsView {
@@ -31,6 +37,8 @@ pub struct UiPrefsView {
     pub theme: ThemeAppearance,
     /// The app's text size factor.
     pub font_scale: f64,
+    /// Whether the Navigation Sidebar is collapsed.
+    pub sidebar_collapsed: bool,
 }
 
 impl Default for UiPrefsView {
@@ -38,6 +46,7 @@ impl Default for UiPrefsView {
         Self {
             theme: ThemeAppearance::Dark,
             font_scale: DEFAULT_FONT_SCALE,
+            sidebar_collapsed: DEFAULT_SIDEBAR_COLLAPSED,
         }
     }
 }
@@ -49,6 +58,8 @@ pub struct UiPrefsUpdateInput {
     pub theme: Option<ThemeAppearance>,
     /// The app's text size factor.
     pub font_scale: Option<f64>,
+    /// Whether the Navigation Sidebar is collapsed.
+    pub sidebar_collapsed: Option<bool>,
 }
 
 impl UiPrefsUpdateInput {
@@ -59,6 +70,9 @@ impl UiPrefsUpdateInput {
         }
         if let Some(font_scale) = self.font_scale {
             prefs.font_scale = clamp_font_scale(font_scale);
+        }
+        if let Some(sidebar_collapsed) = self.sidebar_collapsed {
+            prefs.sidebar_collapsed = sidebar_collapsed;
         }
     }
 }
@@ -132,6 +146,9 @@ pub(crate) fn apply_mock_json(prefs: &mut UiPrefsView, value: &Value) {
     if let Some(font_scale) = file.font_scale {
         prefs.font_scale = clamp_font_scale(font_scale);
     }
+    if let Some(sidebar_collapsed) = file.sidebar_collapsed {
+        prefs.sidebar_collapsed = sidebar_collapsed;
+    }
 }
 
 /// The on-disk shape. Every field is optional so a partial file still loads,
@@ -144,6 +161,9 @@ struct PrefsFile {
     /// The app's text size factor.
     #[serde(rename = "fontScale")]
     font_scale: Option<f64>,
+    /// Whether the Navigation Sidebar is collapsed.
+    #[serde(rename = "sidebarCollapsed")]
+    sidebar_collapsed: Option<bool>,
 }
 
 /// Reads the file, yielding the defaults when it is missing or unreadable.
@@ -157,6 +177,7 @@ fn read_prefs(path: &Path) -> UiPrefsView {
     UiPrefsView {
         theme: file.theme.unwrap_or(ThemeAppearance::Dark),
         font_scale: clamp_font_scale(file.font_scale.unwrap_or(DEFAULT_FONT_SCALE)),
+        sidebar_collapsed: file.sidebar_collapsed.unwrap_or(DEFAULT_SIDEBAR_COLLAPSED),
     }
 }
 
@@ -168,6 +189,7 @@ fn write_prefs(path: &Path, prefs: &UiPrefsView) -> std::io::Result<()> {
     let file = PrefsFile {
         theme: Some(prefs.theme),
         font_scale: Some(prefs.font_scale),
+        sidebar_collapsed: Some(prefs.sidebar_collapsed),
     };
     let content = serde_json::to_string_pretty(&file)
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string()))?;
@@ -231,20 +253,27 @@ mod tests {
         let missing = InProcess.get();
         assert_eq!(missing.theme, ThemeAppearance::Dark);
         assert_eq!(missing.font_scale, 1.0);
+        // A missing file opens the sidebar expanded, so a fresh install and an
+        // upgrade both see the feature.
+        assert!(!missing.sidebar_collapsed);
 
         let updated = InProcess.update(UiPrefsUpdateInput {
             theme: Some(ThemeAppearance::Light),
             font_scale: Some(1.5),
+            sidebar_collapsed: Some(true),
         });
         assert_eq!(updated.theme, ThemeAppearance::Light);
         assert_eq!(updated.font_scale, 1.5);
+        assert!(updated.sidebar_collapsed);
 
         let read_back = InProcess.get();
         assert_eq!(read_back.theme, ThemeAppearance::Light);
         assert_eq!(read_back.font_scale, 1.5);
+        assert!(read_back.sidebar_collapsed);
 
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("\"fontScale\": 1.5"));
+        assert!(content.contains("\"sidebarCollapsed\": true"));
 
         #[cfg(unix)]
         {
@@ -257,6 +286,7 @@ mod tests {
         let malformed = InProcess.get();
         assert_eq!(malformed.theme, ThemeAppearance::Dark);
         assert_eq!(malformed.font_scale, 1.0);
+        assert!(!malformed.sidebar_collapsed);
     }
 
     #[test]
@@ -278,8 +308,32 @@ mod tests {
         let updated = InProcess.update(UiPrefsUpdateInput {
             theme: None,
             font_scale: Some(0.5),
+            sidebar_collapsed: None,
         });
         assert_eq!(updated.theme, ThemeAppearance::Light);
         assert_eq!(updated.font_scale, MIN_FONT_SCALE);
+    }
+
+    #[test]
+    fn real_adapter_defaults_the_sidebar_to_expanded_without_the_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let _home = ConfigHome::new(dir.path());
+        let path = ui_prefs_path();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        // A file written before the sidebar shipped: the key is simply absent.
+        std::fs::write(&path, r#"{"theme": "light", "fontScale": 1.25}"#).unwrap();
+
+        let read = InProcess.get();
+        assert_eq!(read.theme, ThemeAppearance::Light);
+        assert_eq!(read.font_scale, 1.25);
+        assert!(!read.sidebar_collapsed, "a missing key opens expanded");
+
+        // A patch that says nothing about the sidebar leaves it alone.
+        let updated = InProcess.update(UiPrefsUpdateInput {
+            theme: Some(ThemeAppearance::Dark),
+            font_scale: None,
+            sidebar_collapsed: None,
+        });
+        assert!(!updated.sidebar_collapsed);
     }
 }

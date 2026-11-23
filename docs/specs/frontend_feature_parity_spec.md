@@ -76,6 +76,10 @@ The implementation is broken down into **three vertical phases (P0, P1, P2)** in
 2. In `components/CategoryTabBar.tsx`:
    - Bind badge counts to dynamic counts.
    - If count is 0, display 0 or fade out badge text according to QML reference design.
+3. The Navigation Sidebar's rows carry the same live counts (`snapshot.scopes`
+   and `snapshot.folders` are already the projection's per-scope and
+   per-folder totals), so the sidebar and the tab bar never disagree about how
+   many items the vault holds.
 
 ---
 

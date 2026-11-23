@@ -1,4 +1,5 @@
 import { effect, host, keymap, mount, Scroll, setColorScheme, View, windowSize } from "nsh";
+import { ResizablePanel, ResizablePanelGroup } from "nsh/base";
 import * as store from "./store/appStore";
 import * as palette from "./store/actionPalette";
 import { blurSearch, focusSearch } from "./store/searchFocus";
@@ -13,6 +14,7 @@ import { DependencyCheckView } from "./components/DependencyCheckView";
 import { FooterBar } from "./components/FooterBar";
 import { ItemInspector } from "./components/ItemInspector";
 import { MasterPasswordModal } from "./components/MasterPasswordModal";
+import { NavSidebar } from "./components/NavSidebar";
 import { PasswordGeneratorModal } from "./components/PasswordGeneratorModal";
 import { PasswordHistoryModal } from "./components/PasswordHistoryModal";
 import { ReleaseNotesModal } from "./components/ReleaseNotesModal";
@@ -25,33 +27,80 @@ import { SshKeyModal } from "./components/SshKeyModal";
 import { ToastAlert } from "./components/ToastAlert";
 import { TypePickerModal } from "./components/TypePickerModal";
 import { VaultItemList } from "./components/VaultItemList";
-import { shellContentWidth } from "./theme/layout";
+import { ITEM_LIST_MAX_WIDTH, ITEM_LIST_MIN_WIDTH, shellContentWidth } from "./theme/layout";
+
+/**
+ * The two content panes, side by side.
+ *
+ * Expanded, the Item List and the inspector are two panels with one draggable
+ * boundary. Collapsed, the group is not rendered at all: the panes are the
+ * plain row the app has always drawn, with the list taking
+ * `itemListWidth(window)`. Only one geometry model is ever live.
+ */
+function ContentPanes() {
+  return (
+    <View
+      style={{
+        flex: 1,
+        paddingHorizontal: 10,
+        paddingVertical: 10,
+      }}
+    >
+      <If when={store.sidebarExpanded()}>
+        <ResizablePanelGroup
+          axis="horizontal"
+          style={{ flex: 1 }}
+          handleAccessibilityLabel="Resize the item list"
+        >
+          <ResizablePanel
+            size={store.itemListPanelSize()}
+            minSize={ITEM_LIST_MIN_WIDTH}
+            maxSize={ITEM_LIST_MAX_WIDTH}
+            onResize={({ size }) => store.markItemListWidthTouched(size)}
+          >
+            <VaultItemList fit />
+          </ResizablePanel>
+          <ResizablePanel>
+            <ItemInspector />
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </If>
+      <If when={!store.sidebarExpanded()}>
+        <View style={{ flex: 1, flexDirection: "row", alignItems: "stretch", gap: 10 }}>
+          <VaultItemList />
+          <ItemInspector />
+        </View>
+      </If>
+    </View>
+  );
+}
 
 function VaultWorkspace() {
   return (
     <View
       testID="vault-workspace"
-      style={{ flex: 1, backgroundColor: store.palette().menu.background }}
+      style={{
+        flex: 1,
+        flexDirection: "row",
+        alignItems: "stretch",
+        backgroundColor: store.palette().menu.background,
+      }}
     >
-      <SearchHeader />
-      <If when={store.scopeOpen()}>
-        <ScopeDropdown />
+      {/* The sidebar is a column of its own rather than part of the content
+          column, so the search row, the tabs and the footer stop at its right
+          edge and the left column reads as navigation. */}
+      <If when={store.sidebarExpanded()}>
+        <NavSidebar />
       </If>
-      <CategoryTabBar />
-      <View
-        style={{
-          flex: 1,
-          flexDirection: "row",
-          alignItems: "stretch",
-          gap: 10,
-          paddingHorizontal: 10,
-          paddingVertical: 10,
-        }}
-      >
-        <VaultItemList />
-        <ItemInspector />
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <SearchHeader />
+        <If when={store.scopeOpen()}>
+          <ScopeDropdown />
+        </If>
+        <CategoryTabBar />
+        <ContentPanes />
+        <FooterBar />
       </View>
-      <FooterBar />
     </View>
   );
 }
@@ -263,6 +312,15 @@ keymap.bind({
   "mod+,": whenWindowTallEnough(() => {
     if (!paletteOpen()) {
       store.openSettings();
+    }
+  }),
+  // The sidebar's own pair of states. It stays usable while the Inspector Form
+  // is open — unlike the vault shortcuts — because it changes nothing about the
+  // draft, and a user who collapsed the sidebar needs it to come back. It is
+  // still not for the login screens, where there is no workspace to navigate.
+  "ctrl+\\": whenWindowTallEnough(() => {
+    if (store.phase() === "unlocked" && !hasOpenModal()) {
+      store.toggleSidebar();
     }
   }),
   up: whenWindowTallEnough(() => {

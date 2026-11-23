@@ -123,6 +123,12 @@ and the scope-filter hint are hidden, and picking one of the scope rows leaves
 the Trash rather than narrowing it. No stale active scope or folder is applied
 to the Trash rows.
 
+The Trash has a second entry point once the Navigation Sidebar is expanded: the
+`nav-trash` row in the sidebar's foot. It is the same view reached the same way,
+so it is the same `openTrash()`, and the sidebar dims both its groups while it
+is open because the Trash is a view rather than a scope. A folder row in the
+sidebar is clickable there and leaves the Trash, so the sidebar is not a trap.
+
 ## Inspector
 
 `components/ItemInspector.tsx` has a Trash branch that renders the selected row's

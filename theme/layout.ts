@@ -14,6 +14,29 @@ export const ITEM_LIST_MAX_WIDTH = 560;
 export const ITEM_LIST_WIDTH_RATIO = 0.3;
 
 /**
+ * The Navigation Sidebar's width.
+ *
+ * A fixed column, deliberately not scaled by the text size: it is a width that
+ * divides the window, not a length that makes room for text (contrast
+ * `LABEL_GUTTER_WIDTH`). Long names truncate to one line with a tooltip
+ * instead. Keeping it fixed is what makes `NAV_SIDEBAR_MIN_WINDOW_WIDTH` valid
+ * at every text size.
+ */
+export const NAV_SIDEBAR_WIDTH = 240;
+
+/**
+ * The narrowest window that lays the workspace out with the sidebar expanded.
+ *
+ * Collapsed, `MIN_LAYOUT_WIDTH` gives the inspector 550 points:
+ * `900 − 20 padding − 320 item list − 10 gap = 550`. Expanded pays for the
+ * sidebar, a plain fixed column rather than a member of the resizable group, so
+ * only the one handle between the list and the inspector is owed:
+ * `240 sidebar + 20 padding + 320 list + 9 handle + 550 inspector = 1139`,
+ * rounded up to 1140. Below it the workspace renders collapsed (ADR 0005).
+ */
+export const NAV_SIDEBAR_MIN_WINDOW_WIDTH = 1140;
+
+/**
  * The narrowest width the shell lays out at without reflowing.
  *
  * It is a content width, not a window floor: a window narrower than this keeps
@@ -98,4 +121,15 @@ export function minimumWindowHeight(): number {
 /** Whether a window is too short for the shell to show without clipping. */
 export function windowTooShort(size: Size): boolean {
   return size.height < MIN_WINDOW_HEIGHT;
+}
+
+/**
+ * Whether a window is too narrow to lay the workspace out with the sidebar.
+ *
+ * Below this the sidebar renders collapsed whatever the preference says. The
+ * preference itself is never rewritten: the layout falls back to what the app
+ * has today and expands again when the window grows.
+ */
+export function sidebarForcedCollapsed(windowWidth: number): boolean {
+  return windowWidth < NAV_SIDEBAR_MIN_WINDOW_WIDTH;
 }

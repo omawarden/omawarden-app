@@ -27,7 +27,15 @@ function categoryIcon(category: ItemCategory): IconName {
   }
 }
 
-export function VaultItemList() {
+/**
+ * The item list.
+ *
+ * Collapsed, it is the left pane of a plain row and asks for
+ * `itemListWidth(window)` itself. Expanded, it is the content of a resizable
+ * panel that already decided the width, so `fit` makes it fill that panel
+ * instead of asking for a width of its own (which would fight the drag).
+ */
+export function VaultItemList(props: { fit?: boolean } = {}) {
   const palette = store.palette;
 
   // The Trash has two empty states: nothing deleted at all, and nothing left
@@ -43,7 +51,8 @@ export function VaultItemList() {
     <View
       testID="vault-item-list"
       style={{
-        width: itemListWidth(windowSize().width),
+        width: props.fit ? undefined : itemListWidth(windowSize().width),
+        flex: props.fit ? 1 : undefined,
         backgroundColor: palette().popups.background,
         borderColor: palette().popups.border,
         borderWidth: 1,

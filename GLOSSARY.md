@@ -225,6 +225,45 @@ floor scrolls the overflow rather than squeezing the panes below what they need.
 
 _Avoid_: Minimum Window Width, Layout Floor (for the window)
 
+## Navigation Sidebar
+
+The standing navigation furniture on the left of the unlocked workspace: the
+app's icon and name, the vaults (organizations included), the folders, the Trash
+and the signed-in account with a settings gear. It is a full-height column of its
+own, so the search row and the category tabs stop at its right edge.
+
+Expanded, it costs `NAV_SIDEBAR_WIDTH` 240 points, which is what raises the
+window the workspace lays out at with the sidebar from 900 to
+`NAV_SIDEBAR_MIN_WINDOW_WIDTH` 1140. Below that the workspace renders collapsed
+whatever the preference says; the preference is never rewritten, so growing the
+window again restores what the user chose.
+
+Collapsed, it is not rendered at all — there is no rail and no icon strip — and
+the window is exactly the layout the app had before the sidebar. The toggle in
+the search row's far left is the one control that brings it back, and `Ctrl+\`
+does the same.
+
+It replaces the scope dropdown and the Trash row for as long as it is expanded:
+picking a vault or a folder is a navigation, not a transient panel over the
+workspace. The collapsed layout keeps the dropdown, so there is always one way to
+every filter and only one at a time.
+
+_Avoid_: Sidebar (bare), Rail, Navigation Drawer
+
+## Item List
+
+The middle pane of the workspace: the rows of the vault the search, the vault and
+the folder leave. Collapsed, it is the left pane of a plain row and asks for
+`itemListWidth(window)` — the window's 30%, clamped to 320..560 — so it follows
+the window alone and enlarging the text never widens it.
+
+Expanded, it and the inspector are two resizable panels with one draggable
+boundary, and the pane is handed the width instead. Until the user drags, that
+width is the same curve; after a drag it is the user's number, which a window
+resize leaves alone.
+
+_Avoid_: List Panel, Left Pane
+
 ## Tray Icon
 
 The app's small, persistent representative in the desktop panel. It shows the
