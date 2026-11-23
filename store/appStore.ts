@@ -1323,13 +1323,13 @@ export const sidebarToggleBlocked = computed(
   () => !sidebarCollapsed() && !sidebarAllowed(),
 );
 
-/** Shows or hides the sidebar, closing the scope dropdown on the way in. */
+/** Shows or hides the sidebar, closing the scope dropdown either way. */
 export function setSidebarCollapsed(collapsed: boolean): void {
-  if (collapsed) {
-    // `scopeOpen` outlives the component: a dropdown left open behind a hidden
-    // sidebar would still answer Escape.
-    scopeOpen.set(false);
-  }
+  // `scopeOpen` outlives the component, so it has to be cleared in both
+  // directions: collapsing would leave a dropdown behind a hidden sidebar that
+  // still answers Escape, and expanding would leave one showing beside the
+  // sidebar with no trigger to close it.
+  scopeOpen.set(false);
   sidebarCollapsed.set(collapsed);
   defer(() => {
     OmawardenBridge.updateUiPrefs({ sidebarCollapsed: collapsed });

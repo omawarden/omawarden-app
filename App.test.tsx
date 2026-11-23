@@ -3696,6 +3696,61 @@ test("the toggle collapses and expands the sidebar", async () => {
   expect(app.shows("id:scope-trigger")).toBe(false);
 });
 
+test("collapsing closes an open scope dropdown, and Escape does not reach it", async () => {
+  const app = await openMock({ phase: "unlocked", items: VAULT_ITEMS });
+
+  // Expanded, there is no trigger: the sidebar is where the vault is picked.
+  await app.press("id:nav-sidebar-toggle");
+  expect(app.shows("id:nav-sidebar")).toBe(true);
+  expect(app.shows("id:scope-trigger")).toBe(false);
+
+  // A dropdown left open when the sidebar takes over would have no trigger to
+  // close it again once the trigger itself is unmounted.
+  await app.press("id:nav-sidebar-toggle");
+  await app.press("id:scope-trigger");
+  expect(app.shows("id:scope-dropdown")).toBe(true);
+  await app.press("id:nav-sidebar-toggle");
+  expect(app.shows("id:nav-sidebar")).toBe(true);
+  expect(app.shows("id:scope-dropdown")).toBe(false);
+
+  // `scopeOpen` is a store signal that outlives the component, so the collapse
+  // has to clear it rather than only unmount the dropdown: brought back
+  // collapsed, the dropdown must still be closed.
+  await app.press("id:nav-sidebar-toggle");
+  expect(app.shows("id:nav-sidebar")).toBe(false);
+  expect(app.shows("id:scope-dropdown")).toBe(false);
+
+  // And Escape finds nothing to close, so it leaves the layout alone.
+  await app.keyboard.press("escape");
+  expect(app.shows("id:scope-dropdown")).toBe(false);
+  expect(app.shows("id:nav-sidebar")).toBe(false);
+
+  // `Ctrl+\` clears it the same way, since it runs the same function.
+  await app.press("id:scope-trigger");
+  expect(app.shows("id:scope-dropdown")).toBe(true);
+  await app.keyboard.press("ctrl+\\");
+  expect(app.shows("id:nav-sidebar")).toBe(true);
+  expect(app.shows("id:scope-dropdown")).toBe(false);
+});
+
+test("the collapsed layout has no rail and no sidebar furniture", async () => {
+  const app = await openMock({ phase: "unlocked", items: VAULT_ITEMS });
+
+  // Collapsed is the app's original layout, not a narrow version of the
+  // expanded one: no column, no rail, no icon strip, no hover target. The only
+  // trace of the sidebar is the toggle that brings it back.
+  expect(app.shows("id:nav-sidebar")).toBe(false);
+  expect(app.shows("id:nav-trash")).toBe(false);
+  expect(app.shows("id:nav-user")).toBe(false);
+  expect(app.shows("id:nav-vault-all")).toBe(false);
+  expect(app.shows("id:nav-sidebar-toggle")).toBe(true);
+
+  // The trigger, the tabs and the panes are the whole row again.
+  expect(app.shows("id:scope-trigger")).toBe(true);
+  expect(app.shows("id:category-all")).toBe(true);
+  expect(app.shows("id:vault-item-list")).toBe(true);
+});
+
 test("Ctrl+\\ toggles the sidebar", async () => {
   const app = await openMock({ phase: "unlocked", items: VAULT_ITEMS });
 

@@ -129,8 +129,12 @@ accepts as a character key on the US layout just as it does `/` and `[`.
 
 Collapsing never leaves the scope dropdown open behind it — `scopeOpen` is a
 store signal that outlives the component, so both the toggle and `Ctrl+\` set it
-to `false` through the same function. The reverse needs nothing: expanding
-unmounts the dropdown, and the next collapse starts from closed.
+to `false` through the same function.
+
+The reverse needs the same clear, for a different reason: expanding unmounts the
+trigger, so a dropdown left open would still be showing beside the sidebar with
+no control to close it. `setSidebarCollapsed` therefore clears it in both
+directions rather than only on the way in.
 
 **Narrow windows.** Below `NAV_SIDEBAR_MIN_WINDOW_WIDTH` (1140) the workspace
 renders collapsed regardless of the preference, and returns to the preference

@@ -119,7 +119,8 @@ answer for height.
   head has none. `Ctrl+\` does the same.
 - Collapsing also closes the scope dropdown, whose open/closed signal outlives
   the component; a dropdown left open behind a hidden sidebar would still answer
-  `Esc`.
+  `Esc`. Expanding closes it too, because it unmounts the trigger and a dropdown
+  left open would have no control to close it.
 - Below `NAV_SIDEBAR_MIN_WINDOW_WIDTH` (1140) the workspace renders collapsed
   whatever the preference says, and returns to the preference when the window
   grows. The stored preference is never rewritten by a resize. While forced, the
