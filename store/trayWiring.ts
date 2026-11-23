@@ -1,5 +1,5 @@
 import { effect } from "nsh";
-import { Application, isAvailable, Tray, windows, type WindowRef } from "nsh/desktop";
+import { Application, isAvailable, Tray, Window, type WindowRef } from "nsh/desktop";
 import * as store from "./appStore";
 import { buildTrayOptions, type TrayHandlers } from "./tray";
 
@@ -24,7 +24,7 @@ export function toggleWindow(win: TrayWindow): void {
 }
 
 function mainWindow(): WindowRef | null {
-  return windows().find((win) => win.main) ?? null;
+  return Window.get("main");
 }
 
 const handlers: TrayHandlers = {
@@ -44,7 +44,7 @@ const handlers: TrayHandlers = {
 };
 
 let installed = false;
-let stopCloseListener: (() => void) | null = null;
+let closeListenerInstalled = false;
 
 /**
  * Puts the tray on screen and makes the main window's close button hide it.
@@ -60,10 +60,11 @@ export function installTray(): void {
 
   effect(() => {
     const win = mainWindow();
-    if (win && !stopCloseListener) {
+    if (win && !closeListenerInstalled) {
       // With `closeOnPress: false` in nsh.json the button only asks: hiding
       // keeps the process, the vault session and the tray alive.
-      stopCloseListener = win.on("closePress", () => win.hide());
+      closeListenerInstalled = true;
+      win.on("closePress", () => win.hide());
     }
 
     Tray.set(
