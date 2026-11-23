@@ -5,6 +5,9 @@
   "build": 1,
   "icon": "assets/icon.png",
   "rust": ".",
+  "window": {
+    "closeOnPress": false
+  },
   "capabilities": {
     "application": true,
     "host": true,

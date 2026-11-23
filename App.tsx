@@ -3,6 +3,7 @@ import * as store from "./store/appStore";
 import * as palette from "./store/actionPalette";
 import { blurSearch, focusSearch } from "./store/searchFocus";
 import { windowBelowMinimum } from "./store/windowGate";
+import { installTray } from "./store/trayWiring";
 import { ActionPaletteModal } from "./components/ActionPaletteModal";
 import { AuthView } from "./components/AuthView";
 import { CategoryTabBar } from "./components/CategoryTabBar";
@@ -429,5 +430,9 @@ effect(() => {
 host.on("theme-update", (payload) => {
   store.applyHostTheme(payload);
 });
+
+// The tray and the close button belong to the app, not to a render: installing
+// once here keeps a re-render from adding a second listener.
+installTray();
 
 mount(App);
