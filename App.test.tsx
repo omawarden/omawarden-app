@@ -3733,6 +3733,31 @@ test("collapsing closes an open scope dropdown, and Escape does not reach it", a
   expect(app.shows("id:scope-dropdown")).toBe(false);
 });
 
+test("the item list and the inspector share one draggable boundary", async () => {
+  const app = await openExpanded({ phase: "unlocked", items: VAULT_ITEMS });
+
+  // Expanded, the two content panes are one group with one handle; the sidebar
+  // is a column beside them, so there is no second handle to drag. With nothing
+  // selected the inspector pane draws its empty state, as it always has.
+  expect(app.count("label:Resize the item list")).toBe(1);
+  expect(app.shows("id:vault-item-list")).toBe(true);
+  expect(app.shows("id:empty-inspector")).toBe(true);
+
+  // The drag is the group's, and it leaves both panes laid out. Headless has no
+  // seam for a frame's width, so what this asserts is that the boundary moves
+  // without the layout losing a pane.
+  await app.drag("label:Resize the item list", { x: 120, y: 0 });
+  expect(app.shows("id:vault-item-list")).toBe(true);
+  expect(app.shows("id:empty-inspector")).toBe(true);
+
+  // Collapsed, there is no group to drag: the panes are the plain row, and a
+  // window resize brings the expanded layout back with its handle.
+  await app.press("id:nav-sidebar-toggle");
+  expect(app.count("label:Resize the item list")).toBe(0);
+  await app.press("id:nav-sidebar-toggle");
+  expect(app.count("label:Resize the item list")).toBe(1);
+});
+
 test("the collapsed layout has no rail and no sidebar furniture", async () => {
   const app = await openMock({ phase: "unlocked", items: VAULT_ITEMS });
 
