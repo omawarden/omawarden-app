@@ -193,27 +193,37 @@ The font scale changes how much room the content wants inside a window, never
 how large a window the shell requires: a window that fits at 100% fits at 400%
 too.
 
-## Minimum Window Gate
+## Short Window Gate
 
-The opaque, full-window overlay shown when either dimension of the window is
-below its floor. The floor is a fixed `MIN_WINDOW_WIDTH` 900 by
-`MIN_WINDOW_HEIGHT` 620: it does not follow the text size, so enlarging the
-text never makes a fitting window "too small". It states the live current size,
-the required minimum, and a one-line instruction to resize.
+The opaque, full-window overlay shown when the window is too short. Only height
+takes part: the floor is a fixed `MIN_WINDOW_HEIGHT` 620, and it does not follow
+the text size, so enlarging the text never makes a fitting window "too short".
+It states the required minimum height and a one-line instruction to resize.
 
-It has no controls and no dismiss action, because only resizing clears it.
+Width does not reach the gate. A window narrower than the layout keeps the shell
+at its floor width (900 points) and scrolls sideways, so the user is never
+turned away for being narrow. The interface is reachable with Shift + wheel, the
+scrollbar, a trackpad's sideways gesture, or the keyboard, which reveals what it
+focuses (ADR 0006).
+
+It has no controls and no dismiss action, because only resizing clears it. It
+does **not** resize the window or ask the window manager for a minimum size:
+NSH offers `window.minSize` in `nsh.json`, and the app deliberately does not use
+it, because a tiling compositor sizes the window rather than the user.
 
 The gate is an overlay, not a replacement. The workspace, every dialog and the
 toast stay mounted underneath, so shrinking and restoring preserves form input,
-open dialogs and scroll position.
+open dialogs and scroll position. Dialogs and the toast sit outside the shell's
+scroll view, so they stay centred in what the user can see and do not drift when
+the content scrolls.
 
-It does **not** resize the window or ask the window manager for a minimum size.
-NSH 0.6.1 offers `window.minSize` in `nsh.json`, and the app deliberately does
-not use it: a tiling compositor sizes the window rather than the user, so a size
-hint can be ignored, and the gate is what explains the requirement when it is.
-The floor is the app's own. It does not collapse the sidebar, reflow the
-workspace, or report an error; the layout below the threshold is simply not
-shown (ADR 0002).
+## Shell Content Width
+
+The width the shell lays its content out at: the window's width, or the
+`MIN_LAYOUT_WIDTH` 900 floor, whichever is larger. A window narrower than the
+floor scrolls the overflow rather than squeezing the panes below what they need.
+
+_Avoid_: Minimum Window Width, Layout Floor (for the window)
 
 ## Tray Icon
 

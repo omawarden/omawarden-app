@@ -13,8 +13,14 @@ export const ITEM_LIST_MAX_WIDTH = 560;
 /** The share of the window the Item List asks for before clamping. */
 export const ITEM_LIST_WIDTH_RATIO = 0.3;
 
-/** The narrowest window the shell can lay out without clipping. */
-export const MIN_WINDOW_WIDTH = 900;
+/**
+ * The narrowest width the shell lays out at without reflowing.
+ *
+ * It is a content width, not a window floor: a window narrower than this keeps
+ * the content at this width and scrolls sideways, instead of turning the window
+ * away (ADR 0006).
+ */
+export const MIN_LAYOUT_WIDTH = 900;
 
 /** The shortest window the shell can lay out without clipping. */
 export const MIN_WINDOW_HEIGHT = 620;
@@ -69,17 +75,27 @@ export function itemListWidth(windowWidth: number): number {
 }
 
 /**
- * The smallest window the shell can lay out.
+ * The content width the scrolling shell lays out at.
  *
- * It is a fixed floor: the text size changes how the shell fills a window,
- * never how large a window it needs, so 400% fits wherever 100% does.
+ * A window wider than the floor fills it; a narrower one keeps the floor and
+ * scrolls sideways, so the shell never reflows below the width its panes need.
  */
-export function minimumWindowSize(): Size {
-  return { width: MIN_WINDOW_WIDTH, height: MIN_WINDOW_HEIGHT };
+export function shellContentWidth(windowWidth: number): number {
+  return Math.max(windowWidth, MIN_LAYOUT_WIDTH);
 }
 
-/** Whether a window is too small for the shell to show without clipping. */
-export function windowTooSmall(size: Size): boolean {
-  const minimum = minimumWindowSize();
-  return size.width < minimum.width || size.height < minimum.height;
+/**
+ * The smallest height the shell can lay out.
+ *
+ * Width is no longer part of the floor: the shell scrolls sideways instead
+ * (ADR 0006). Height has no such answer — the panes are vertical scrolls
+ * themselves — so it stays a floor, and only a taller window clears it.
+ */
+export function minimumWindowHeight(): number {
+  return MIN_WINDOW_HEIGHT;
+}
+
+/** Whether a window is too short for the shell to show without clipping. */
+export function windowTooShort(size: Size): boolean {
+  return size.height < MIN_WINDOW_HEIGHT;
 }

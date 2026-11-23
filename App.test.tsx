@@ -2025,16 +2025,17 @@ test("unlocking puts the keyboard in the vault search", async () => {
   expect(app.value("id:vault-search")).toBe("g");
 });
 
-test("the minimum window gate takes the keyboard out of the vault search", async () => {
+test("the short window gate takes the keyboard out of the vault search", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
+  // 600 is below the 620 height floor, so the gate is up; width takes no part.
   await app.setViewport(800, 600);
-  expect(app.shows("id:minimum-window-gate")).toBe(true);
+  expect(app.shows("id:short-window-gate")).toBe(true);
   await app.keyboard.press("g");
   expect(app.value("id:vault-search")).toBe("");
 
   await app.setViewport(1440, 960);
-  expect(app.shows("id:minimum-window-gate")).toBe(false);
+  expect(app.shows("id:short-window-gate")).toBe(false);
   await app.keyboard.press("g");
   expect(app.value("id:vault-search")).toBe("g");
 });
@@ -2633,7 +2634,7 @@ test("SSH approval denies a request and handles a summon payload", async () => {
 // Minimum window gate
 // ---------------------------------------------------------------------------
 
-test("a large text size never makes a fitting window too small", async () => {
+test("a large text size never makes a fitting window too short", async () => {
   // 900 × 620 is exactly the floor, and the floor does not move with the text
   // size: 400% has to fit as well as 100% does.
   const app = await openMockAt(900, 620, {
@@ -2642,8 +2643,8 @@ test("a large text size never makes a fitting window too small", async () => {
     uiPrefs: { fontScale: 4 },
   });
 
-  expect(app.shows("id:minimum-window-gate")).toBe(false);
-  expect(app.texts()).not.toContain("Window too small");
+  expect(app.shows("id:short-window-gate")).toBe(false);
+  expect(app.texts()).not.toContain("Window too short");
 
   await app.press("id:open-settings");
   await app.press("id:settings-tab-appearance");
@@ -2655,53 +2656,75 @@ test("a large text size never makes a fitting window too small", async () => {
   // The reporter's case: a 4K display at 2× is 1920 × 1080 points, and 400%
   // used to demand 3600 × 2480 there.
   await app.setViewport(1920, 1080);
-  expect(app.shows("id:minimum-window-gate")).toBe(false);
+  expect(app.shows("id:short-window-gate")).toBe(false);
 });
 
-test("the window floor does not follow the text size", async () => {
+test("the height floor does not follow the text size", async () => {
   const app = await openMock({
     phase: "unlocked",
     items: [LOGIN_ITEM],
     uiPrefs: { fontScale: 4 },
   });
 
-  // 400% does not raise the floor: the same 900 × 620 gate applies, and only
+  // 400% does not raise the floor: the same 620 height floor applies, and only
   // a resize clears it.
   await app.setViewport(800, 600);
-  expect(app.shows("id:minimum-window-gate")).toBe(true);
-  expect(app.texts()).toContain("Minimum: 900 × 620");
+  expect(app.shows("id:short-window-gate")).toBe(true);
+  expect(app.texts()).toContain("Minimum height: 620 points");
 
   await app.setViewport(900, 620);
-  expect(app.shows("id:minimum-window-gate")).toBe(false);
+  expect(app.shows("id:short-window-gate")).toBe(false);
 });
 
-test("minimum window gate covers a too-small window and clears when it grows", async () => {
+test("short window gate covers a too-short window and clears when it grows", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
-  expect(app.shows("id:minimum-window-gate")).toBe(false);
+  expect(app.shows("id:short-window-gate")).toBe(false);
 
   await app.setViewport(800, 600);
-  expect(app.shows("id:minimum-window-gate")).toBe(true);
-  expect(app.shows("id:minimum-window-gate-size")).toBe(true);
-  expect(app.texts()).toContain("Window too small");
-  expect(app.texts()).toContain("Current size: 800 × 600");
-  expect(app.texts()).toContain("Minimum: 900 × 620");
-  expect(app.texts()).toContain("Resize the window to continue.");
+  expect(app.shows("id:short-window-gate")).toBe(true);
+  expect(app.shows("id:short-window-gate-title")).toBe(true);
+  expect(app.texts()).toContain("Window too short");
+  expect(app.texts()).toContain("Minimum height: 620 points");
+  expect(app.texts()).toContain("Make the window taller to continue.");
   expect(app.shows("id:vault-workspace")).toBe(true);
 
+  // A narrow but tall enough window is no longer turned away: it keeps the
+  // layout at its floor width and scrolls sideways.
   await app.setViewport(850, 650);
-  expect(app.shows("id:minimum-window-gate")).toBe(true);
-  expect(app.texts()).toContain("Current size: 850 × 650");
+  expect(app.shows("id:short-window-gate")).toBe(false);
 
+  await app.setViewport(800, 600);
+  expect(app.shows("id:short-window-gate")).toBe(true);
   await app.setViewport(900, 620);
-  expect(app.shows("id:minimum-window-gate")).toBe(false);
-
-  await app.setViewport(1440, 960);
-  expect(app.shows("id:minimum-window-gate")).toBe(false);
-  expect(app.shows("id:vault-workspace")).toBe(true);
+  expect(app.shows("id:short-window-gate")).toBe(false);
 });
 
-test("minimum window gate leaves the keyboard inert", async () => {
+test("a too-narrow window scrolls sideways instead of being covered", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  // Narrower than the 900-point floor, but tall enough: no overlay, and the
+  // workspace is still drawn. The width question no longer reaches the gate.
+  await app.setViewport(700, 900);
+  expect(app.shows("id:short-window-gate")).toBe(false);
+  expect(app.shows("id:vault-workspace")).toBe(true);
+  expect(app.shows("id:empty-inspector")).toBe(true);
+
+  // The shell sits in a horizontal scroll view, and the content keeps a width
+  // of its own rather than shrinking to the window, which is what makes the
+  // overflow reachable at all.
+  expect(app.shows("id:shell-scroll")).toBe(true);
+  expect(app.shows("id:shell-content")).toBe(true);
+  await app.scroll("id:shell-scroll", 400);
+  expect(app.shows("id:empty-inspector")).toBe(true);
+
+  // Widening past the floor keeps everything visible without scrolling.
+  await app.setViewport(1200, 900);
+  expect(app.shows("id:empty-inspector")).toBe(true);
+  expect(app.shows("id:short-window-gate")).toBe(false);
+});
+
+test("short window gate leaves the keyboard inert", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
   await app.setViewport(800, 600);
@@ -2723,18 +2746,18 @@ test("minimum window gate leaves the keyboard inert", async () => {
   await app.setViewport(800, 600);
   await app.keyboard.press("down");
   await app.keyboard.press("enter");
-  expect(app.shows("id:minimum-window-gate")).toBe(true);
+  expect(app.shows("id:short-window-gate")).toBe(true);
   expect(app.shows("id:action-palette-modal")).toBe(true);
   expect(app.texts()).not.toContain("Copied password to clipboard (clears in 30s).");
 
   await app.setViewport(1440, 960);
-  expect(app.shows("id:minimum-window-gate")).toBe(false);
+  expect(app.shows("id:short-window-gate")).toBe(false);
   await app.keyboard.press("enter");
   expect(app.shows("id:action-palette-modal")).toBe(false);
   expect(app.texts()).toContain("Copied password to clipboard (clears in 30s).");
 });
 
-test("minimum window gate covers the app when it starts too small", async () => {
+test("short window gate covers the app when it starts too short", async () => {
   const app = await open("./App.tsx", {
     width: 800,
     height: 600,
@@ -2742,12 +2765,14 @@ test("minimum window gate covers the app when it starts too small", async () => 
     host: { params: { mock: true, mockState: { phase: "login" } } },
   });
 
-  expect(app.shows("id:minimum-window-gate")).toBe(true);
-  expect(app.texts()).toContain("Current size: 800 × 600");
+  // 600 is below the height floor, so the gate is up even on the login screen;
+  // the app is behind it, not replaced by it.
+  expect(app.shows("id:short-window-gate")).toBe(true);
+  expect(app.texts()).toContain("Minimum height: 620 points");
   expect(app.shows("id:auth-view-login")).toBe(true);
 });
 
-test("minimum window gate leaves form input and open dialogs mounted", async () => {
+test("short window gate leaves form input and open dialogs mounted", async () => {
   const app = await openMock({ phase: "login" });
 
   await app.type("id:login-password", "half-typed");
@@ -2755,15 +2780,34 @@ test("minimum window gate leaves form input and open dialogs mounted", async () 
   expect(app.shows("id:settings-modal")).toBe(true);
 
   await app.setViewport(800, 600);
-  expect(app.shows("id:minimum-window-gate")).toBe(true);
+  expect(app.shows("id:short-window-gate")).toBe(true);
 
   await app.keyboard.press("escape");
   expect(app.shows("id:settings-modal")).toBe(true);
 
   await app.setViewport(1440, 960);
-  expect(app.shows("id:minimum-window-gate")).toBe(false);
+  expect(app.shows("id:short-window-gate")).toBe(false);
   expect(app.shows("id:settings-modal")).toBe(true);
   expect(app.value("id:login-password")).toBe("half-typed");
+});
+
+test("a dialog stays put while the shell scrolls sideways", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.setViewport(700, 900);
+  await app.keyboard.press("mod+,");
+  expect(app.shows("id:settings-modal")).toBe(true);
+
+  // The dialog is an overlay against the window, not part of the scrolled
+  // content, so the shell moving under it leaves it where the user can see it.
+  await app.scroll("id:shell-scroll", 600);
+  expect(app.shows("id:settings-modal")).toBe(true);
+
+  // And it still takes input where it is, rather than having drifted off.
+  await app.press("id:settings-tab-appearance");
+  expect(app.texts()).toContain("Text size");
+  await app.keyboard.press("escape");
+  expect(app.shows("id:settings-modal")).toBe(false);
 });
 
 // ---------------------------------------------------------------------------

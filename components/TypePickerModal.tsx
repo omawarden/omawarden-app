@@ -1,7 +1,7 @@
 import { effect, keymap, Text, View } from "nsh";
 import { Button } from "nsh/base";
 import * as store from "../store/appStore";
-import { windowBelowMinimum } from "../store/windowGate";
+import { windowTooShortForShell } from "../store/shellScroll";
 import { tint } from "../theme/palette";
 import { Icon, type IconName } from "./Icon";
 import { ModalShell } from "./ui";
@@ -43,7 +43,7 @@ export function TypePickerModal() {
   // The picker owns the keyboard while it is open: a single key chooses, the
   // arrows move, and Enter takes the highlighted row.
   effect(() => {
-    if (windowBelowMinimum()) {
+    if (windowTooShortForShell()) {
       return;
     }
     return keymap.bind(

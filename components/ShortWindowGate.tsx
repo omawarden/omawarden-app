@@ -1,25 +1,25 @@
-import { Text, View, windowSize } from "nsh";
+import { Text, View } from "nsh";
 import * as store from "../store/appStore";
-import { windowBelowMinimum } from "../store/windowGate";
-import { minimumWindowSize } from "../theme/layout";
-
-const formatSize = (width: number, height: number) =>
-  `${Math.round(width)} × ${Math.round(height)}`;
+import { windowTooShortForShell } from "../store/shellScroll";
+import { minimumWindowHeight } from "../theme/layout";
 
 // An opaque overlay, not a replacement: the workspace, dialogs and toast stay
 // mounted underneath so a shrink-and-restore cycle loses nothing. It has no
 // controls on purpose; only resizing the window clears it.
 //
-// The gate is the app's own floor, not a stand-in for a missing API: NSH 0.6.1
-// has `window.minSize`, and we deliberately do not set it. See ADR 0002.
-export function MinimumWindowGate() {
+// Width no longer takes part. A window too narrow for the shell keeps the
+// layout at its floor and scrolls sideways (ADR 0006); the one dimension the
+// shell cannot answer with a scroll is height, because the panes are vertical
+// scrolls themselves. So this asks a shorter question than its predecessor did,
+// and it names the height alone.
+export function ShortWindowGate() {
   const palette = store.palette;
-  const minimum = minimumWindowSize();
+  const minimum = minimumWindowHeight();
 
   return (
-    <If when={windowBelowMinimum()}>
+    <If when={windowTooShortForShell()}>
       <View
-        testID="minimum-window-gate"
+        testID="short-window-gate"
         style={{
           position: "absolute",
           top: 0,
@@ -34,28 +34,22 @@ export function MinimumWindowGate() {
       >
         <View style={{ alignItems: "center", gap: 8 }}>
           <Text
-            testID="minimum-window-gate-title"
+            testID="short-window-gate-title"
             style={{ color: palette().menu.text, fontSize: store.type()["5xl"], fontWeight: "bold" }}
           >
-            Window too small
+            Window too short
           </Text>
           <Text
-            testID="minimum-window-gate-size"
-            style={{ color: palette().menu.text, fontSize: store.type().lg }}
-          >
-            {`Current size: ${formatSize(windowSize().width, windowSize().height)}`}
-          </Text>
-          <Text
-            testID="minimum-window-gate-minimum"
+            testID="short-window-gate-minimum"
             style={{ color: palette().muted, fontSize: store.type().md }}
           >
-            {`Minimum: ${formatSize(minimum.width, minimum.height)}`}
+            {`Minimum height: ${minimum} points`}
           </Text>
           <Text
-            testID="minimum-window-gate-instruction"
+            testID="short-window-gate-instruction"
             style={{ color: palette().muted, fontSize: store.type().md, textAlign: "center" }}
           >
-            Resize the window to continue.
+            Make the window taller to continue.
           </Text>
         </View>
       </View>

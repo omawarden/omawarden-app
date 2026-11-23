@@ -1,8 +1,11 @@
 # 0002: Keep the app-level minimum-window gate on NSH 0.5
 
-**Status**: Accepted
+**Status**: Superseded by [0006](0006-scroll-sideways-instead-of-gating-on-width.md)
 **Date**: 2026-11-17
 **Deciders**: (this session)
+
+> Kept for the record. ADR 0006 splits this decision in two: the height floor
+> and its overlay stand, and the width floor became sideways scrolling.
 
 ## Context
 

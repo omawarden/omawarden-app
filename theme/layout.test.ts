@@ -5,7 +5,7 @@ import {
   INPUT_MIN_HEIGHT,
   LABEL_GUTTER_WIDTH,
   MIN_WINDOW_HEIGHT,
-  MIN_WINDOW_WIDTH,
+  MIN_LAYOUT_WIDTH,
   OTP_CELL_HEIGHT,
   OTP_CELL_WIDTH,
   ITEM_LIST_MAX_WIDTH,
@@ -14,17 +14,18 @@ import {
   SYNC_INDICATOR_SIZE,
   VAULT_ICON_SIZE,
   WIDE_INPUT_WIDTH,
-  minimumWindowSize,
+  minimumWindowHeight,
   scaleLength,
   itemListWidth,
-  windowTooSmall,
+  shellContentWidth,
+  windowTooShort,
 } from "./layout";
 
 test("layout module owns the shell's size constants", () => {
   expect(ITEM_LIST_MIN_WIDTH).toBe(320);
   expect(ITEM_LIST_MAX_WIDTH).toBe(560);
   expect(ITEM_LIST_WIDTH_RATIO).toBe(0.3);
-  expect(MIN_WINDOW_WIDTH).toBe(900);
+  expect(MIN_LAYOUT_WIDTH).toBe(900);
   expect(MIN_WINDOW_HEIGHT).toBe(620);
   expect(EMPTY_STATE_MAX_WIDTH).toBe(420);
 });
@@ -84,20 +85,29 @@ test("item list width rounds to whole points", () => {
   expect(itemListWidth(1449)).toBe(435);
 });
 
-test("window too small checks both thresholds at their boundaries", () => {
-  // Width: just below, exactly at, just above the minimum.
-  expect(windowTooSmall({ width: 899, height: 960 })).toBe(true);
-  expect(windowTooSmall({ width: 900, height: 960 })).toBe(false);
-  expect(windowTooSmall({ width: 901, height: 960 })).toBe(false);
+test("window too short checks the height alone", () => {
+  // Width no longer takes part: a narrow window scrolls rather than gating.
+  expect(windowTooShort({ width: 899, height: 960 })).toBe(false);
+  expect(windowTooShort({ width: 200, height: 960 })).toBe(false);
   // Height: just below, exactly at, just above the minimum.
-  expect(windowTooSmall({ width: 1440, height: 619 })).toBe(true);
-  expect(windowTooSmall({ width: 1440, height: 620 })).toBe(false);
-  expect(windowTooSmall({ width: 1440, height: 621 })).toBe(false);
-  // Either dimension alone is enough to block the layout.
-  expect(windowTooSmall({ width: 899, height: 619 })).toBe(true);
-  expect(windowTooSmall({ width: 3840, height: 2160 })).toBe(false);
+  expect(windowTooShort({ width: 1440, height: 619 })).toBe(true);
+  expect(windowTooShort({ width: 1440, height: 620 })).toBe(false);
+  expect(windowTooShort({ width: 1440, height: 621 })).toBe(false);
+  // A short window is short whatever its width.
+  expect(windowTooShort({ width: 899, height: 619 })).toBe(true);
+  expect(windowTooShort({ width: 3840, height: 2160 })).toBe(false);
 });
 
-test("minimum window size is a fixed floor", () => {
-  expect(minimumWindowSize()).toEqual({ width: 900, height: 620 });
+test("the minimum window height is a fixed floor", () => {
+  expect(minimumWindowHeight()).toBe(620);
+});
+
+test("the shell content keeps its floor and scrolls below it", () => {
+  expect(shellContentWidth(1440)).toBe(1440);
+  expect(shellContentWidth(900)).toBe(900);
+  // A narrower window does not reflow the shell: the content stays at the
+  // floor and the shell scrolls sideways instead.
+  expect(shellContentWidth(899)).toBe(900);
+  expect(shellContentWidth(400)).toBe(900);
+  expect(shellContentWidth(0)).toBe(900);
 });

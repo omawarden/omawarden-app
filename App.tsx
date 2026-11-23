@@ -1,8 +1,8 @@
-import { effect, host, keymap, mount, setColorScheme, View } from "nsh";
+import { effect, host, keymap, mount, Scroll, setColorScheme, View, windowSize } from "nsh";
 import * as store from "./store/appStore";
 import * as palette from "./store/actionPalette";
 import { blurSearch, focusSearch } from "./store/searchFocus";
-import { windowBelowMinimum } from "./store/windowGate";
+import { windowTooShortForShell } from "./store/shellScroll";
 import { installTray } from "./store/trayWiring";
 import { ActionPaletteModal } from "./components/ActionPaletteModal";
 import { AuthView } from "./components/AuthView";
@@ -13,18 +13,19 @@ import { DependencyCheckView } from "./components/DependencyCheckView";
 import { FooterBar } from "./components/FooterBar";
 import { ItemInspector } from "./components/ItemInspector";
 import { MasterPasswordModal } from "./components/MasterPasswordModal";
-import { MinimumWindowGate } from "./components/MinimumWindowGate";
 import { PasswordGeneratorModal } from "./components/PasswordGeneratorModal";
 import { PasswordHistoryModal } from "./components/PasswordHistoryModal";
 import { ReleaseNotesModal } from "./components/ReleaseNotesModal";
 import { ScopeDropdown } from "./components/ScopeDropdown";
 import { SearchHeader } from "./components/SearchHeader";
 import { SettingsModal } from "./components/SettingsModal";
+import { ShortWindowGate } from "./components/ShortWindowGate";
 import { SshApprovalModal } from "./components/SshApprovalModal";
 import { SshKeyModal } from "./components/SshKeyModal";
 import { ToastAlert } from "./components/ToastAlert";
 import { TypePickerModal } from "./components/TypePickerModal";
 import { VaultItemList } from "./components/VaultItemList";
+import { shellContentWidth } from "./theme/layout";
 
 function VaultWorkspace() {
   return (
@@ -68,22 +69,42 @@ function App() {
         backgroundColor: store.palette().menu.background,
       }}
     >
-      <If when={store.phase() === "dependencyCheck"}>
-        <DependencyCheckView />
-      </If>
-      <If when={store.phase() === "login"}>
-        <AuthView mode="login" />
-      </If>
-      <If when={store.phase() === "twoFactor"}>
-        <AuthView mode="twoFactor" />
-      </If>
-      <If when={store.phase() === "locked"}>
-        <AuthView mode="locked" />
-      </If>
-      <If when={store.phase() === "unlocked"}>
-        <VaultWorkspace />
-      </If>
+      {/* Width is no longer a floor the app enforces by refusing to render: a
+          window narrower than the layout keeps the layout at its floor width
+          and scrolls sideways. The child is given that width explicitly because
+          a horizontal scroll view lays its content out as wide as the child
+          asks, and a `minWidth` on the content is not a documented way to widen
+          it. It fills the height so the panes' `flex: 1` has something to
+          resolve against. */}
+      <Scroll testID="shell-scroll" horizontal style={{ flex: 1 }}>
+        <View
+          testID="shell-content"
+          style={{
+            width: shellContentWidth(windowSize().width),
+            height: "100%",
+          }}
+        >
+          <If when={store.phase() === "dependencyCheck"}>
+            <DependencyCheckView />
+          </If>
+          <If when={store.phase() === "login"}>
+            <AuthView mode="login" />
+          </If>
+          <If when={store.phase() === "twoFactor"}>
+            <AuthView mode="twoFactor" />
+          </If>
+          <If when={store.phase() === "locked"}>
+            <AuthView mode="locked" />
+          </If>
+          <If when={store.phase() === "unlocked"}>
+            <VaultWorkspace />
+          </If>
+        </View>
+      </Scroll>
 
+      {/* Dialogs and the toast are overlays, not content: they are laid out
+          against the window so a narrow window keeps the dialog in front of the
+          user instead of somewhere inside the scrolled content. */}
       <If when={store.activeModal() === "actionPalette"}>
         <ActionPaletteModal />
       </If>
@@ -119,7 +140,7 @@ function App() {
       </If>
 
       <ToastAlert />
-      <MinimumWindowGate />
+      <ShortWindowGate />
     </View>
   );
 }
@@ -132,7 +153,7 @@ const hasOpenModal = () =>
 const canUseVaultShortcuts = () =>
   store.phase() === "unlocked" &&
   !hasOpenModal() &&
-  !windowBelowMinimum() &&
+  !windowTooShortForShell() &&
   // The Inspector Form is not a dialog, but it owns the keyboard while it is
   // open: a global shortcut must not filter the list behind a typed secret.
   store.cipherForm() === null;
@@ -140,9 +161,9 @@ const canUseVaultShortcuts = () =>
 const paletteOpen = () => store.activeModal() === "actionPalette";
 
 // Bindings that do not go through the shared vault guard still have to stand
-// down while the minimum window gate is up.
-const whenWindowFits = (run: () => void) => () => {
-  if (!windowBelowMinimum()) {
+// down while the short-window gate is up.
+const whenWindowTallEnough = (run: () => void) => () => {
+  if (!windowTooShortForShell()) {
     run();
   }
 };
@@ -239,12 +260,12 @@ keymap.bind({
       store.lockOrLogout(false);
     }
   },
-  "mod+,": whenWindowFits(() => {
+  "mod+,": whenWindowTallEnough(() => {
     if (!paletteOpen()) {
       store.openSettings();
     }
   }),
-  up: whenWindowFits(() => {
+  up: whenWindowTallEnough(() => {
     // The palette owns its own key bindings while it is open.
     if (paletteOpen()) {
       return;
@@ -253,7 +274,7 @@ keymap.bind({
       store.moveSelection(-1);
     }
   }),
-  down: whenWindowFits(() => {
+  down: whenWindowTallEnough(() => {
     if (paletteOpen()) {
       return;
     }
@@ -261,7 +282,7 @@ keymap.bind({
       store.moveSelection(1);
     }
   }),
-  enter: whenWindowFits(() => {
+  enter: whenWindowTallEnough(() => {
     if (paletteOpen()) {
       return;
     }
@@ -272,7 +293,7 @@ keymap.bind({
       store.primaryCopy();
     }
   }),
-  escape: whenWindowFits(() => {
+  escape: whenWindowTallEnough(() => {
     // The open Inspector Form owns Esc through its own binding below; this
     // handler must not also toggle the scope or clear a focus behind it.
     if (store.cipherForm() !== null) {
@@ -297,11 +318,11 @@ keymap.bind({
 // open, between its fields and buttons. The default binding is enough while no
 // input is being edited; the vault search's focused case is covered by the
 // `always` bindings below.
-keymap.bind("tab", whenWindowFits(() => store.cycleVaultFocus(1)), {
+keymap.bind("tab", whenWindowTallEnough(() => store.cycleVaultFocus(1)), {
   when: "notEditing",
   repeat: true,
 });
-keymap.bind("shift+tab", whenWindowFits(() => store.cycleVaultFocus(-1)), {
+keymap.bind("shift+tab", whenWindowTallEnough(() => store.cycleVaultFocus(-1)), {
   when: "notEditing",
   repeat: true,
 });
@@ -362,7 +383,7 @@ effect(() => {
   };
 });
 
-keymap.bind("space", whenWindowFits(() => store.activateFocusedAction()), {
+keymap.bind("space", whenWindowTallEnough(() => store.activateFocusedAction()), {
   when: "notEditing",
 });
 
@@ -373,7 +394,7 @@ effect(() => {
   if (store.cipherForm() === null) {
     return;
   }
-  if (windowBelowMinimum()) {
+  if (windowTooShortForShell()) {
     return;
   }
   const unbindForm = keymap.bind(

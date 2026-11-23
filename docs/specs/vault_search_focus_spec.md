@@ -57,7 +57,7 @@ The badge comes from `keymap.label("mod+f")` so it reads `Ctrl+F` on Linux and t
 
 ### Auto-focus
 
-The search header focuses the field when it mounts — that is the unlock and the show — and follows the gate: when `windowBelowMinimum()` turns true it blurs the field, and when it turns false it focuses again. The effect compares the predicate's value with the previous one, so a resize that does not cross the floor does not steal focus back from an action the user tabbed to.
+The search header focuses the field when it mounts — that is the unlock and the show — and follows the short-window gate: when `windowTooShortForShell()` turns true it blurs the field, and when it turns false it focuses again. The effect compares the predicate's value with the previous one, so a resize that does not cross the height floor does not steal focus back from an action the user tabbed to.
 
 It does not select anything on mount: a restored "remember last search" query keeps its text and gets the caret at the end, as the plugin's `focusSearch(true)` does.
 

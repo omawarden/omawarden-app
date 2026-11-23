@@ -2,7 +2,7 @@ import { effect, Text, View } from "nsh";
 import { Button, Input } from "nsh/base";
 import * as store from "../store/appStore";
 import { blurSearch, focusSearch, setSearchField } from "../store/searchFocus";
-import { windowBelowMinimum } from "../store/windowGate";
+import { windowTooShortForShell } from "../store/shellScroll";
 import { tint } from "../theme/palette";
 import { actionID, focusOutline, useAction } from "./ui";
 import { GhostIconButton } from "./GhostIconButton";
@@ -18,27 +18,27 @@ export function SearchHeader() {
   const scopeBackground = () => palette().menu.background;
 
   // The vault's home position for the keyboard: unlocking or showing the
-  // vault puts it in the search box, and the minimum-window gate takes it away
+  // vault puts it in the search box, and the short-window gate takes it away
   // while it covers the app. Comparing the predicate's value keeps a plain
   // resize from stealing focus back from an action the user tabbed to.
   //
   // A dialog takes the keyboard as well: its fields are what the user types
   // into, and Escape has to reach the dialog rather than the search behind it.
   // Closing it does not give the focus back — only the palette asks for that.
-  let lastBelow: boolean | null = null;
+  let lastShort: boolean | null = null;
   let lastModal = false;
   effect(() => {
-    const below = windowBelowMinimum();
+    const short = windowTooShortForShell();
     const modal = store.activeModal() !== "none";
     if (modal && !lastModal) {
       blurSearch();
     }
     lastModal = modal;
-    if (below === lastBelow) {
+    if (short === lastShort) {
       return;
     }
-    lastBelow = below;
-    if (below || modal) {
+    lastShort = short;
+    if (short || modal) {
       blurSearch();
     } else {
       focusSearch();
