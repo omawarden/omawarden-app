@@ -4,14 +4,14 @@
 
 import type { Size } from "nsh";
 
-/** The narrowest the vault list ever renders. */
-export const SIDEBAR_MIN_WIDTH = 320;
+/** The narrowest the Item List ever renders. */
+export const ITEM_LIST_MIN_WIDTH = 320;
 
-/** The widest the vault list ever renders. */
-export const SIDEBAR_MAX_WIDTH = 560;
+/** The widest the Item List ever renders. */
+export const ITEM_LIST_MAX_WIDTH = 560;
 
-/** The share of the window the vault list asks for before clamping. */
-export const SIDEBAR_WIDTH_RATIO = 0.3;
+/** The share of the window the Item List asks for before clamping. */
+export const ITEM_LIST_WIDTH_RATIO = 0.3;
 
 /** The narrowest window the shell can lay out without clipping. */
 export const MIN_WINDOW_WIDTH = 900;
@@ -55,16 +55,16 @@ export function scaleLength(points: number, scale: number): number {
 }
 
 /**
- * The vault list width for a window width: the preferred share of the window,
- * clamped to the sidebar's range and rounded to whole points.
+ * The Item List width for a window width: the preferred share of the window,
+ * clamped to the list's range and rounded to whole points.
  *
  * It follows the window alone. Enlarging the text grows the rows' contents,
- * but a wider sidebar would eat the detail pane and would also raise the
- * window size the shell needs, so the text size does not move it.
+ * but a wider list would eat the detail pane and would also raise the window
+ * size the shell needs, so the text size does not move it.
  */
-export function sidebarWidth(windowWidth: number): number {
-  const preferred = windowWidth * SIDEBAR_WIDTH_RATIO;
-  const clamped = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, preferred));
+export function itemListWidth(windowWidth: number): number {
+  const preferred = windowWidth * ITEM_LIST_WIDTH_RATIO;
+  const clamped = Math.min(ITEM_LIST_MAX_WIDTH, Math.max(ITEM_LIST_MIN_WIDTH, preferred));
   return Math.round(clamped);
 }
 

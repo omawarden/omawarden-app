@@ -5,7 +5,7 @@ import * as store from "../store/appStore";
 import { formatMaskedCardNumber } from "../store/CardFormatter";
 import { formatLocalDateTime } from "../store/DateTime";
 import { markIconFailed, rowIcon } from "../store/Icons";
-import { VAULT_ICON_SIZE, scaleLength, sidebarWidth } from "../theme/layout";
+import { VAULT_ICON_SIZE, itemListWidth, scaleLength } from "../theme/layout";
 import { tint } from "../theme/palette";
 import { Icon, type IconName } from "./Icon";
 import { actionID, EmptyHint, focusOutline, useAction } from "./ui";
@@ -43,7 +43,7 @@ export function VaultItemList() {
     <View
       testID="vault-item-list"
       style={{
-        width: sidebarWidth(windowSize().width),
+        width: itemListWidth(windowSize().width),
         backgroundColor: palette().popups.background,
         borderColor: palette().popups.border,
         borderWidth: 1,

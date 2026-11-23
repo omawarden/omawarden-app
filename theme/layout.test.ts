@@ -8,22 +8,22 @@ import {
   MIN_WINDOW_WIDTH,
   OTP_CELL_HEIGHT,
   OTP_CELL_WIDTH,
-  SIDEBAR_MAX_WIDTH,
-  SIDEBAR_MIN_WIDTH,
-  SIDEBAR_WIDTH_RATIO,
+  ITEM_LIST_MAX_WIDTH,
+  ITEM_LIST_MIN_WIDTH,
+  ITEM_LIST_WIDTH_RATIO,
   SYNC_INDICATOR_SIZE,
   VAULT_ICON_SIZE,
   WIDE_INPUT_WIDTH,
   minimumWindowSize,
   scaleLength,
-  sidebarWidth,
+  itemListWidth,
   windowTooSmall,
 } from "./layout";
 
 test("layout module owns the shell's size constants", () => {
-  expect(SIDEBAR_MIN_WIDTH).toBe(320);
-  expect(SIDEBAR_MAX_WIDTH).toBe(560);
-  expect(SIDEBAR_WIDTH_RATIO).toBe(0.3);
+  expect(ITEM_LIST_MIN_WIDTH).toBe(320);
+  expect(ITEM_LIST_MAX_WIDTH).toBe(560);
+  expect(ITEM_LIST_WIDTH_RATIO).toBe(0.3);
   expect(MIN_WINDOW_WIDTH).toBe(900);
   expect(MIN_WINDOW_HEIGHT).toBe(620);
   expect(EMPTY_STATE_MAX_WIDTH).toBe(420);
@@ -55,33 +55,33 @@ test("scale length never returns less than one point", () => {
   expect(scaleLength(36, 0)).toBe(1);
 });
 
-test("sidebar width follows the window curve", () => {
-  expect(sidebarWidth(900)).toBe(320);
-  expect(sidebarWidth(1280)).toBe(384);
-  expect(sidebarWidth(1440)).toBe(432);
-  expect(sidebarWidth(1920)).toBe(560);
-  expect(sidebarWidth(2200)).toBe(560);
-  expect(sidebarWidth(2560)).toBe(560);
-  expect(sidebarWidth(3840)).toBe(560);
+test("item list width follows the window curve", () => {
+  expect(itemListWidth(900)).toBe(320);
+  expect(itemListWidth(1280)).toBe(384);
+  expect(itemListWidth(1440)).toBe(432);
+  expect(itemListWidth(1920)).toBe(560);
+  expect(itemListWidth(2200)).toBe(560);
+  expect(itemListWidth(2560)).toBe(560);
+  expect(itemListWidth(3840)).toBe(560);
 });
 
-test("sidebar width clamps at both edges of its range", () => {
+test("item list width clamps at both edges of its range", () => {
   // Below the preferred ratio's minimum: the list never shrinks past 320.
-  expect(sidebarWidth(0)).toBe(320);
-  expect(sidebarWidth(400)).toBe(320);
-  expect(sidebarWidth(1066)).toBe(320);
-  expect(sidebarWidth(1067)).toBe(320);
+  expect(itemListWidth(0)).toBe(320);
+  expect(itemListWidth(400)).toBe(320);
+  expect(itemListWidth(1066)).toBe(320);
+  expect(itemListWidth(1067)).toBe(320);
   // Past the maximum: the list holds at 560 and the detail pane keeps the rest.
-  expect(sidebarWidth(1800)).toBe(540);
-  expect(sidebarWidth(1866)).toBe(560);
-  expect(sidebarWidth(1867)).toBe(560);
-  expect(sidebarWidth(7680)).toBe(560);
+  expect(itemListWidth(1800)).toBe(540);
+  expect(itemListWidth(1866)).toBe(560);
+  expect(itemListWidth(1867)).toBe(560);
+  expect(itemListWidth(7680)).toBe(560);
 });
 
-test("sidebar width rounds to whole points", () => {
-  expect(sidebarWidth(1441)).toBe(432);
-  expect(sidebarWidth(1443)).toBe(433);
-  expect(sidebarWidth(1449)).toBe(435);
+test("item list width rounds to whole points", () => {
+  expect(itemListWidth(1441)).toBe(432);
+  expect(itemListWidth(1443)).toBe(433);
+  expect(itemListWidth(1449)).toBe(435);
 });
 
 test("window too small checks both thresholds at their boundaries", () => {
