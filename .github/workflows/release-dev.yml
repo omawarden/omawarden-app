@@ -80,8 +80,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang llvm libclang-dev pkg-config \
-            libgtk-4-dev libwebkitgtk-6.0-dev libssl-dev libxcb1-dev libsecret-1-dev \
-            libzstd-dev file wget
+            libgtk-4-dev libwebkitgtk-6.0-dev libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev libssl-dev libxcb1-dev \
+            libsecret-1-dev libzstd-dev file wget
 
       # The Linux archive carries this platform's release runner next to
       # `bin/nsh`; the installer lays it out under ~/.nsh on both runners, so

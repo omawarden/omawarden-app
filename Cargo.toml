@@ -5,6 +5,7 @@ edition = "2024"
 publish = false
 
 [workspace]
+exclude = ["engine"]
 
 [dependencies]
 nsh-core = "0.6.1"
