@@ -215,6 +215,25 @@ The floor is the app's own. It does not collapse the sidebar, reflow the
 workspace, or report an error; the layout below the threshold is simply not
 shown (ADR 0002).
 
+## Tray Icon
+
+The app's small, persistent representative in the desktop panel. It shows the
+vault's current state at a glance and stays available while the main window is
+hidden, so the window can always be brought back.
+
+_Avoid_: Menu Bar Icon, Notification Area
+
+## Close to Tray
+
+Dismissing the main window without ending the app. The vault session and the
+daemon keep running, and the `Tray Icon` remains the way back.
+
+## Tray Attention State
+
+The `Tray Icon` state that means the vault is unlocked while an SSH signing
+request is waiting for approval. It is the one tray state that asks for a
+decision rather than only reporting whether the vault is readable.
+
 ## App Version
 
 The version of `omawarden-app` itself: `version` in `Cargo.toml` and in
