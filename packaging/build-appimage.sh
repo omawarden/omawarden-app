@@ -4,7 +4,7 @@
 # Usage: build-appimage.sh <package-dir> <output-dir> <output-name> <arch>
 #   <package-dir>  e.g. dist-pkg/Omawarden
 #   <output-dir>   e.g. dist
-#   <output-name>  e.g. omawarden-app-0.4.0-dev-x86_64-unknown-linux-gnu.AppImage
+#   <output-name>  e.g. omawarden-app-0.6.0-dev-x86_64-unknown-linux-gnu.AppImage
 #   <arch>         x86_64 or aarch64
 set -euo pipefail
 
@@ -68,6 +68,12 @@ mkdir -p "$APPDIR/usr/bin" \
 
 install -m 755 "$EXE" "$APPDIR/usr/bin/$EXE_NAME"
 cp -a "$PKG_DIR/nsh" "$APPDIR/usr/bin/nsh"
+# The release workflow builds the pinned daemon into the package directory.
+# A development package may not carry one; the app then falls back to a
+# sibling checkout or PATH, which is the documented development behaviour.
+if [ -x "$PKG_DIR/omawarden" ]; then
+  install -m 755 "$PKG_DIR/omawarden" "$APPDIR/usr/bin/omawarden"
+fi
 
 install -m 644 "$DESKTOP" "$APPDIR/$DESKTOP_NAME"
 install -m 644 "$DESKTOP" "$APPDIR/usr/share/applications/$DESKTOP_NAME"

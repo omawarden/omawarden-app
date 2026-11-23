@@ -9,7 +9,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 if ! command -v nsh >/dev/null 2>&1; then
-  echo "nsh is not on PATH. Install NSH v0.4.0 first." >&2
+  echo "nsh is not on PATH. Install NSH v0.6.1 first." >&2
   exit 1
 fi
 
@@ -25,6 +25,9 @@ if [ "$cargo_version" != "$nsh_version" ]; then
   echo "Cargo.toml and nsh.json versions differ." >&2
   exit 1
 fi
+
+step "Check the engine pin"
+bash scripts/check_engine_pin.sh
 
 step "Reject private details"
 python3 scripts/check_privacy.py

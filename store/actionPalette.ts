@@ -33,6 +33,10 @@ export function contextActions(): PaletteAction[] {
   if (!current) {
     return actions;
   }
+  // In the Trash the selected row is read-only; no secrets, no mutations.
+  if (store.vaultView() === "trash") {
+    return actions;
+  }
   if (current.category === "login") {
     actions.push({
       id: "copy-password",
@@ -146,8 +150,8 @@ export function contextActions(): PaletteAction[] {
         ? "Remove from the favorites"
         : "Add to the favorites",
       icon: "star",
-      shortcut: "Ctrl+V",
-      keystroke: "mod+v",
+      shortcut: "Ctrl+B",
+      keystroke: "mod+b",
       run: store.toggleFavorite,
     });
     actions.push({

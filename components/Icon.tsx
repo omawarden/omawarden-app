@@ -33,6 +33,7 @@ export type IconName =
   | "check"
   | "shield"
   | "star"
+  | "star-filled"
   | "circle"
   | "upload"
   | "pencil"
@@ -234,6 +235,22 @@ const glyphs: Record<IconName, Draw> = {
     }
     c.closePath();
     c.stroke();
+  },
+  // The same star, filled: the favorite control's "on" state, which a stroked
+  // star cannot show.
+  "star-filled": (c) => {
+    c.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const r = i % 2 ? 3.2 : 7;
+      const a = -Math.PI / 2 + (i * Math.PI) / 5;
+      if (i) {
+        c.lineTo(10 + Math.cos(a) * r, 10.5 + Math.sin(a) * r);
+      } else {
+        c.moveTo(10 + Math.cos(a) * r, 10.5 + Math.sin(a) * r);
+      }
+    }
+    c.closePath();
+    c.fill();
   },
   circle: (c) => circle(c, 10, 10, 7),
   upload: (c) => {

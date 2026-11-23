@@ -6,7 +6,7 @@
 
 use serde_json::json;
 
-use crate::diagnostics::push_log;
+use crate::diagnostics::{LogLevel, push_log};
 use crate::{
     ActionOutcomeView, AppPhase, AuthActionInput, AuthKind, MockState, TwoFactorChallengeView,
     TwoFactorProviderView, VaultFilterInput, VaultSnapshotView, config_manager, daemon,
@@ -237,12 +237,20 @@ fn real_authenticate(input: AuthActionInput) -> VaultSnapshotView {
 
     if result.ok {
         apply_remember_email(&input);
-        push_log(format!("authentication succeeded: {:?}", input.kind));
+        let message = match input.kind {
+            AuthKind::Unlock | AuthKind::QuickUnlock => "vault unlocked".to_string(),
+            kind => format!("authentication succeeded: {kind:?}"),
+        };
+        push_log(LogLevel::Info, "app:auth", &message);
     } else {
-        push_log(format!(
-            "authentication failed: {}",
-            result.error.as_deref().unwrap_or("unknown error")
-        ));
+        push_log(
+            LogLevel::Error,
+            "app:auth",
+            &format!(
+                "authentication failed: {}",
+                result.error.as_deref().unwrap_or("unknown error")
+            ),
+        );
     }
     snapshot_from_auth_result(&result, &input.email)
 }
@@ -267,7 +275,12 @@ fn real_send_two_factor_email(email: &str, password: &str) -> ActionOutcomeView 
 fn real_lock_or_logout(logout: bool) -> VaultSnapshotView {
     let auth = auth_manager();
     let _ = if logout { auth.logout() } else { auth.lock() };
-    vault::clear_cached_vault();
+    push_log(
+        LogLevel::Info,
+        "app:auth",
+        if logout { "signed out" } else { "vault locked" },
+    );
+    vault::clear_session_state();
     crate::engine::attachments().clean_previews(None);
     vault::real_snapshot(VaultFilterInput::default())
 }
@@ -339,6 +352,21 @@ fn mock_authenticate(state: &mut MockState, input: AuthActionInput) -> VaultSnap
             }
         }
     }
+    let outcome = state.error.clone();
+    match outcome {
+        Some(error) => state.record_log(
+            LogLevel::Error,
+            "app:auth",
+            &format!("authentication failed: {error}"),
+        ),
+        None => {
+            let message = match input.kind {
+                AuthKind::Unlock | AuthKind::QuickUnlock => "vault unlocked",
+                _ => "authentication succeeded",
+            };
+            state.record_log(LogLevel::Info, "app:auth", message);
+        }
+    }
     state.snapshot()
 }
 
@@ -373,10 +401,16 @@ fn mock_lock_or_logout(state: &mut MockState, logout: bool) -> VaultSnapshotView
     state.ssh_prompt = None;
     state.two_factor = None;
     state.error = None;
+    state.trash_details.clear();
     if logout {
         state.email.clear();
         state.items.clear();
         state.last_sync = None;
     }
+    state.record_log(
+        LogLevel::Info,
+        "app:auth",
+        if logout { "signed out" } else { "vault locked" },
+    );
     state.snapshot()
 }

@@ -9,6 +9,9 @@ const formatSize = (width: number, height: number) =>
 // An opaque overlay, not a replacement: the workspace, dialogs and toast stay
 // mounted underneath so a shrink-and-restore cycle loses nothing. It has no
 // controls on purpose; only resizing the window clears it.
+//
+// The gate is the app's own floor, not a stand-in for a missing API: NSH 0.6.1
+// has `window.minSize`, and we deliberately do not set it. See ADR 0002.
 export function MinimumWindowGate() {
   const palette = store.palette;
   const minimum = minimumWindowSize();

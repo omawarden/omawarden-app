@@ -3,11 +3,11 @@ import * as store from "./store/appStore";
 import * as palette from "./store/actionPalette";
 import { blurSearch, focusSearch } from "./store/searchFocus";
 import { windowBelowMinimum } from "./store/windowGate";
+import { installTray } from "./store/trayWiring";
 import { ActionPaletteModal } from "./components/ActionPaletteModal";
 import { AuthView } from "./components/AuthView";
 import { CategoryTabBar } from "./components/CategoryTabBar";
 import { CipherDeleteModal } from "./components/CipherDeleteModal";
-import { CipherFormModal } from "./components/CipherFormModal";
 import { CipherResolveModal } from "./components/CipherResolveModal";
 import { DependencyCheckView } from "./components/DependencyCheckView";
 import { FooterBar } from "./components/FooterBar";
@@ -23,6 +23,7 @@ import { SettingsModal } from "./components/SettingsModal";
 import { SshApprovalModal } from "./components/SshApprovalModal";
 import { SshKeyModal } from "./components/SshKeyModal";
 import { ToastAlert } from "./components/ToastAlert";
+import { TypePickerModal } from "./components/TypePickerModal";
 import { VaultItemList } from "./components/VaultItemList";
 
 function VaultWorkspace() {
@@ -86,11 +87,8 @@ function App() {
       <If when={store.activeModal() === "actionPalette"}>
         <ActionPaletteModal />
       </If>
-      <If when={store.activeModal() === "cipherForm"}>
-        <CipherFormModal />
-      </If>
-      <If when={store.activeModal() === "cipherEdit"}>
-        <CipherFormModal />
+      <If when={store.activeModal() === "typePicker"}>
+        <TypePickerModal />
       </If>
       <If when={store.activeModal() === "cipherDelete"}>
         <CipherDeleteModal />
@@ -132,7 +130,12 @@ const hasOpenModal = () =>
   store.activeModal() !== "none" || store.sshPrompt() !== null;
 
 const canUseVaultShortcuts = () =>
-  store.phase() === "unlocked" && !hasOpenModal() && !windowBelowMinimum();
+  store.phase() === "unlocked" &&
+  !hasOpenModal() &&
+  !windowBelowMinimum() &&
+  // The Inspector Form is not a dialog, but it owns the keyboard while it is
+  // open: a global shortcut must not filter the list behind a typed secret.
+  store.cipherForm() === null;
 
 const paletteOpen = () => store.activeModal() === "actionPalette";
 
@@ -206,8 +209,14 @@ keymap.bind({
     }
   },
   "mod+n": () => {
+    // The picker is the same shortcut's second step, so pressing it again
+    // toggles the choice instead of reopening a dialog that is already up.
+    if (store.activeModal() === "typePicker") {
+      store.cycleTypePicker();
+      return;
+    }
     if (canUseVaultShortcuts()) {
-      store.openCipherForm("login");
+      store.openTypePicker();
     }
   },
   "mod+d": () => {
@@ -264,6 +273,11 @@ keymap.bind({
     }
   }),
   escape: whenWindowFits(() => {
+    // The open Inspector Form owns Esc through its own binding below; this
+    // handler must not also toggle the scope or clear a focus behind it.
+    if (store.cipherForm() !== null) {
+      return;
+    }
     if (store.scopeOpen()) {
       store.toggleScope();
       return;
@@ -279,14 +293,15 @@ keymap.bind({
 });
 
 // Linux/GTK's native Tab traversal only visits text fields, so the app moves
-// its own focus between the action controls. The default binding is enough
-// while no input is being edited; the vault search's focused case is covered
-// by the `always` bindings below.
-keymap.bind("tab", whenWindowFits(() => store.cycleAction(1)), {
+// its own focus between the action controls and, while the Inspector Form is
+// open, between its fields and buttons. The default binding is enough while no
+// input is being edited; the vault search's focused case is covered by the
+// `always` bindings below.
+keymap.bind("tab", whenWindowFits(() => store.cycleVaultFocus(1)), {
   when: "notEditing",
   repeat: true,
 });
-keymap.bind("shift+tab", whenWindowFits(() => store.cycleAction(-1)), {
+keymap.bind("shift+tab", whenWindowFits(() => store.cycleVaultFocus(-1)), {
   when: "notEditing",
   repeat: true,
 });
@@ -304,7 +319,10 @@ effect(() => {
     {
       "mod+enter": () => store.copyField("totp"),
       "ctrl+enter": () => store.copyField("totp"),
-      "mod+v": () => store.toggleFavorite(),
+      // Favorite is Ctrl+B, not Ctrl+V: the latter has to stay paste inside
+      // the search field (and the palette's own search), or the shortcut steals
+      // the key and fires a mutation instead of pasting.
+      "mod+b": () => store.toggleFavorite(),
       up: () => {
         // The palette owns its own key bindings while it is open.
         if (paletteOpen()) {
@@ -329,11 +347,11 @@ effect(() => {
     {
       tab: () => {
         blurSearch();
-        store.cycleAction(1);
+        store.cycleVaultFocus(1);
       },
       "shift+tab": () => {
         blurSearch();
-        store.cycleAction(-1);
+        store.cycleVaultFocus(-1);
       },
     },
     { when: "always", repeat: true },
@@ -348,8 +366,73 @@ keymap.bind("space", whenWindowFits(() => store.activateFocusedAction()), {
   when: "notEditing",
 });
 
+// The Inspector Form is not a dialog: it takes the keyboard from the vault
+// (see `canUseVaultShortcuts`) and these keys reach it even while a field has
+// the focus, which is where the user spends the whole form.
+effect(() => {
+  if (store.cipherForm() === null) {
+    return;
+  }
+  if (windowBelowMinimum()) {
+    return;
+  }
+  const unbindForm = keymap.bind(
+    {
+      "mod+s": () => {
+        if (store.activeModal() === "none") {
+          store.submitCipherFormDraft();
+        }
+      },
+      "mod+g": () => {
+        if (store.activeModal() === "none") {
+          store.openGeneratorFill();
+        }
+      },
+      escape: () => {
+        // A dialog opened over the form (the generator) closes first; the
+        // form's own cancel only runs once nothing is above it.
+        if (store.activeModal() !== "none") {
+          store.closeModal();
+          return;
+        }
+        store.cancelCipherForm();
+      },
+    },
+    { when: "always" },
+  );
+  // Tab is the app's own ring here, as it is for the vault: `always`, so the
+  // platform's traversal — which reaches text fields only — never takes the key
+  // and strands the buttons.
+  const unbindTabs = keymap.bind(
+    {
+      tab: () => store.cycleCipherFormFocus(1),
+      "shift+tab": () => store.cycleCipherFormFocus(-1),
+    },
+    { when: "always", repeat: true },
+  );
+  return () => {
+    unbindForm();
+    unbindTabs();
+  };
+});
+
+// A form that closes hands the keyboard back to the search. The query stays as
+// it was: Ctrl+F is the shortcut that selects it for replacing.
+let formWasOpen = false;
+effect(() => {
+  const open = store.cipherForm() !== null;
+  if (formWasOpen && !open) {
+    focusSearch();
+  }
+  formWasOpen = open;
+});
+
 host.on("theme-update", (payload) => {
   store.applyHostTheme(payload);
 });
+
+// The tray and the close button belong to the app, not to a render: installing
+// once here keeps a re-render from adding a second listener.
+installTray();
 
 mount(App);

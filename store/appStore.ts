@@ -1,4 +1,4 @@
-import { computed, fontScale, host, signal, untracked } from "nsh";
+import { computed, fontScale, host, signal, untracked, type ViewRef } from "nsh";
 import {
   OmawardenBridge,
   type AppPhase,
@@ -9,6 +9,9 @@ import {
   type CipherRowView,
   type CipherTargetCandidateView,
   type CopyOutcomeView,
+  type DaemonCandidateView,
+  type DaemonSourceMode,
+  type DaemonSourceView,
   type DaemonTickView,
   type DependencyStatusView,
   type GeneratedSecretView,
@@ -47,12 +50,22 @@ import {
 } from "../theme/palette";
 import { scaleType, type TypeScale } from "../theme/typeScale";
 import { clearAuthSecrets, clearTwoFactorCodes, serverPanelOpen } from "./authForm";
+import {
+  blurCipherFields,
+  blurCipherPassword,
+  cipherFieldKeys,
+  focusCipherField,
+  focusCipherPassword,
+  focusedCipherField,
+  markCipherFieldFocus,
+  resetCipherFields,
+} from "./cipherFormFocus";
+import { buildDiagnosticReport } from "./diagnosticReport";
 
 export type ModalKind =
   | "none"
   | "actionPalette"
-  | "cipherForm"
-  | "cipherEdit"
+  | "typePicker"
   | "cipherDelete"
   | "cipherResolve"
   | "generator"
@@ -129,9 +142,34 @@ function defaultReveal(): RevealStateInput {
 
 export const snapshot = signal<VaultSnapshotView>(emptySnapshot("login"));
 export const rawItems = signal<CipherRowView[]>([]);
+/**
+ * Which vault the list shows. The Trash is a view, not an `ItemCategory`, so
+ * the category tabs keep their meaning inside it.
+ */
+export type VaultView = "active" | "trash";
+export const vaultView = signal<VaultView>("active");
+/**
+ * The loaded Trash rows, or null until the first open of the session.
+ *
+ * The Trash is read on demand and kept here, never in `rawItems`: the active
+ * vault's cache stays active-only, and a cold path cannot reach a trashed row.
+ */
+export const trashItems = signal<CipherRowView[] | null>(null);
+/**
+ * Whether a Trash mutation changed the active rows while the Trash was open.
+ *
+ * A restore or purge does not re-read the active vault from inside the Trash:
+ * the refresh happens once on the way back, so the view keeps its own row
+ * source and no cold path gains an extra request.
+ */
+let activeRowsStale = false;
 export const phase = computed<AppPhase>(() => snapshot().phase);
 export const sshPrompt = computed(() => snapshot().sshPrompt);
 export const dependencies = signal<DependencyStatusView | null>(null);
+/** Which daemon executable the app launches, and how it resolved. */
+export const daemonSource = signal<DaemonSourceView | null>(null);
+/** Every daemon binary the app could launch, refreshed when the tab opens. */
+export const daemonCandidates = signal<DaemonCandidateView[]>([]);
 export const inspector = signal<InspectorView | null>(null);
 export const settings = signal<SettingsSnapshotView | null>(null);
 export const settingsDraft = signal<SettingsUpdateInput>({});
@@ -171,18 +209,40 @@ export const focusedAction = signal<string | null>(null);
 export const isSubmitting = signal(false);
 /** Whether a vault sync is in flight (kept separate from auth submission). */
 export const isSyncing = signal(false);
+/** Whether a Trash restore is in flight, so a double press cannot fire twice. */
+export const isRestoring = signal(false);
+/** Whether a delete (soft or Trash purge) is in flight, so the dialog can say so. */
+export const isDeleting = signal(false);
 /** The cipher whose master-password re-prompt grant is active. */
 export const repromptCipherId = signal<string | null>(null);
 export const repromptError = signal<string | null>(null);
 
-/** The cipher mutation form's live draft, or null when the form is closed. */
+/** The Inspector Form's live draft, or null when the form is closed. */
 export const cipherForm = signal<CipherMutationInput | null>(null);
-/** The draft fields the user changed since the form opened. */
-export const cipherFormDirty = signal<string[]>([]);
+/** The draft as the form opened it: what "unsaved changes" compares against. */
+export const cipherFormBaseline = signal<CipherMutationInput | null>(null);
 /** The id being edited, or null when the form is a create. */
 export const cipherFormId = signal<string | null>(null);
-/** The outcome of the last mutation, shown inline until the modal closes. */
+/** The outcome of the last mutation, shown inline until the form closes. */
 export const cipherFormOutcome = signal<CipherMutationOutcomeView | null>(null);
+/** Whether the form asks before throwing an unsaved draft away. */
+export const cipherFormDiscardConfirm = signal(false);
+/**
+ * The form's buttons in the order they read, as the form declares them.
+ *
+ * The action registry reports the order the platform mounted the controls in,
+ * which is breadth first and puts the panel's buttons after the row below it;
+ * the form names its own order so Tab walks the screen top to bottom.
+ */
+export const cipherFormActionRing = signal<string[]>([]);
+
+// What to do after the form's discard strip is answered: a navigation that
+// asked to leave the open form (a list row, a scope, the Trash) waits here.
+let pendingCipherFormLeave: (() => void) | null = null;
+/** The Type Picker's highlighted choice: 0 is Login, 1 is Secure Note. */
+export const typePickerIndex = signal(0);
+/** Whether the password generator fills the open form instead of the clipboard. */
+export const generatorFillMode = signal(false);
 /** The target-resolution menu, when a name matched more than one cipher. */
 export const cipherCandidates = signal<CipherTargetCandidateView[] | null>(null);
 /** The name typed into the "go to item" resolver. */
@@ -303,9 +363,41 @@ function filterRows(
   return scored.map((entry) => entry.row);
 }
 
+/**
+ * Filters the loaded Trash rows.
+ *
+ * The Trash is server-wide, so scope and folder do not narrow it. The rows
+ * arrive newest-deletion-first and keep that order: a search must not re-sort
+ * them by fuzzy score the way the active list does.
+ */
+function filterTrashRows(
+  rows: CipherRowView[],
+  cat: ItemCategory,
+  queryText: string,
+): CipherRowView[] {
+  const kept: CipherRowView[] = [];
+  for (const row of rows) {
+    if (cat !== "all" && row.category !== cat) continue;
+    const haystack = `${row.title} ${row.subtitle} ${row.organization ?? ""} ${row.folder ?? ""}`;
+    if (fuzzyScore(queryText, haystack) === null) continue;
+    kept.push(row);
+  }
+  return kept;
+}
+
 export const filteredItems = computed<CipherRowView[]>(() =>
-  filterRows(rawItems(), category(), scopeId(), folderId(), search()),
+  vaultView() === "trash"
+    ? filterTrashRows(trashItems() ?? [], category(), search())
+    : filterRows(rawItems(), category(), scopeId(), folderId(), search()),
 );
+
+/** Every row the current view can list, before filtering. */
+export const viewRows = computed<CipherRowView[]>(() =>
+  vaultView() === "trash" ? trashItems() ?? [] : rawItems(),
+);
+
+/** The Trash's row count, or null before the first load. */
+export const trashCount = computed<number | null>(() => trashItems()?.length ?? null);
 
 /** Category badges for the current search, scope, and folder. */
 export const categoryCounts = computed<CategoryCountsView>(() => {
@@ -317,7 +409,10 @@ export const categoryCounts = computed<CategoryCountsView>(() => {
     secureNotes: 0,
     sshKeys: 0,
   };
-  const rows = filterRows(rawItems(), "all", scopeId(), folderId(), search());
+  const rows =
+    vaultView() === "trash"
+      ? filterTrashRows(trashItems() ?? [], "all", search())
+      : filterRows(rawItems(), "all", scopeId(), folderId(), search());
   for (const row of rows) {
     counts.all += 1;
     switch (row.category) {
@@ -364,11 +459,42 @@ export const selectedCipher = computed<CipherRowView | null>(() => {
   return items[index] ?? null;
 });
 
+/**
+ * Whether the current view has an item for the inspector to show.
+ *
+ * The active view needs an engine inspector; the Trash renders the selected row
+ * itself, because the daemon's per-item reads are active-only.
+ */
+export const selectionActive = computed<boolean>(() =>
+  vaultView() === "trash" ? selectedCipher() !== null : inspector() !== null,
+);
+
+/**
+ * Refuses a write or extract action while the Trash is the current view.
+ *
+ * Edit, favourite, delete, copy, open URL, password history and SSH export all
+ * leave the read-only view or write through an active-only path, so they stay
+ * off in the Trash. Revealing in place is not one of them: the inspector
+ * unmasks what the Trash read already carried.
+ */
+function trashBlocksItemActions(): boolean {
+  if (vaultView() !== "trash") {
+    return false;
+  }
+  notify("This item is in the Trash.", "info");
+  return true;
+}
+
 export const activeScopeName = computed(() => {
   const active = scopeId();
   const match = snapshot().scopes.find((scope) => scope.id === active);
   return match ? match.name : "All Vaults";
 });
+
+/** The scope trigger's label: the Trash is a view, not a scope. */
+export const scopeLabel = computed(() =>
+  vaultView() === "trash" ? "Scope: Trash" : `Scope: ${activeScopeName()}`,
+);
 
 export const activeFolderName = computed(() => {
   const active = folderId();
@@ -424,7 +550,23 @@ function currentLayer(): string {
     return "ssh";
   }
   const modal = activeModal();
-  return modal === "none" ? "base" : `modal:${modal}`;
+  if (modal !== "none") {
+    return `modal:${modal}`;
+  }
+  // The Inspector Form is not a dialog, but it owns the keyboard while it is
+  // open: Tab walks its fields and its buttons, not the vault's controls.
+  return cipherForm() !== null ? "form" : "base";
+}
+
+/** The native view behind each action, so the ring can move focus onto it. */
+const actionElements = new Map<string, ViewRef | null>();
+
+export function registerActionElement(id: string, ref: ViewRef | null): void {
+  if (ref) {
+    actionElements.set(id, ref);
+    return;
+  }
+  actionElements.delete(id);
 }
 
 export function registerAction(id: string, handler: () => void): void {
@@ -478,6 +620,66 @@ export function activateFocusedAction(): boolean {
 
 export function clearActionFocus(): void {
   focusedAction.set(null);
+}
+
+/** The Inspector Form's button order for Tab, set by the form itself. */
+export function setCipherFormActionRing(ids: string[]): void {
+  cipherFormActionRing.set(ids);
+}
+
+/**
+ * Tab's two stops: the vault's controls, or the Inspector Form's ring.
+ *
+ * Both the default Tab binding and the vault's `always` one call this, so the
+ * order the platform resolves them in cannot change what Tab does.
+ */
+export function cycleVaultFocus(delta: number): void {
+  if (cipherForm() !== null) {
+    cycleCipherFormFocus(delta);
+    return;
+  }
+  cycleAction(delta);
+}
+
+/**
+ * Moves the keyboard one stop around the open Inspector Form.
+ *
+ * The ring is the form's text fields in the order they read, then its buttons:
+ * the desktop's native traversal reaches text fields only, so the app walks the
+ * buttons itself, as it does for the vault. Shift+Tab on the first stop wraps
+ * to the last, so the ring is closed and the fields are never a trap (the form
+ * is left with Esc).
+ */
+export function cycleCipherFormFocus(delta: number): void {
+  // A dialog over the form owns the keyboard; nothing behind it moves.
+  if (activeModal() !== "none") {
+    return;
+  }
+  const layer = currentLayer();
+  const declared = cipherFormActionRing().filter((id) => actionEntries.get(id)?.layer === layer);
+  const actions =
+    declared.length > 0
+      ? declared
+      : actionOrder.filter((id) => actionEntries.get(id)?.layer === layer);
+  const stops = [...cipherFieldKeys().map((key) => `field:${key}`), ...actions];
+  if (stops.length === 0) {
+    return;
+  }
+  const focused = focusedCipherField();
+  const current = focused ? `field:${focused}` : focusedAction();
+  const index = current ? stops.indexOf(current) : -1;
+  const from = index < 0 ? (delta > 0 ? -1 : 0) : index;
+  const next = stops[(from + delta + stops.length) % stops.length];
+  if (next.startsWith("field:")) {
+    clearActionFocus();
+    focusCipherField(next.slice(6));
+    return;
+  }
+  blurCipherFields();
+  focusedAction.set(next);
+  // Real focus on the control, not just the app's ring: a text input holding
+  // the keyboard would otherwise keep every key, Enter and Space included.
+  actionElements.get(next)?.focus();
 }
 
 // ---------------------------------------------------------------------------
@@ -534,6 +736,13 @@ function applySnapshot(next: VaultSnapshotView): void {
     inspector.set(null);
     repromptCipherId.set(null);
     repromptError.set(null);
+    vaultView.set("active");
+    trashItems.set(null);
+    // A new session re-reads the active rows on unlock, so neither a pending
+    // Trash refresh nor an in-flight restore or delete survives the lock.
+    activeRowsStale = false;
+    isRestoring.set(false);
+    isDeleting.set(false);
   }
   if (next.twoFactor) {
     selectedProvider.set(next.twoFactor.selectedProvider);
@@ -571,6 +780,21 @@ function currentFilter(): VaultFilterInput {
     category: category(),
     scopeId: scopeId(),
     folderId: folderId(),
+  };
+}
+
+/**
+ * The filter a Trash read sends: the whole list, filtered locally.
+ *
+ * The Trash is server-wide, so the request carries no scope or folder, and the
+ * store applies the search and category tabs to the loaded rows itself.
+ */
+function trashFilter(): VaultFilterInput {
+  return {
+    search: "",
+    category: "all",
+    scopeId: null,
+    folderId: null,
   };
 }
 
@@ -616,6 +840,7 @@ export function bootApp(): void {
     selectFirstIfNeeded();
   }
   loadUiPrefs();
+  loadDaemonSource();
   if (next.phase !== "dependencyCheck") {
     loadSettings();
   }
@@ -730,6 +955,60 @@ export function installMissingDependencies(): void {
       notify("Could not launch the package installer.", "error");
     }
   });
+}
+
+// ---------------------------------------------------------------------------
+// Daemon source
+// ---------------------------------------------------------------------------
+
+/**
+ * Reads the stored daemon source and how it resolves right now.
+ *
+ * The choice names an executable that receives vault credentials, so it is
+ * read on boot beside the settings rather than derived from the theme or the
+ * package dependency list.
+ */
+export function loadDaemonSource(): void {
+  daemonSource.set(OmawardenBridge.getDaemonSource());
+}
+
+/**
+ * Re-lists the daemon binaries the app could launch.
+ *
+ * Called whenever the Engine tab opens: a `PATH` change or a package upgrade
+ * should show up without restarting the app, and nothing watches the disk.
+ */
+export function refreshDaemonCandidates(): void {
+  daemonCandidates.set(OmawardenBridge.listDaemonCandidates());
+}
+
+/**
+ * Stores the daemon source. A rejected choice leaves the previous one in
+ * place and surfaces the resolver's own message.
+ */
+export function selectDaemonSource(mode: DaemonSourceMode, path?: string | null): void {
+  const next = OmawardenBridge.setDaemonSource({ mode, path: path ?? null });
+  daemonSource.set(next);
+  if (next.problem) {
+    notify(next.problem, "error");
+    return;
+  }
+  if (mode !== "bundled" && !next.matchesPinned) {
+    // The protocol handshake is the real gate; this only says the binary was
+    // built from something other than the revision this app pins.
+    notify(
+      "That daemon was not built from the pinned engine revision. It will still be used.",
+      "info",
+    );
+    return;
+  }
+  const label = next.resolvedPath ?? mode;
+  notify(`Daemon source set to ${label}. It applies the next time no daemon is running.`, "success");
+}
+
+/** Picks an external daemon binary, returning the chosen path. */
+export function pickDaemonBinary(): string | null {
+  return OmawardenBridge.pickDaemonBinary();
 }
 
 // ---------------------------------------------------------------------------
@@ -891,8 +1170,18 @@ export function lockOrLogout(logout: boolean): void {
 // Vault
 // ---------------------------------------------------------------------------
 
-export function query(): void {
+export function query(keepId: string | null = null): void {
   resetVisibleLimit();
+  // A filter change normally re-picks the first row, but the caller can ask to
+  // keep a specific row selected — clearing the search should not move the
+  // viewer away from the item they were reading.
+  if (keepId !== null) {
+    const index = filteredItems().findIndex((row) => row.id === keepId);
+    if (index >= 0) {
+      selectCipher(index);
+      return;
+    }
+  }
   selectFirstIfNeeded();
   if (inspector() !== null) {
     refreshInspector();
@@ -915,6 +1204,11 @@ export function sync(): void {
     try {
       const next = OmawardenBridge.syncVault(currentFilter());
       applySnapshot(next);
+      // The Trash is a separate read, so an explicit sync is the one moment it
+      // has to be refreshed while the user is looking at it.
+      if (vaultView() === "trash" && phase() === "unlocked") {
+        reloadTrash();
+      }
       // applySnapshot already surfaces `next.error`; only announce success.
       if (!next.error) {
         notify("Vault synchronized.", "success");
@@ -929,25 +1223,58 @@ export function sync(): void {
 
 export function setSearch(text: string): void {
   if (search() === text) return;
+  // Remember the row being inspected so the projection change keeps it — and
+  // the inspector — in place instead of jumping back to the first row. The
+  // Trash has no engine inspector, so its selection is the row itself.
+  const keepId =
+    vaultView() === "trash" ? (selectedCipher()?.id ?? null) : (inspector()?.id ?? null);
   search.set(text);
-  query();
+  query(keepId);
+}
+
+/**
+ * Runs a navigation that would leave the open Inspector Form behind.
+ *
+ * A clean draft closes at once and the navigation proceeds; a changed one asks
+ * with the form's own discard strip and remembers what to do after. Returns
+ * true when the navigation was deferred, so the caller stops.
+ */
+function guardCipherFormLeave(proceed: () => void): boolean {
+  if (cipherForm() === null) {
+    return false;
+  }
+  if (cipherFormIsDirty()) {
+    pendingCipherFormLeave = proceed;
+    cipherFormDiscardConfirm.set(true);
+    return true;
+  }
+  closeCipherEditor();
+  return false;
 }
 
 export function setCategory(next: ItemCategory): void {
   if (category() === next) return;
+  if (guardCipherFormLeave(() => setCategory(next))) return;
   category.set(next);
   query();
 }
 
 export function setScope(next: string): void {
-  scopeId.set(next);
+  // The dropdown the row was picked from closes either way; a deferred move
+  // must not leave it hanging over the form's discard strip.
   scopeOpen.set(false);
+  if (guardCipherFormLeave(() => setScope(next))) return;
+  scopeId.set(next);
+  // A scope belongs to the active vault: picking one leaves the Trash.
+  leaveTrash();
   query();
 }
 
 export function setFolder(next: string | null): void {
-  folderId.set(next);
   scopeOpen.set(false);
+  if (guardCipherFormLeave(() => setFolder(next))) return;
+  folderId.set(next);
+  leaveTrash();
   query();
 }
 
@@ -955,7 +1282,116 @@ export function toggleScope(): void {
   scopeOpen.update((open) => !open);
 }
 
+/**
+ * Switches the list to the Trash, loading it on first open.
+ *
+ * The Trash is read on demand: boot, unlock, the daemon tick, and active-vault
+ * filtering never touch it. Once loaded it stays for the session, so re-opening
+ * it is instant.
+ */
+export function openTrash(): void {
+  scopeOpen.set(false);
+  if (guardCipherFormLeave(openTrash)) return;
+  vaultView.set("trash");
+  resetVisibleLimit();
+  selectedIndex.set(0);
+  reveal.set(defaultReveal());
+  repromptCipherId.set(null);
+  repromptError.set(null);
+  loadTrash();
+  refreshInspector();
+}
+
+/**
+ * Leaves the Trash for the active vault, applying a pending active-row refresh.
+ *
+ * Every way back (a scope row, the folder picker, the name resolver) goes
+ * through here, so a restore or purge cannot leave the active list a mutation
+ * behind.
+ */
+function leaveTrash(): void {
+  if (vaultView() !== "trash") {
+    return;
+  }
+  vaultView.set("active");
+  selectedIndex.set(0);
+  if (activeRowsStale) {
+    activeRowsStale = false;
+    // The active-vault cache doesn't know about the Trash mutation; clear it
+    // so the next query_vault picks up the restored/purged cipher.
+    OmawardenBridge.clearVaultCache();
+    reloadVault();
+  }
+}
+
+/** Leaves the Trash for the active vault, keeping the loaded Trash rows. */
+export function closeTrash(): void {
+  if (vaultView() === "active") {
+    return;
+  }
+  leaveTrash();
+  query();
+}
+
+/** Reads the Trash once per session, unless a mutation invalidates it. */
+export function loadTrash(): void {
+  if (trashItems() !== null) {
+    return;
+  }
+  const next = OmawardenBridge.queryTrash(trashFilter());
+  trashItems.set(next.allItems);
+  if (next.error) {
+    notify(next.error, "error");
+  }
+}
+
+/** Re-reads the Trash after a restore, a purge, or an explicit sync. */
+function reloadTrash(): void {
+  trashItems.set(null);
+  loadTrash();
+  if (selectedIndex() >= (trashItems()?.length ?? 0)) {
+    selectedIndex.set(0);
+  }
+  refreshInspector();
+}
+
+/**
+ * Restores the selected Trash row in one action, with no confirmation.
+ *
+ * On success the Trash is re-read so the row disappears and the selection is
+ * clamped to the rows that remain. The user stays in the Trash; the active rows
+ * are marked stale so the cipher is there when they go back. A failure only
+ * toasts the daemon's error and leaves the list untouched.
+ */
+export function restoreCipher(id: string): void {
+  if (vaultView() !== "trash" || isRestoring()) {
+    return;
+  }
+  const row = (trashItems() ?? []).find((item) => item.id === id);
+  if (!row) {
+    return;
+  }
+  isRestoring.set(true);
+  defer(() => {
+    try {
+      const outcome: CipherMutationOutcomeView = OmawardenBridge.restoreCipher(id);
+      if (!outcome.ok) {
+        notify(outcome.error ?? "Could not restore the item.", "error");
+        return;
+      }
+      notify(`Restored "${outcome.name ?? row.title}".`, "success");
+      activeRowsStale = true;
+      reloadTrash();
+    } catch (error) {
+      notify(`Restore failed: ${String(error)}`, "error");
+    } finally {
+      isRestoring.set(false);
+    }
+  });
+}
+
 export function selectCipher(index: number): void {
+  if (guardCipherFormLeave(() => selectCipher(index))) return;
   expandVisibleLimitForSelection(index);
   selectedIndex.set(index);
   reveal.set(defaultReveal());
@@ -969,7 +1405,7 @@ export function moveSelection(delta: number): void {
   if (items.length === 0) {
     return;
   }
-  if (!inspector()) {
+  if (!selectionActive()) {
     selectCipher(0);
     return;
   }
@@ -1113,6 +1549,9 @@ function applyRevealField(index: number): void {
 }
 
 export function copyField(field: string, customIndex?: number): void {
+  if (trashBlocksItemActions()) {
+    return;
+  }
   const cipher = selectedCipher();
   if (!cipher) {
     notify("Select an item first.", "error");
@@ -1237,23 +1676,45 @@ export function toggleFavorite(): void {
   if (!cipher) {
     return;
   }
+  const previous = cipher.favorite;
+  const nextFavorite = !previous;
+  // Flip the row and inspector locally first: the press must show at once, even
+  // when the daemon's cached list still holds the old flag. The mutation runs in
+  // the background and only reports a toast when it fails.
+  patchRawItem(cipher.id, { favorite: nextFavorite });
+  patchInspectorFavorite(cipher.id, nextFavorite);
+  keepSelectionOn(cipher.id);
+
   const next: CipherMutationInput = {
     cipherType: cipher.category === "secureNote" ? "note" : "login",
     name: cipher.title,
-    favorite: !cipher.favorite,
+    favorite: nextFavorite,
   };
-  const outcome = OmawardenBridge.mutateCipher(next, cipher.id);
-  if (outcome.ok) {
-    notify(outcome.outcome || "Favorite toggled.", "success");
-    reloadVault();
-    refreshInspector();
-  } else {
+  defer(() => {
+    const outcome = OmawardenBridge.mutateCipher(next, cipher.id);
+    if (outcome.ok) {
+      return;
+    }
+    // Roll back only if this toggle is still the one on screen; a newer press
+    // owns the row now.
+    rawItems.update((rows) =>
+      rows.map((row) =>
+        row.id === cipher.id && row.favorite === nextFavorite
+          ? { ...row, favorite: previous }
+          : row,
+      ),
+    );
+    patchInspectorFavorite(cipher.id, previous);
+    keepSelectionOn(cipher.id);
     notify(outcome.error ?? "Could not toggle favorite.", "error");
-  }
+  });
 }
 
 /** Opens the selected item's first website URI. */
 export function openFirstUrl(): void {
+  if (trashBlocksItemActions()) {
+    return;
+  }
   const uris = inspector()?.uris ?? [];
   if (uris.length === 0) {
     notify("This item has no website URL.", "error");
@@ -1495,11 +1956,11 @@ export function saveSettings(): void {
 
 export function refreshHealth(): void {
   const next = OmawardenBridge.refreshHealth();
+  // Re-read the whole snapshot so the Log Viewer picks up Log Pipeline events
+  // emitted since Settings was opened, without a close/reopen round trip.
+  const current = OmawardenBridge.getSettings();
   health.set(next);
-  const current = settings();
-  if (current) {
-    settings.set({ ...current, health: next });
-  }
+  settings.set({ ...current, health: next });
 }
 
 export function checkUpdates(force: boolean): void {
@@ -1521,13 +1982,13 @@ export function copyDiagnosticReport(): void {
   if (!current) {
     return;
   }
-  const lines = [
-    `Omawarden ${current.diagnostics.appVersion}`,
-    `Engine ${current.diagnostics.engineVersion}`,
-    `Server ${current.diagnostics.serverUrlSanitized}`,
-    ...current.diagnostics.logs,
-  ];
-  copyText(lines.join("\n"), "diagnostic report", false);
+  const snapshot = health();
+  const report = buildDiagnosticReport({
+    diagnostics: current.diagnostics,
+    health: { checks: snapshot?.checks ?? [] },
+    generatedAt: new Date().toISOString(),
+  });
+  copyText(report, "diagnostic report", false);
 }
 
 // ---------------------------------------------------------------------------
@@ -1549,24 +2010,57 @@ export function closeModal(): void {
     cipherCandidates.set(null);
     cipherResolveError.set(null);
   }
+  if (activeModal() === "generator") {
+    generatorFillMode.set(false);
+  }
   activeModal.set("none");
   clearActionFocus();
 }
 
+/**
+ * Opens the generator. The panel regenerates from its own options as it mounts
+ * and on every change, so opening it needs no secret of its own.
+ */
 export function openGenerator(): void {
-  generatedSecret.set(
-    OmawardenBridge.generatePassword({
-      length: 20,
-      uppercase: true,
-      lowercase: true,
-      numbers: true,
-      special: true,
-      avoidAmbiguous: false,
-      minNumbers: 1,
-      minSpecial: 1,
-    }),
-  );
+  generatorFillMode.set(false);
   openModal("generator");
+}
+
+/**
+ * Opens the generator over the Inspector Form to fill its password field.
+ *
+ * The password field lets go of the keyboard first: the dialog sits above it,
+ * and the length the user types would otherwise edit the hidden secret.
+ */
+export function openGeneratorFill(): void {
+  if (!cipherForm()) {
+    return;
+  }
+  blurCipherPassword();
+  openGenerator();
+  generatorFillMode.set(true);
+}
+
+/**
+ * Fills the open form's password with the generated secret.
+ *
+ * The secret goes straight into the field: it never reaches the clipboard, so
+ * a fill cannot leave the generated password behind for a clipboard monitor.
+ */
+export function useGeneratedPassword(): void {
+  const secret = generatedSecret();
+  if (!cipherForm()) {
+    return;
+  }
+  if (!secret?.ok || !secret.value) {
+    notify("Generate a secret first.", "error");
+    return;
+  }
+  updateCipherDraft({ password: secret.value });
+  generatorFillMode.set(false);
+  activeModal.set("none");
+  clearActionFocus();
+  focusCipherPassword(secret.value.length);
 }
 
 export function openSettings(): void {
@@ -1575,6 +2069,11 @@ export function openSettings(): void {
 }
 
 export function openSshKey(mode: SshKeyMode): void {
+  // Creating a key is a vault-wide action; exporting the selected one is not,
+  // because the Trash never shows secrets.
+  if (mode === "export" && trashBlocksItemActions()) {
+    return;
+  }
   sshKeyMode.set(mode);
   sshPreview.set(null);
   sshSaveError.set(null);
@@ -1582,6 +2081,9 @@ export function openSshKey(mode: SshKeyMode): void {
 }
 
 export function openPasswordHistory(): void {
+  if (trashBlocksItemActions()) {
+    return;
+  }
   openModal("passwordHistory");
 }
 
@@ -1597,27 +2099,211 @@ export function openActionPalette(): void {
 // Cipher mutation: create, edit, delete
 // ---------------------------------------------------------------------------
 
-/** Opens the create form for a login or secure note cipher. */
-export function openCipherForm(cipherType: "login" | "note" = "login"): void {
-  cipherForm.set({
-    cipherType,
-    name: null,
-    username: null,
-    password: null,
-    notes: null,
-    uris: cipherType === "login" ? [""] : null,
-    folderId: null,
-    favorite: null,
+/** Replaces one cached row in place, so the list updates without a query. */
+function patchRawItem(id: string, patch: Partial<CipherRowView>): void {
+  rawItems.update((rows) =>
+    rows.map((row) => (row.id === id ? { ...row, ...patch } : row)),
+  );
+}
+
+/** Mirrors a row's favorite flag into the open inspector, if it is showing. */
+function patchInspectorFavorite(id: string, favorite: boolean): void {
+  inspector.update((current) =>
+    current && current.id === id ? { ...current, favorite } : current,
+  );
+}
+
+/** Keeps `id` selected after a local patch reorders the filtered list. */
+function keepSelectionOn(id: string): void {
+  const index = filteredItems().findIndex((row) => row.id === id);
+  if (index >= 0) {
+    selectedIndex.set(index);
+  }
+}
+
+/**
+ * Selects a row that was just added locally, clearing the filters that hide it.
+ *
+ * Unlike `selectCipherById`, this never queries the vault: the row exists only
+ * in `rawItems` until the next snapshot, so a query would drop it.
+ */
+function selectLocalRow(id: string): void {
+  const find = () => filteredItems().findIndex((row) => row.id === id);
+  let index = find();
+  if (index < 0) {
+    search.set("");
+    category.set("all");
+    scopeId.set("all");
+    folderId.set(null);
+    index = find();
+  }
+  if (index >= 0) {
+    selectCipher(index);
+  }
+}
+
+/** The folder name for a form's folder id, matching the snapshot's options. */
+function folderNameFor(folderId: string | null | undefined): string | null {
+  if (!folderId) {
+    return null;
+  }
+  const match = snapshot().folders.find((folder) => folder.id === folderId);
+  if (match) {
+    return match.name;
+  }
+  return folderId.startsWith("folder:") ? folderId.slice(7) : folderId;
+}
+
+/** Builds the list row a freshly created cipher shows, from the form input. */
+function rowFromForm(id: string, input: CipherMutationInput): CipherRowView {
+  const isNote = input.cipherType === "note" || input.cipherType === "secureNote";
+  const uris = (input.uris ?? [])
+    .map((uri) => uri.trim())
+    .filter((uri) => uri.length > 0);
+  return {
+    id,
+    title: (input.name ?? "").trim() || "Untitled",
+    subtitle: isNote ? "Secure Note" : input.username ?? "",
+    category: isNote ? "secureNote" : "login",
+    favorite: input.favorite ?? false,
+    attachmentCount: 0,
+    organization: null,
+    folder: folderNameFor(input.folderId),
+    hasTotp: false,
+    hasPasswordHistory: false,
+    uris,
+    reprompt: 0,
+    cardBrand: null,
+    cardMask: null,
+  };
+}
+
+/** Applies an edit's dirty fields to the cached row. */
+function patchRowFromMutation(
+  row: CipherRowView,
+  payload: CipherMutationInput,
+): CipherRowView {
+  const next: CipherRowView = { ...row };
+  if (typeof payload.name === "string" && payload.name.length > 0) {
+    next.title = payload.name;
+  }
+  if (typeof payload.favorite === "boolean") {
+    next.favorite = payload.favorite;
+  }
+  if ("folderId" in payload) {
+    next.folder = folderNameFor(payload.folderId);
+  }
+  if (row.category === "login" && "username" in payload) {
+    next.subtitle = payload.username ?? "";
+  }
+  if (Array.isArray(payload.uris)) {
+    // An update only replaces the stored first URL; the rest are kept.
+    const first = payload.uris[0] ?? "";
+    if (row.uris.length === 0) {
+      next.uris = first ? [first] : [];
+    } else {
+      const merged = [...row.uris];
+      merged[0] = first;
+      next.uris = merged;
+    }
+  }
+  return next;
+}
+
+/**
+ * Whether two draft values are the same for the purpose of "unsaved changes".
+ *
+ * Website rows compare without their blank scaffolding: adding a row, or
+ * typing into it and clearing it again, is not a change the user would expect
+ * to be told they are about to lose.
+ */
+function sameFormValue(left: unknown, right: unknown): boolean {
+  if (Array.isArray(left) || Array.isArray(right)) {
+    const clean = (value: unknown) =>
+      (Array.isArray(value) ? value : [])
+        .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+        .filter((entry) => entry !== "");
+    const leftUris = clean(left);
+    const rightUris = clean(right);
+    return (
+      leftUris.length === rightUris.length &&
+      leftUris.every((uri, index) => uri === rightUris[index])
+    );
+  }
+  return (left ?? "") === (right ?? "");
+}
+
+/** The draft fields that differ from the baseline, in payload-key order. */
+export function cipherFormChangedFields(): string[] {
+  const draft = cipherForm();
+  const baseline = cipherFormBaseline();
+  if (!draft || !baseline) {
+    return [];
+  }
+  const changed: string[] = [];
+  const source = draft as unknown as Record<string, unknown>;
+  const original = baseline as unknown as Record<string, unknown>;
+  for (const key of Object.keys(source)) {
+    if (key === "cipherType") {
+      continue;
+    }
+    if (!sameFormValue(source[key], original[key])) {
+      changed.push(key);
+    }
+  }
+  return changed;
+}
+
+/** Whether the form holds changes a cancel or Esc would throw away. */
+export function cipherFormIsDirty(): boolean {
+  return cipherFormChangedFields().length > 0;
+}
+
+/** Puts the Inspector into form view, closing any dialog that opened it. */
+function openCipherEditor(draft: CipherMutationInput, id: string | null): void {
+  pendingCipherFormLeave = null;
+  cipherForm.set(draft);
+  cipherFormBaseline.set({
+    ...draft,
+    uris: draft.uris ? [...draft.uris] : null,
   });
-  cipherFormId.set(null);
-  cipherFormDirty.set([]);
+  cipherFormId.set(id);
   cipherFormOutcome.set(null);
+  cipherFormDiscardConfirm.set(false);
   cipherCandidates.set(null);
-  openModal("cipherForm");
+  activeModal.set("none");
+  scopeOpen.set(false);
+  clearActionFocus();
+  // Name carries `autoFocus`, so the ring starts there whatever the platform
+  // reports about focus; a Tab from the form's entry is a Tab from the title.
+  markCipherFieldFocus("name", true);
+}
+
+/** Opens the create form in the Inspector for a login or secure note. */
+export function openCipherForm(cipherType: "login" | "note" = "login"): void {
+  // Creating is a vault-wide action and the new row belongs to the active
+  // vault, so a Trash view would hide it as soon as it was saved.
+  closeTrash();
+  openCipherEditor(
+    {
+      cipherType,
+      name: null,
+      username: null,
+      password: null,
+      notes: null,
+      uris: cipherType === "login" ? [""] : null,
+      folderId: null,
+      favorite: null,
+    },
+    null,
+  );
 }
 
 /** The selected cipher when it is a login or a secure note, else null. */
 function editableCipher(): CipherRowView | null {
+  if (trashBlocksItemActions()) {
+    return null;
+  }
   const cipher = selectedCipher();
   if (!cipher) {
     notify("Select an item first.", "error");
@@ -1630,7 +2316,7 @@ function editableCipher(): CipherRowView | null {
   return cipher;
 }
 
-/** Opens the edit form pre-filled from the selected cipher. */
+/** Opens the edit form in the Inspector, pre-filled from the selected cipher. */
 export function openCipherEdit(): void {
   const cipher = editableCipher();
   if (!cipher) {
@@ -1639,40 +2325,58 @@ export function openCipherEdit(): void {
   const detail = inspector();
   // An update can only replace the first URL, so the form carries the whole
   // list and only the first row is editable; the rest are preserved.
-  cipherForm.set({
-    cipherType: cipher.category === "secureNote" ? "note" : "login",
-    name: cipher.title,
-    username: detail?.username ?? null,
-    password: null,
-    notes: detail?.notes ?? null,
-    uris: (detail?.uris ?? []).map((uri) => uri.uri),
-    folderId: cipher.folder ?? null,
-    favorite: cipher.favorite,
-  });
-  cipherFormId.set(cipher.id);
-  cipherFormDirty.set([]);
-  cipherFormOutcome.set(null);
-  cipherCandidates.set(null);
-  openModal("cipherEdit");
+  openCipherEditor(
+    {
+      cipherType: cipher.category === "secureNote" ? "note" : "login",
+      name: cipher.title,
+      username: detail?.username ?? null,
+      password: null,
+      notes: detail?.notes ?? null,
+      uris: (detail?.uris ?? []).map((uri) => uri.uri),
+      folderId: cipher.folder ?? null,
+      favorite: cipher.favorite,
+    },
+    cipher.id,
+  );
 }
 
 /** Submits the create/edit form through the daemon. */
 export function submitCipherForm(input: CipherMutationInput, id: string | null): void {
+  if (isSubmitting()) {
+    return;
+  }
   isSubmitting.set(true);
   notify(id ? "Saving item…" : "Creating item…", "info");
   defer(() => {
-    const payload = id === null ? input : editPayload(input, cipherFormDirty());
+    const payload = id === null ? input : editPayload(input);
     const outcome: CipherMutationOutcomeView = OmawardenBridge.mutateCipher(payload, id);
     cipherFormOutcome.set(outcome);
     if (outcome.ok) {
+      // Apply the receipt to the cached list instead of re-reading the vault:
+      // the daemon's cached `list` may still hold the pre-save rows, so a query
+      // here would drop the change until the next sync.
+      const receiptId = outcome.id;
+      // Leave form view before the list moves: the selection is a navigation,
+      // and a saved draft is not one the discard strip should offer to throw
+      // away.
+      closeCipherEditor();
+      if (id === null) {
+        if (receiptId) {
+          rawItems.update((rows) => [...rows, rowFromForm(receiptId, input)]);
+          // A new item should be the one the inspector shows, so the user sees
+          // what they just created without hunting for it.
+          selectLocalRow(receiptId);
+        }
+      } else {
+        rawItems.update((rows) =>
+          rows.map((row) =>
+            row.id === id ? patchRowFromMutation(row, payload) : row,
+          ),
+        );
+        keepSelectionOn(id);
+      }
       notify(outcome.outcome || (id ? "Item saved." : "Item created."), "success");
-      reloadVault();
       refreshInspector();
-      cipherForm.set(null);
-      cipherFormId.set(null);
-      cipherCandidates.set(null);
-      activeModal.set("none");
-      clearActionFocus();
     } else {
       notify(outcome.error ?? "Could not save the item.", "error");
     }
@@ -1680,32 +2384,40 @@ export function submitCipherForm(input: CipherMutationInput, id: string | null):
   });
 }
 
-/** Updates one field of the live cipher form draft. */
+/**
+ * Validates the live draft and saves it: the form's Save button and `Ctrl+S`
+ * share this one path, so both answer a missing name the same way.
+ */
+export function submitCipherFormDraft(): void {
+  const input = cipherForm();
+  if (!input || isSubmitting()) {
+    return;
+  }
+  const name = (input.name ?? "").trim();
+  if (!name) {
+    notify("Enter an item name before saving.", "error");
+    return;
+  }
+  submitCipherForm({ ...input, name }, cipherFormId());
+}
+
+/** Updates one field of the live Inspector Form draft. */
 export function updateCipherDraft(fields: Partial<CipherMutationInput>): void {
   cipherForm.update((current) => (current ? { ...current, ...fields } : current));
-  cipherFormDirty.update((current) => {
-    const next = [...current];
-    for (const key of Object.keys(fields)) {
-      if (!next.includes(key)) {
-        next.push(key);
-      }
-    }
-    return next;
-  });
 }
 
 /**
  * On an edit, sends the name plus only the fields the user changed, so an
  * untouched password is left alone instead of being cleared.
  */
-function editPayload(input: CipherMutationInput, dirty: string[]): CipherMutationInput {
+function editPayload(input: CipherMutationInput): CipherMutationInput {
   const payload: CipherMutationInput = {
     cipherType: input.cipherType,
     name: input.name,
   };
   const target = payload as unknown as Record<string, unknown>;
   const source = input as unknown as Record<string, unknown>;
-  for (const key of dirty) {
+  for (const key of cipherFormChangedFields()) {
     if (key === "name" || key === "cipherType") {
       continue;
     }
@@ -1714,36 +2426,84 @@ function editPayload(input: CipherMutationInput, dirty: string[]): CipherMutatio
   return payload;
 }
 
-/**
- * Fills the open cipher form's password with a generated 16-character secret,
- * the GUI's answer to the CLI's Enter-at-the-prompt generator.
- */
-export function generateCipherPassword(): void {
-  const secret: GeneratedSecretView = OmawardenBridge.generatePassword({
-    length: 16,
-    uppercase: true,
-    lowercase: true,
-    numbers: true,
-    special: true,
-    avoidAmbiguous: false,
-    minNumbers: 1,
-    minSpecial: 1,
-  });
-  if (!secret.ok || !secret.value) {
-    notify(secret.error ?? "Could not generate a password.", "error");
-    return;
-  }
-  updateCipherDraft({ password: secret.value });
-}
-
-/** Cancels the create/edit form, discarding the draft. */
-export function cancelCipherForm(): void {
+/** Leaves form view without saving. */
+function closeCipherEditor(): void {
   cipherForm.set(null);
+  cipherFormBaseline.set(null);
   cipherFormId.set(null);
   cipherFormOutcome.set(null);
+  cipherFormDiscardConfirm.set(false);
   cipherCandidates.set(null);
+  resetCipherFields();
+  clearActionFocus();
+}
+
+/**
+ * Cancels the form: a clean draft closes at once, a changed one asks first, so
+ * a typed secret is not thrown away by a stray Esc.
+ */
+export function cancelCipherForm(): void {
+  if (isSubmitting()) {
+    return;
+  }
+  // Esc goes back to editing from the prompt itself rather than asking again.
+  if (cipherFormDiscardConfirm()) {
+    keepCipherFormEditing();
+    return;
+  }
+  if (cipherFormIsDirty()) {
+    cipherFormDiscardConfirm.set(true);
+    return;
+  }
+  closeCipherEditor();
+}
+
+/** Throws the unsaved draft away, after the form asked. */
+export function confirmCipherFormDiscard(): void {
+  // A navigation that asked to leave runs once the draft is gone, so the row,
+  // scope or Trash the user picked arrives without a second press.
+  const leave = pendingCipherFormLeave;
+  pendingCipherFormLeave = null;
+  closeCipherEditor();
+  leave?.();
+}
+
+/** Goes back to editing after the discard prompt, dropping a pending move. */
+export function keepCipherFormEditing(): void {
+  pendingCipherFormLeave = null;
+  cipherFormDiscardConfirm.set(false);
+}
+
+// ---------------------------------------------------------------------------
+// Type Picker
+// ---------------------------------------------------------------------------
+
+/** Opens the Type Picker: the "which kind?" step behind `Ctrl+N`. */
+export function openTypePicker(): void {
+  typePickerIndex.set(0);
+  openModal("typePicker");
+}
+
+/** Moves the highlighted choice, keeping it inside the two options. */
+export function moveTypePicker(delta: number): void {
+  typePickerIndex.update((current) => (current + delta + 2) % 2);
+}
+
+/** `Ctrl+N` again while the picker is open toggles the highlighted choice. */
+export function cycleTypePicker(): void {
+  moveTypePicker(1);
+}
+
+/** Creates the type the picker highlights. */
+export function chooseTypePickerSelection(): void {
+  selectTypePicker(typePickerIndex() === 0 ? "login" : "note");
+}
+
+/** Closes the picker and opens the Inspector Form for the chosen type. */
+export function selectTypePicker(cipherType: "login" | "note"): void {
   activeModal.set("none");
   clearActionFocus();
+  openCipherForm(cipherType);
 }
 
 /** Opens the "go to item" resolver, which targets a cipher by name or id. */
@@ -1765,6 +2525,11 @@ export function updateCipherResolveQuery(value: string): void {
  * when one of them hides it. Returns false when no row has that id.
  */
 export function selectCipherById(id: string): boolean {
+  // The resolver targets the active vault, so a hit there has to leave the
+  // Trash first; otherwise the row is never in the list being searched.
+  if (vaultView() === "trash") {
+    leaveTrash();
+  }
   const find = () => filteredItems().findIndex((row) => row.id === id);
   let index = find();
   if (index < 0) {
@@ -1825,33 +2590,104 @@ export function pickCipherCandidate(candidate: CipherTargetCandidateView): void 
   clearActionFocus();
 }
 
-/** Confirms a delete of the selected cipher. */
+/**
+ * Confirms a delete of the selected cipher.
+ *
+ * The daemon call blocks the app's thread, so it is deferred by a frame: the
+ * dialog paints its "Deleting…" state first, then the call runs. A failure
+ * leaves the dialog open so the error toast is read against the row.
+ */
 export function confirmDeleteCipher(permanent: boolean): void {
+  if (isDeleting()) {
+    return;
+  }
   const cipher = editableCipher();
   if (!cipher) {
     return;
   }
-  const outcome: CipherMutationOutcomeView = OmawardenBridge.deleteCipher(cipher.id, permanent);
-  if (outcome.ok) {
-    notify(
-      outcome.outcome || (permanent ? "Item deleted." : "Item deleted; pending sync."),
-      "success",
-    );
-    inspector.set(null);
-    selectedIndex.set(0);
-    reloadVault();
-    activeModal.set("none");
-    clearActionFocus();
-  } else {
-    notify(outcome.error ?? "Could not delete the item.", "error");
+  isDeleting.set(true);
+  defer(() => {
+    try {
+      const outcome: CipherMutationOutcomeView = OmawardenBridge.deleteCipher(cipher.id, permanent);
+      if (outcome.ok) {
+        notify(
+          outcome.outcome || (permanent ? "Item deleted." : "Item deleted; pending sync."),
+          "success",
+        );
+        inspector.set(null);
+        selectedIndex.set(0);
+        reloadVault();
+        activeModal.set("none");
+        clearActionFocus();
+      } else {
+        notify(outcome.error ?? "Could not delete the item.", "error");
+      }
+    } catch (error) {
+      notify(`Delete failed: ${String(error)}`, "error");
+    } finally {
+      isDeleting.set(false);
+    }
+  });
+}
+
+/** Opens the permanent-delete confirmation for the selected Trash row. */
+export function openTrashDelete(): void {
+  if (vaultView() !== "trash") {
+    return;
   }
+  const row = selectedCipher();
+  if (!row) {
+    return;
+  }
+  cipherDeletePermanent.set(true);
+  openModal("cipherDelete");
+}
+
+/**
+ * Confirms a permanent delete of the selected Trash row.
+ *
+ * The purge blocks on the daemon, so it is deferred by a frame: the dialog
+ * paints its "Deleting…" state first, then the call runs. A failure keeps the
+ * row and the dialog so the error toast is read against it.
+ */
+export function confirmDeleteTrashCipher(): void {
+  if (vaultView() !== "trash" || isDeleting()) {
+    return;
+  }
+  const row = selectedCipher();
+  if (!row) {
+    return;
+  }
+  isDeleting.set(true);
+  defer(() => {
+    try {
+      const outcome: CipherMutationOutcomeView = OmawardenBridge.deleteTrashCipher(row.id);
+      if (outcome.ok) {
+        notify(outcome.outcome || "Item permanently deleted.", "success");
+        reloadTrash();
+        activeModal.set("none");
+        clearActionFocus();
+      } else {
+        notify(outcome.error ?? "Could not permanently delete the item.", "error");
+      }
+    } catch (error) {
+      notify(`Delete failed: ${String(error)}`, "error");
+    } finally {
+      isDeleting.set(false);
+    }
+  });
 }
 
 /** Opens the delete confirmation dialog for the selected cipher. */
 export function openCipherDelete(permanent: boolean): void {
+  if (permanent) {
+    // Permanent delete is only reachable from the Trash via openTrashDelete().
+    // The active vault's delete is always soft.
+    return;
+  }
   if (!editableCipher()) {
     return;
   }
-  cipherDeletePermanent.set(permanent);
+  cipherDeletePermanent.set(false);
   openModal("cipherDelete");
 }

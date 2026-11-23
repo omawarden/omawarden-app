@@ -99,7 +99,7 @@ export function FooterBar() {
             borderColor: updateAccent(),
           }}
           activeStyle={{ backgroundColor: tint(updateAccent(), updateBackground(), 0.34) }}
-          focusStyle={{ borderColor: updateAccent() }}
+          focusVisibleStyle={{ borderColor: updateAccent() }}
         >
           <Text style={{ color: palette().info, fontSize: store.type().xs, fontWeight: "bold" }}>
             Update {update()?.latestVersion}
@@ -176,7 +176,7 @@ function FooterAction(props: {
       }}
       hoverStyle={{ backgroundColor: tint(accent(), background(), 0.08) }}
       activeStyle={{ backgroundColor: tint(accent(), background(), 0.16) }}
-      focusStyle={{ backgroundColor: tint(accent(), background(), 0.08) }}
+      focusVisibleStyle={{ backgroundColor: tint(accent(), background(), 0.08) }}
     >
       <Icon name={props.icon} size={11} color={palette().muted} />
       <Text style={{ color: palette().muted, fontSize: store.type().sm, fontWeight: "bold" }}>

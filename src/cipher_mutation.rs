@@ -10,10 +10,14 @@
 use serde_json::{Value, json};
 
 use crate::MockItem;
+use crate::diagnostics::{LogLevel, push_log};
 use crate::types::{
     CipherMutationInput, CipherMutationOutcomeView, CipherTargetCandidateView,
     CipherTargetResolvedView,
 };
+
+/// The deletion time a mock soft delete stamps, so tests see a stable value.
+const MOCK_DELETED_AT: &str = "2026-11-10T00:00:00Z";
 
 /// The mutation capabilities the bridge exposes.
 pub(crate) trait CipherEngine {
@@ -25,6 +29,12 @@ pub(crate) trait CipherEngine {
 
     /// Delete a cipher, soft or permanent.
     fn delete(&self, id: String, permanent: bool) -> CipherMutationOutcomeView;
+
+    /// Restores a trashed cipher.
+    fn restore(&self, id: String) -> CipherMutationOutcomeView;
+
+    /// Permanently deletes a trashed cipher.
+    fn delete_trash(&self, id: String) -> CipherMutationOutcomeView;
 }
 
 /// The real adapter: the shared daemon socket.
@@ -42,6 +52,14 @@ impl CipherEngine for InProcess {
     fn delete(&self, id: String, permanent: bool) -> CipherMutationOutcomeView {
         real_delete(id, permanent)
     }
+
+    fn restore(&self, id: String) -> CipherMutationOutcomeView {
+        real_restore(id)
+    }
+
+    fn delete_trash(&self, id: String) -> CipherMutationOutcomeView {
+        real_delete_trash(id)
+    }
 }
 
 /// The mock adapter: the seeded mock state.
@@ -58,6 +76,14 @@ impl CipherEngine for Mock {
 
     fn delete(&self, id: String, permanent: bool) -> CipherMutationOutcomeView {
         mock_delete(id, permanent)
+    }
+
+    fn restore(&self, id: String) -> CipherMutationOutcomeView {
+        mock_restore(id)
+    }
+
+    fn delete_trash(&self, id: String) -> CipherMutationOutcomeView {
+        mock_delete_trash(id)
     }
 }
 
@@ -194,7 +220,29 @@ fn real_mutate(input: CipherMutationInput, id: Option<String>) -> CipherMutation
         }
     };
     let response = crate::daemon(payload);
-    map_mutation_response(response, id.as_deref())
+    let outcome = map_mutation_response(response, id.as_deref());
+    log_rejection(&outcome);
+    outcome
+}
+
+/// Records a rejected cipher write (HTTP 422, a locked vault, an offline
+/// daemon) as an `error` Log Pipeline event. The error text is sanitized by
+/// `push_log`, so a server response can never carry vault content into the
+/// Diagnostic Report.
+fn log_rejection(outcome: &CipherMutationOutcomeView) {
+    if outcome.ok {
+        return;
+    }
+    let reason = outcome
+        .error
+        .as_deref()
+        .filter(|text| !text.is_empty())
+        .unwrap_or(outcome.outcome.as_str());
+    push_log(
+        LogLevel::Error,
+        "app:vault",
+        &format!("cipher write rejected: {reason}"),
+    );
 }
 
 /// Dispatches a delete through the shared daemon.
@@ -205,7 +253,39 @@ fn real_delete(id: String, permanent: bool) -> CipherMutationOutcomeView {
         "permanent": permanent,
     });
     let response = crate::daemon(payload);
-    map_mutation_response(response, Some(id.as_str()))
+    let outcome = map_mutation_response(response, Some(id.as_str()));
+    log_rejection(&outcome);
+    outcome
+}
+
+/// Dispatches a restore through the shared daemon and maps the receipt.
+///
+/// The daemon answers `{"ok": true, "outcome": "restored", "item": {...}}`;
+/// a non-ok reply carries its own `error`, which the store shows verbatim.
+fn real_restore(id: String) -> CipherMutationOutcomeView {
+    let payload = json!({
+        "action": "cipher_restore",
+        "id": id,
+    });
+    let response = crate::daemon(payload);
+    let outcome = map_mutation_response(response, Some(id.as_str()));
+    log_rejection(&outcome);
+    outcome
+}
+
+/// Dispatches a permanent delete through the shared daemon and maps the receipt.
+///
+/// The daemon answers `{"ok": true, "outcome": "deleted", "permanent": true, "item": {...}}`;
+/// a non-ok reply carries its own `error`, which the store shows verbatim.
+fn real_delete_trash(id: String) -> CipherMutationOutcomeView {
+    let payload = json!({
+        "action": "cipher_delete_trash",
+        "id": id,
+    });
+    let response = crate::daemon(payload);
+    let outcome = map_mutation_response(response, Some(id.as_str()));
+    log_rejection(&outcome);
+    outcome
 }
 
 /// Resolves a target by name or id through the daemon's `cipher_resolve`.
@@ -453,6 +533,29 @@ fn mock_mutate(input: CipherMutationInput, id: Option<String>) -> CipherMutation
         _ => "saved",
     };
 
+    // A trashed cipher is read-only. The daemon refuses the edit until the item
+    // is restored, so the mock must refuse it too; otherwise a UI path that
+    // edits a trashed row would pass headless tests and fail in the app.
+    if action == "cipher_update"
+        && crate::with_mock(|state| {
+            state
+                .items
+                .iter()
+                .any(|item| item.id == item_id && !item.is_active())
+        })
+    {
+        return CipherMutationOutcomeView {
+            ok: false,
+            outcome: String::new(),
+            id: Some(item_id),
+            name: None,
+            revision_date: None,
+            error: Some(format!(
+                "Cipher '{name}' is in the trash and cannot be edited. Restore it first with 'omawarden vault restore'."
+            )),
+        };
+    }
+
     let item_id_for_state = item_id.clone();
     let name_for_state = name.clone();
     let applied = crate::with_mock(|state| {
@@ -524,7 +627,14 @@ fn mock_mutate(input: CipherMutationInput, id: Option<String>) -> CipherMutation
 fn mock_delete(id: String, permanent: bool) -> CipherMutationOutcomeView {
     let id_owned = id.clone();
     crate::with_mock(|state| {
-        state.items.retain(|item| item.id != id_owned);
+        if permanent {
+            state.items.retain(|item| item.id != id_owned);
+        } else if let Some(item) = state.items.iter_mut().find(|item| item.id == id_owned) {
+            // A soft delete keeps the cipher and stamps the deletion time, the
+            // way the daemon does: the row leaves the active list and becomes
+            // restorable from the Trash.
+            item.deleted_at = Some(MOCK_DELETED_AT.to_string());
+        }
     });
     let receipt = json!({
         "ok": true,
@@ -536,6 +646,97 @@ fn mock_delete(id: String, permanent: bool) -> CipherMutationOutcomeView {
         }
     });
     map_mutation_response(Some(receipt), Some(id.as_str()))
+}
+
+/// Restores a trashed cipher in the seeded mock state.
+///
+/// The daemon refuses an id that is not trashed, so the mock must refuse it
+/// too: a UI path that restores an active row would otherwise pass headless
+/// tests and fail in the app. `trash_mutation_error` stands in for a daemon
+/// rejection, and is surfaced verbatim.
+fn mock_restore(id: String) -> CipherMutationOutcomeView {
+    let applied = crate::with_mock(|state| {
+        if let Some(error) = state.trash_mutation_error.clone() {
+            return Err(error);
+        }
+        match state
+            .items
+            .iter_mut()
+            .find(|item| item.id == id && !item.is_active())
+        {
+            Some(item) => {
+                item.deleted_at = None;
+                let title = item.title.clone();
+                // A restored cipher leaves the Trash, so its details go too.
+                state.trash_details.remove(&id);
+                Ok(title)
+            }
+            None => Err(format!("Cipher '{id}' not found in trash.")),
+        }
+    });
+    match applied {
+        Ok(name) => map_mutation_response(
+            Some(json!({
+                "ok": true,
+                "outcome": "restored",
+                "item": {"id": id, "name": name},
+            })),
+            Some(id.as_str()),
+        ),
+        Err(error) => CipherMutationOutcomeView {
+            ok: false,
+            outcome: String::new(),
+            id: Some(id),
+            name: None,
+            revision_date: None,
+            error: Some(error),
+        },
+    }
+}
+
+/// Permanently deletes a trashed cipher in the seeded mock state.
+///
+/// The daemon refuses an id that is not trashed, so the mock must refuse it
+/// too. `trash_mutation_error` stands in for a daemon rejection.
+fn mock_delete_trash(id: String) -> CipherMutationOutcomeView {
+    let applied = crate::with_mock(|state| {
+        if let Some(error) = state.trash_mutation_error.clone() {
+            return Err(error);
+        }
+        match state
+            .items
+            .iter()
+            .position(|item| item.id == id && !item.is_active())
+        {
+            Some(idx) => {
+                let name = state.items[idx].title.clone();
+                state.items.remove(idx);
+                // A purged cipher is gone, so its details go too.
+                state.trash_details.remove(&id);
+                Ok(name)
+            }
+            None => Err(format!("Cipher '{id}' not found in trash.")),
+        }
+    });
+    match applied {
+        Ok(name) => map_mutation_response(
+            Some(json!({
+                "ok": true,
+                "outcome": "deleted",
+                "permanent": true,
+                "item": {"id": id, "name": name, "permanent": true},
+            })),
+            Some(id.as_str()),
+        ),
+        Err(error) => CipherMutationOutcomeView {
+            ok: false,
+            outcome: String::new(),
+            id: Some(id),
+            name: None,
+            revision_date: None,
+            error: Some(error),
+        },
+    }
 }
 
 fn mock_resolve_target(target: String) -> CipherTargetResolvedView {
@@ -551,9 +752,10 @@ fn mock_resolve_target(target: String) -> CipherTargetResolvedView {
     crate::with_mock(|state| {
         // An exact id or name always wins, matching the CLI's resolution: only
         // when nothing matches exactly does a partial name open the menu.
+        // Resolution is active-only, like the daemon's: a trashed cipher is
+        // restorable from the Trash, not reachable by name from the vault.
         let exact: Vec<&MockItem> = state
-            .items
-            .iter()
+            .active_items()
             .filter(|item| {
                 item.id.eq_ignore_ascii_case(trimmed) || item.title.eq_ignore_ascii_case(trimmed)
             })
@@ -561,8 +763,7 @@ fn mock_resolve_target(target: String) -> CipherTargetResolvedView {
         let matches: Vec<&MockItem> = if exact.is_empty() {
             let needle = trimmed.to_lowercase();
             state
-                .items
-                .iter()
+                .active_items()
                 .filter(|item| item.title.to_lowercase().contains(&needle))
                 .collect()
         } else {
@@ -822,5 +1023,75 @@ mod tests {
     #[test]
     fn candidate_without_id_is_ignored() {
         assert!(candidate_from_value(&json!({"name": "No id"})).is_none());
+    }
+
+    /// A favorite toggle is the one mutation the GUI sends with only a name and
+    /// a flag, so it exercises the narrowest update path. Captured here so a
+    /// later change to the payload builder cannot silently drop `favorite`.
+    #[test]
+    fn favorite_toggle_sends_only_name_and_favorite() {
+        let input = CipherMutationInput {
+            cipher_type: "login".to_string(),
+            name: Some("GitHub".to_string()),
+            username: None,
+            password: None,
+            notes: None,
+            uris: None,
+            folder_id: None,
+            favorite: Some(true),
+        };
+        let payload = build_mutation_payload(&input, Some("id-1")).expect("valid");
+        assert_eq!(payload["action"], "cipher_update");
+        assert_eq!(payload["id"], "id-1");
+        assert_eq!(payload["name"], "GitHub");
+        assert_eq!(payload["favorite"], true);
+        assert!(payload.get("username").is_none());
+        assert!(payload.get("password").is_none());
+        assert!(payload.get("uri").is_none());
+        assert!(payload.get("login").is_none());
+        assert!(payload.get("notes").is_none());
+        assert!(payload.get("folder_id").is_none());
+    }
+
+    #[test]
+    fn real_restore_sends_the_daemon_action_and_maps_the_receipt() {
+        let _guard = crate::test_state::lock();
+        let _seam = crate::daemon::test_seam::set(|action: Value| {
+            assert_eq!(
+                action.get("action").and_then(Value::as_str),
+                Some("cipher_restore"),
+                "a restore is its own daemon action, not a permanent flag"
+            );
+            assert_eq!(action.get("id").and_then(Value::as_str), Some("id-1"));
+            assert!(action.get("permanent").is_none());
+            Some(json!({
+                "ok": true,
+                "outcome": "restored",
+                "item": {"id": "id-1", "name": "Old GitHub"}
+            }))
+        });
+        let outcome = InProcess.restore("id-1".to_string());
+        assert!(outcome.ok);
+        assert_eq!(outcome.outcome, "restored");
+        assert_eq!(outcome.id.as_deref(), Some("id-1"));
+        assert_eq!(outcome.name.as_deref(), Some("Old GitHub"));
+    }
+
+    #[test]
+    fn real_restore_surfaces_the_daemon_error() {
+        let _guard = crate::test_state::lock();
+        let _seam = crate::daemon::test_seam::set(|_action: Value| {
+            Some(json!({
+                "ok": false,
+                "outcome": "rejected",
+                "error": "Unlock the vault before restoring a cipher."
+            }))
+        });
+        let outcome = InProcess.restore("id-1".to_string());
+        assert!(!outcome.ok);
+        assert_eq!(
+            outcome.error.as_deref(),
+            Some("Unlock the vault before restoring a cipher.")
+        );
     }
 }

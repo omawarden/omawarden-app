@@ -35,7 +35,7 @@ export function ActionPaletteModal() {
         "mod+t": () => paletteActions.runShortcut("mod+t"),
         "mod+o": () => paletteActions.runShortcut("mod+o"),
         "mod+h": () => paletteActions.runShortcut("mod+h"),
-        "mod+v": () => paletteActions.runShortcut("mod+v"),
+        "mod+b": () => paletteActions.runShortcut("mod+b"),
         "mod+e": () => paletteActions.runShortcut("mod+e"),
         "mod+g": () => paletteActions.runShortcut("mod+g"),
         "mod+r": () => paletteActions.runShortcut("mod+r"),
@@ -139,7 +139,7 @@ function PaletteRow(props: {
       }}
       hoverStyle={{ backgroundColor: tint(accent(), palette().popups.background, 0.1) }}
       activeStyle={{ backgroundColor: tint(accent(), palette().popups.background, 0.2) }}
-      focusStyle={{ backgroundColor: tint(accent(), palette().popups.background, 0.1) }}
+      focusVisibleStyle={{ backgroundColor: tint(accent(), palette().popups.background, 0.1) }}
     >
       <View style={{ width: 18, alignItems: "center" }}>
         <Icon

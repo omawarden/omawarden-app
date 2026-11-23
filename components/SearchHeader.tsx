@@ -11,7 +11,6 @@ import { inputStyle } from "./AuthView";
 
 export function SearchHeader() {
   const palette = store.palette;
-  const snap = store.snapshot;
   const scopeID = actionID("scope-trigger");
   useAction(scopeID, store.toggleScope);
   const scopeFocused = () => store.focusedAction() === scopeID;
@@ -71,6 +70,9 @@ export function SearchHeader() {
           autoCapitalize="none"
           autoCorrect={false}
           submitBehavior="submit"
+          // The Inspector Form owns the keyboard while a draft is open: a click
+          // on the search must not let typing filter the list behind it.
+          readonly={store.cipherForm() !== null}
           onSubmit={() => store.primaryCopy()}
           onChange={({ value }) => store.setSearch(value)}
           style={{ ...inputStyle(), flex: 1 }}
@@ -92,7 +94,7 @@ export function SearchHeader() {
           }}
         >
           <Text style={{ color: palette().menu.selectedText, fontSize: store.type().sm, fontWeight: "bold" }}>
-            {store.filteredItems().length} / {snap().totalCount}
+            {store.filteredItems().length} / {store.viewRows().length}
           </Text>
         </View>
       </View>
@@ -114,10 +116,10 @@ export function SearchHeader() {
           borderColor: scopeAccent(),
         }}
         activeStyle={{ backgroundColor: tint(scopeAccent(), scopeBackground(), 0.26) }}
-        focusStyle={{ borderColor: scopeAccent() }}
+        focusVisibleStyle={{ borderColor: scopeAccent() }}
       >
         <Text style={{ color: palette().menu.text, fontSize: store.type().base }}>
-          Scope: {store.activeScopeName()}
+          {store.scopeLabel()}
         </Text>
       </Button>
     </View>

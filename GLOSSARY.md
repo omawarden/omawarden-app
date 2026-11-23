@@ -25,6 +25,63 @@ Filtering a `FilterProjection` performs **zero IPC**, **zero keyring lookups**,
 and **zero `snapshot.set()`** calls, so switching tabs or typing in the search
 box only re-renders the list rows.
 
+## Trash
+
+The server-side state of soft-deleted ciphers: still stored, still encrypted,
+but hidden from the active vault. A cipher is in the Trash exactly when its
+`deleted_at` timestamp is set; the daemon's active `list` excludes those items,
+and a `list` sent with `{"trash": true}` returns only them.
+`CipherRowView.deletedAt` carries the timestamp on a trashed row and is absent
+on an active one.
+
+Trash is a vault state, not an `ItemCategory`: the category tabs keep meaning
+login, card, identity, note and SSH key inside it. The app models it as a
+separate view rather than a filter, so no active-vault path can reach a trashed
+cipher by accident. A trashed cipher is inspectable read-only from the Trash,
+with a live TOTP code, but it is not editable and not copyable.
+
+## Soft Delete
+
+The reversible delete. Deleting an item from the active vault stamps
+`deleted_at` on the server and moves the cipher into the Trash; it stays
+restorable and the write syncs like any other mutation. Soft delete is the
+only delete the active vault offers.
+
+## Permanent Delete
+
+The irreversible delete: the cipher leaves the Trash and the server. It is not
+a stronger Soft Delete that the active vault can reach — the active vault never
+offers it. It applies only to a cipher already in the Trash, behind a
+confirmation that says it cannot be undone.
+
+## Restore
+
+Bringing a cipher back from the Trash: the daemon clears `deleted_at` and the
+active vault sees the cipher again. In the GUI it is one press from the Trash
+inspector, with no confirmation, and it leaves the user in the Trash. A failed
+restore reports the daemon's error and changes nothing. Restore is the inverse
+of a Soft Delete, not a third kind of delete; the active vault never offers it.
+
+## Inspector Form
+
+The create/edit view that takes the Inspector pane's place while a Login or a
+Secure Note is being written. It is the third state of that pane, beside the
+item view and the empty state, so the list and the search stay where they are
+instead of being covered by a dialog. A draft is a snapshot of the fields as
+the form opened plus the live edits; "unsaved changes" means the two differ.
+The form owns the keyboard while it is open: vault shortcuts and the search
+stand down, and closing it hands the keyboard back to the search. Tab walks its
+fields and then its own buttons as one ring, and a move that would leave the
+form — a list row, a category tab, a scope, a folder, the Trash — asks first
+when the draft has changed.
+
+## Type Picker
+
+The `Ctrl+N` step that asks which kind of item to create, because that shortcut
+is the only create entry point that does not already know. It offers Login and
+Secure Note and hands the answer to the Inspector Form. The `+` buttons and the
+palette's create rows name their type themselves, so they skip it.
+
 ## In-Process Engine
 
 The `omawarden` Rust crate linked directly into the `nsh` host binary and
@@ -150,16 +207,59 @@ The gate is an overlay, not a replacement. The workspace, every dialog and the
 toast stay mounted underneath, so shrinking and restoring preserves form input,
 open dialogs and scroll position.
 
-It does **not** resize the window or ask the window manager for a minimum size:
-NSH 0.4.0 exposes no native minimum window size, so the app enforces its own
-floor. It does not collapse the sidebar, reflow the workspace, or report an
-error; the layout below the threshold is simply not shown.
+It does **not** resize the window or ask the window manager for a minimum size.
+NSH 0.6.1 offers `window.minSize` in `nsh.json`, and the app deliberately does
+not use it: a tiling compositor sizes the window rather than the user, so a size
+hint can be ignored, and the gate is what explains the requirement when it is.
+The floor is the app's own. It does not collapse the sidebar, reflow the
+workspace, or report an error; the layout below the threshold is simply not
+shown (ADR 0002).
+
+## Tray Icon
+
+The app's small, persistent representative in the desktop panel. It shows the
+vault's current state at a glance and stays available while the main window is
+hidden, so the window can always be brought back.
+
+_Avoid_: Menu Bar Icon, Notification Area
+
+## Close to Tray
+
+Dismissing the main window without ending the app. The vault session and the
+daemon keep running, and the `Tray Icon` remains the way back.
+
+## Tray Attention State
+
+The condition in which the vault is unlocked while an SSH signing request is
+waiting for approval. The tray names the waiting client in its tooltip and
+leaves the vault actions enabled; the icon itself is the app logo in every
+state.
+
+## App Version
+
+The version of `omawarden-app` itself: `version` in `Cargo.toml` and in
+`nsh.json`, which the two must agree on. It is what `env!("CARGO_PKG_VERSION")`
+reports as the running app's version, what the `Dev Release` SemVer is built
+from, and what names the release artifacts and the AUR `pkgver`.
+
+It is **not** the `NSH Version`. The app version moves when the app ships and
+the NSH version when the framework it runs on moves; the two are independent,
+so an app release that changes nothing in the framework moves only the
+`App Version`.
+
+## NSH Version
+
+The version of Native Shell the app is built on and run by: the `nsh` CLI
+pinned in `mise.toml` and installed by CI, moved together with the `nsh-core`
+and `nsh-base` crates in `Cargo.toml`. It is deliberately independent of the
+`App Version`: NSH `0.5.1` carried `omawarden-app` `0.5.0`, and NSH `0.6.1`
+carries `0.6.0`.
 
 ## Dev Release
 
 A rolling pre-release published on every push to `main` under the tag `dev`.
-Carries a SemVer string formatted as `0.4.0-dev.<short-sha>` and produces
-multi-architecture tarballs (`.tar.gz`) and standalone AppImages.
+Carries a SemVer string formatted as `<App Version>-dev.<short-sha>` and
+produces multi-architecture tarballs (`.tar.gz`) and standalone AppImages.
 
 ## Release Bundle
 
@@ -167,3 +267,54 @@ The complete distribution package produced by `nsh package --target linux` and
 augmented with the Polkit authorization policy (`.policy`), install scriptlet,
 desktop entry, and application icon. Distributable via GitHub Releases and
 packaged for Arch Linux as `omawarden-app-git-bin`.
+
+## Log Pipeline
+
+The in-process event source that feeds the `Log Viewer`. It records
+state transitions and failures only — authentication success/failure,
+unlock/lock, vault sync start/end, cipher write rejections — not per-action
+INFO events. Levels are `error`, `warn`, `info` (no `debug` or `trace`).
+Entries are sanitized by the engine's `sanitize_log_message` before entering
+the bounded in-memory ring. The pipeline does **not** receive the daemon's
+structured stderr; that boundary is recorded in ADR 0001.
+
+## Log Viewer
+
+The bounded, in-memory log ring displayed in the Logs tab. It holds a
+fixed number of recent entries (implementation detail), each carrying a
+timestamp, a level badge, the sanitized source prefix, and the message.
+The viewer supports live filtering by level. It is not persisted to disk,
+not streamed to journald, and not sent over the network. A `Refresh` action
+re-reads the ring; `Copy Diagnostic Report` includes its current contents.
+The Diagnose tab holds the engine health checks only; the viewer moved to
+its own Logs tab.
+
+## Diagnostic Report
+
+A user-triggered, one-shot snapshot copied to the clipboard. It contains:
+app version, engine version, git commit, build date, sanitized server URL,
+health check results, process RSS, and the current `Log Viewer` contents.
+It **explicitly excludes** the daemon's stderr logs and any absolute paths
+or local filenames. The report header states the collection scope so a
+GitHub issue reader knows what is and is not included.
+
+## Daemon Source
+
+The app-level setting that chooses which daemon executable to launch when no
+daemon is answering the shared Unix socket. The default is `bundled`, the
+daemon shipped beside the app binary; `system` picks a binary from
+`which -a omawarden`; `custom` is a path the user chose in the file dialog.
+A daemon that is already answering is always kept regardless of the source,
+and the app never sends `stop` to take the socket.
+
+## Bundled Daemon
+
+The daemon executable shipped inside an `omawarden-app` release, placed beside
+the app binary in the app's private directory. It is the default `Daemon
+Source` and is built from the same engine commit the app links.
+
+## System Daemon
+
+The daemon executable installed by the OS package (e.g. `omawarden-bin` at
+`/usr/bin/omawarden`) or otherwise found on `PATH`. It is the alternative
+`Daemon Source` the user may select from the list of `omawarden` candidates.

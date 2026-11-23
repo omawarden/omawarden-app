@@ -1,15 +1,22 @@
 [package]
 name = "nsh-app-omawarden-app"
-version = "0.4.0"
+version = "0.6.0"
 edition = "2024"
 publish = false
 
 [workspace]
 
 [dependencies]
-nsh-core = "0.4.0"
-nsh-base = "0.4.0"
-omawarden = { git = "https://github.com/icyleaf/omarchy-bitwarden.git", branch = "develop" }
+nsh-core = "0.6.1"
+# Not named anywhere in this crate's source: the Linux runner links `nsh-base`
+# unconditionally and the base components/theme come from it. Keep the pin so
+# the app is built against the same base the host resolves.
+nsh-base = "0.6.1"
+# Pinned by revision, not branch: the release builds the bundled daemon from
+# this commit, and the app compares every external daemon against it. Update
+# the comment and the revision together. scripts/check_engine_pin.sh enforces it.
+# engine 0.12.0
+omawarden = { git = "https://github.com/icyleaf/omarchy-bitwarden.git", rev = "29584b95d3e6eb557f6075003bf20dde1c5f680e" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 base64 = "0.22"

@@ -130,7 +130,21 @@ pub(crate) fn row_from_item(item: &VaultItem, reprompt: u32) -> CipherRowView {
         reprompt,
         card_brand,
         card_mask,
+        deleted_at: item.deleted_at.clone(),
     }
+}
+
+/// Orders Trash rows by deletion time, newest first.
+///
+/// The daemon's Trash `list` does not promise an order, and the active list's
+/// fuzzy-score sort is meaningless in the Trash: the user is looking for what
+/// was deleted most recently, so that is the primary key.
+pub(crate) fn sort_trash(rows: &mut [CipherRowView]) {
+    rows.sort_by(|a, b| {
+        b.deleted_at
+            .cmp(&a.deleted_at)
+            .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
+    });
 }
 
 /// Whether a row belongs to the active scope.
@@ -315,5 +329,62 @@ pub(crate) fn build_snapshot(
         selected_cipher_id,
         ssh_prompt,
         engine_version,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Builds a `VaultItem` the way `parse_items` does: from daemon JSON.
+    fn item(value: Value) -> VaultItem {
+        serde_json::from_value(value).expect("a vault item")
+    }
+
+    fn login(deleted_at: Option<&str>) -> VaultItem {
+        let mut value = json!({
+            "id": "1",
+            "name": "Old login",
+            "type": 1,
+            "type_name": "Login",
+            "sub_title": "user@example.com",
+            "favorite": false,
+            "search_text": "old login",
+        });
+        if let Some(deleted_at) = deleted_at {
+            value["deleted_at"] = json!(deleted_at);
+        }
+        item(value)
+    }
+
+    #[test]
+    fn a_trashed_row_carries_its_deletion_time() {
+        let row = row_from_item(&login(Some("2026-01-02T03:04:05Z")), 0);
+        assert_eq!(row.deleted_at.as_deref(), Some("2026-01-02T03:04:05Z"));
+    }
+
+    #[test]
+    fn an_active_row_has_no_deletion_time() {
+        let row = row_from_item(&login(None), 0);
+        assert!(row.deleted_at.is_none());
+        assert_eq!(row.title, "Old login");
+        assert_eq!(row.category, ItemCategory::Login);
+    }
+
+    #[test]
+    fn trash_rows_sort_newest_deletion_first() {
+        let mut older = row_from_item(&login(Some("2026-01-01T00:00:00Z")), 0);
+        older.title = "Older".to_string();
+        let mut newer = row_from_item(&login(Some("2026-02-01T00:00:00Z")), 0);
+        newer.title = "Newer".to_string();
+        let mut rows = vec![older, newer];
+        sort_trash(&mut rows);
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Newer", "Older"]
+        );
     }
 }

@@ -83,38 +83,38 @@ jobs:
             libgtk-4-dev libwebkitgtk-6.0-dev libssl-dev libxcb1-dev libsecret-1-dev \
             libzstd-dev file wget
 
-      # The release tarball carries the Linux release runner next to `bin/nsh`.
-      - name: Install nsh CLI (x86_64)
-        if: matrix.arch == 'x86_64'
+      # The Linux archive carries this platform's release runner next to
+      # `bin/nsh`; the installer lays it out under ~/.nsh on both runners, so
+      # x86_64 and aarch64 use the same step.
+      - name: Install nsh CLI
         run: |
-          curl -fsSL https://github.com/longbridge/nsh/releases/download/v0.4.0/install.sh | NSH_VERSION=v0.4.0 sh
+          curl -fsSL https://github.com/longbridge/nsh/releases/download/v0.6.1/install.sh | NSH_VERSION=v0.6.1 sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/.local/bin:$PATH"
           nsh --version
 
-      # v0.4.0 has no aarch64 prebuilt. Build the CLI from a checkout (as the
-      # installer's --source mode does) so it can also build the aarch64
-      # release runner from that same checkout.
-      - name: Install nsh CLI (aarch64)
-        if: matrix.arch == 'aarch64'
-        # nsh's toolchain file lists its mobile targets; the host's stable
-        # toolchain is all this build needs.
-        env:
-          RUSTUP_TOOLCHAIN: stable
+      # The bundled daemon is built from the same revision the app links, so
+      # the engine checkout has to exist before Rust's cache step can key the
+      # two workspaces.
+      - name: Check out the pinned engine
         run: |
-          git clone --depth 1 --branch v0.4.0 https://github.com/longbridge/nsh.git "$HOME/.nsh-src"
-          cargo build --release --locked --manifest-path "$HOME/.nsh-src/Cargo.toml" -p nsh-cli
-          mkdir -p "$HOME/.nsh/bin" "$HOME/.local/bin"
-          ln -sf "$HOME/.nsh-src/target/release/nsh" "$HOME/.nsh/bin/nsh"
-          ln -sf "$HOME/.nsh/bin/nsh" "$HOME/.local/bin/nsh"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          export PATH="$HOME/.local/bin:$PATH"
-          nsh --version
+          set -euo pipefail
+          REV=$(sed -n 's/^omawarden[[:space:]]*=.*rev[[:space:]]*=[[:space:]]*"\([0-9a-f]\{40\}\)".*/\1/p' Cargo.toml)
+          if [ -z "$REV" ]; then
+            echo "::error::Cargo.toml does not pin the engine by a 40-hex rev"
+            exit 1
+          fi
+          git clone --filter=blob:none https://github.com/icyleaf/omarchy-bitwarden.git engine
+          git -C engine checkout "$REV"
+          echo "ENGINE_REV=$REV" >> "$GITHUB_ENV"
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           key: release-dev-${{ matrix.target }}
+          workspaces: |
+            . -> target
+            engine/omawarden -> target
 
       - name: Validate version consistency
         run: |
@@ -128,6 +128,27 @@ jobs:
       - name: Package native Linux app via nsh
         run: |
           nsh package --target linux --out dist-pkg
+
+      # The AppImage and the tarball carry the daemon, built from the revision
+      # Cargo.toml pins. `-V` is part of the contract the Engine tab parses, so
+      # a binary that does not name this revision must not ship.
+      - name: Build the pinned daemon
+        run: |
+          set -euo pipefail
+          cargo build --release --bin omawarden \
+            --manifest-path engine/omawarden/Cargo.toml
+          PKG_DIR="dist-pkg/Omawarden"
+          if [ ! -d "$PKG_DIR" ]; then
+            PKG_DIR=$(find dist-pkg -mindepth 1 -maxdepth 1 -type d | head -n 1)
+          fi
+          install -m 755 engine/omawarden/target/release/omawarden "$PKG_DIR/omawarden"
+          SHORT=${ENGINE_REV:0:7}
+          VERSION_LINE=$("$PKG_DIR/omawarden" -V)
+          if ! printf '%s\n' "$VERSION_LINE" | grep -q "$SHORT"; then
+            echo "::error::the bundled daemon does not report $SHORT: $VERSION_LINE"
+            exit 1
+          fi
+          echo "bundled daemon: $VERSION_LINE"
 
       - name: Bundle release tarball and AppImage
         env:

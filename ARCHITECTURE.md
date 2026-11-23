@@ -2,14 +2,14 @@
 
 ## 1. Overview & Repository Role
 
-`omawarden-app` (`~/Development/linux/omawarden-app`, GitHub: `https://github.com/omawarden/omawarden-app`) is the standalone cross-platform Native Shell (`nsh` `0.4.0`) frontend for the `@omawarden` ecosystem:
+`omawarden-app` (`~/Development/linux/omawarden-app`, GitHub: `https://github.com/omawarden/omawarden-app`) is the standalone cross-platform Native Shell (`nsh` `0.6.1`) frontend for the `@omawarden` ecosystem:
 
 1. **`omawarden-cli`** (currently located at `~/Development/linux/omarchy-bitwarden/omawarden`): The Rust cryptographic engine, keyring bridge, SSH agent, and Unix socket daemon.
 2. **`omawarden-app`** (`~/Development/linux/omawarden-app`): This repository — a 100% **TSX + Tailwind + `nsh/base`** UI backed by a thin Rust native module (`#[native_module("omawarden-app/native")]`) that links directly against the `omawarden` crate (`path = "../omarchy-bitwarden/omawarden"`).
 3. **`omarchy-bitwarden-plugin`**: Thin Quickshell/Omarchy Shell wrapper (to be slimmed down in a later phase; **DO NOT modify `~/Development/linux/omarchy-bitwarden` in this phase**).
 
 ### Toolchain Paths
-- `nsh` binary: `~/.local/share/mise/installs/github-longbridge-nsh/latest/bin/nsh` (version `0.4.0`, installed via `mise`).
+- `nsh` binary: `~/.local/share/mise/installs/github-longbridge-nsh/latest/bin/nsh` (version `0.6.1`, installed via `mise`).
 - Primary desktop target: Linux GTK 4 (`--target linux`). GPUI is a development and embedding backend (`nsh run --target gpui`), not a package target; the web build uses `--target web`.
 - Reference implementation for 1:1 behavioral parity: `~/Development/linux/omarchy-bitwarden/OmarchyBitwarden.qml` and `~/Development/linux/omarchy-bitwarden/components/*.qml`.
 
@@ -24,9 +24,9 @@ Following deep-module design principles ("Design It Twice" Hybrid Design 3 + Des
 
 ### 2.1 Execution Routing Inside `OmawardenBridge` (In-Process Engine, Shared Daemon)
 1. **Daemon Readiness (`ensure_app_daemon_running`)**:
-   - The app never hosts the daemon. It delegates to `omawarden::daemon::ensure_daemon_running()`, which owns the launch strategy: the engine resolves the standalone `omawarden` executable (`OMA_DAEMON_BIN`, the running CLI binary, or `PATH`) and starts `omawarden daemon` as its own process.
+   - The app never hosts the daemon. It pings the shared socket first and, only when nothing answers, launches one through the engine's `DaemonLaunchStrategy::Explicit`. The executable comes from the app's `Daemon Source`: the daemon shipped beside the app binary (default), a `system` binary the user picked from `PATH`, or a `custom` path. `OMA_DAEMON_BIN` still overrides all three, and a development build falls back to the sibling checkout's `target/`.
+   - The app launches a daemon but never supervises it: no status badge, no PID, no start/stop/restart control, no `stop` request. A daemon that already answers is kept, whichever build and whichever source it came from; the engine's protocol handshake judges compatibility.
    - **Why the app must not host the daemon**: a daemon hosted on a Rust thread inside the app runs in the GUI process, so a `stop` — from the Overlay, the CLI, or a config change that restarts it — takes the window down with it. A separate daemon lets the app, the Overlay, and the CLI share one vault session, and keeps that session alive when the window closes.
-   - A daemon that already answers is kept, whichever build it comes from. The engine's protocol handshake (`protocol_version`, upstream ADR 0028) replaced the old `GIT_HASH` equality check, so a commit difference is no longer a reason to replace a daemon.
    - The app **MUST NOT** send `stop` to take the socket. The answering daemon may be serving the Overlay, and the engine denies `stop` to non-owners: an in-process daemon rejects all external stops, a standalone one requires explicit `admin: true`.
    - `ensure_app_daemon_running()` returns `Result<(), String>`, and callers surface a launch failure (`real_sync` reports it, `real_authenticate` lets the engine map it into the authentication error) instead of continuing against a missing daemon.
    - Regression test: `locked_daemon_from_another_build_is_kept` binds a socket that answers `ping` with a foreign `commit` and `unlocked: false`, then asserts the app leaves that daemon answering.
@@ -101,6 +101,15 @@ pub mod native {
         /// Synchronize the vault with the Bitwarden server and return the updated snapshot.
         pub fn sync_vault(filter: VaultFilterInput) -> VaultSnapshotView;
 
+        /// Query the Trash: the soft-deleted ciphers, newest deletion first.
+        pub fn query_trash(filter: VaultFilterInput) -> VaultSnapshotView;
+
+        /// Restore a soft-deleted cipher from the Trash.
+        pub fn restore_cipher(id: String) -> CipherMutationOutcomeView;
+
+        /// Permanently delete a cipher that is in the Trash.
+        pub fn delete_trash_cipher(id: String) -> CipherMutationOutcomeView;
+
         /// Inspect a specific cipher item, computing masked/revealed fields, TOTP state, and available actions.
         pub fn inspect_cipher(cipher_id: String, reveal: RevealStateInput) -> InspectorView;
 
@@ -174,12 +183,40 @@ pub mod native {
   `refresh_totp`, and `copy_cipher_field` serve cache hits directly and fall
   back to the daemon only on a miss. `lock_or_logout`, `sync_vault`,
   `save_ssh_key`, and a locked `poll_daemon_tick` clear the cache.
+  `query_trash` reads the daemon's `list` with `{"trash": true}` and borrows
+  the cache for its account context only: the deleted rows never enter
+  `CachedVault`, which stays active-only.
 - **`FilterProjection` is the TSX hot path.** `store/appStore.ts` keeps
   `rawItems` (from `snapshot.allItems`), fine-grained `category`, `scopeId`,
   `folderId`, and `search` signals, and derives `filteredItems()` with the same
   pure-TS subsequence scorer as the Rust engine. `query()`, `setSearch()`,
   `setCategory()`, `setScope()`, and `setFolder()` never call
-  `OmawardenBridge.queryVault` and never call `snapshot.set()`.
+  `OmawardenBridge.queryVault` and never call `snapshot.set()` — except for the
+  single `leaveTrash()` path, which re-reads the active vault once when the user
+  returns from the Trash after a restore or purge. The loaded
+  Trash rows live in their own `trashItems` signal; `viewRows()` picks the
+  rows of the current view, and `filterTrashRows()` narrows them locally.
+- **Trash mutations refresh one view at a time.** `restore_cipher` goes through
+  `CipherEngine` to the daemon's `cipher_restore` action. On success the store
+  stays in the Trash, calls `reloadTrash()` so the row disappears, and sets
+  `activeRowsStale` instead of re-reading the active vault from inside the
+  Trash; `leaveTrash()` — the single way back used by `closeTrash()`,
+  `setScope()`, `setFolder()` and `selectCipherById()` — applies that one
+  `queryVault` when the user returns, so no cold path gains a second request.
+  A failure only toasts the daemon's error. A delete — soft or Trash purge —
+  runs the blocking daemon call through the same `defer()` as the form save:
+  the dialog paints `Deleting…` with its buttons disabled first, so the window
+  never freezes without an acknowledgement. Lock and logout clear the loaded
+  Trash rows, the pending refresh and the in-flight restore and delete flags.
+- **Trash details come from the list reply, not a trash-aware `get_item` (#43).**
+  `query_trash` keeps the reply's `VaultItem`s in a Trash-owned map beside the
+  rows, so the inspector renders a deleted cipher's fields without a second
+  request. The map never enters `CachedVault` and is cleared with the loaded
+  Trash rows. `get_item`, `get_ssh_key`, `totp` and `get_attachment_key` stay
+  active-only: widening one of them would move a state flag into the read every
+  other feature depends on, and would turn row selection into a daemon request.
+  The live TOTP code is computed locally from the in-memory seed, because the
+  daemon's `totp` action is trash-blind.
 - **`<If>` preserves mounted views.** Top-level phase and modal switches use
   `<If when={…}>` instead of bare JSX ternaries, which compile to unmemoized
   reactive effects that destroy and recreate their subtree. With `<If>`, the
@@ -199,12 +236,33 @@ pub mod native {
    - Passphrase generator word count MUST be strictly validated in `3..=20`. Values outside this range must return `"Passphrase word count must be between 3 and 20 words."` and NEVER be silently clamped.
 2. **No Plaintext Secret Leakage**:
    - Clipboard copies of passwords, TOTPs, CVVs, private keys, and hidden custom fields MUST pass `sensitive = true` (`wl-copy --sensitive` + Clipboard Guard auto-clear after `clipboard_clear_seconds`).
-   - Diagnostic logs and server URLs in Diagnose tab must redact tokens, passwords, and private IPs (`sanitize_log` / `sanitize_server_url`).
+   - Diagnostic logs and server URLs in the Logs tab must redact tokens, passwords, private IPs, **absolute paths, and local filenames** (`sanitize_log` / `sanitize_server_url`).
 3. **Strict URL Scheme Validation**:
    - `launch_url` must parse with `url::Url::parse` and only allow `http` or `https` schemes.
    - `server_url` / `identity_url` only allow `http://` on loopback (`localhost`, `127.0.0.1`, `[::1]`); remote hosts require `https://`.
 4. **Idle Auto-Lock Integrity**:
    - `poll_daemon_tick` MUST query the daemon with `"touch": false` so background polling never resets the idle inactivity timer.
+5. **GUI Vault Cache Memory Hygiene**:
+   - The GUI process holds a full plaintext copy of the unlocked vault in
+     `CachedVault` (`src/vault.rs`), mirroring the engine daemon's
+     `decrypted_items`. This is intentional: the UI must render decrypted
+     items, and the engine daemon already carries the same plaintext under
+     its own `mlock`/`PR_SET_DUMPABLE` protections (upstream ADR 0009).
+   - The GUI host process does **not** run `mlock` or `PR_SET_DUMPABLE`.
+     Defense against same-user memory scraping therefore relies on the OS
+     process boundary plus scrubbing the plaintext before it is freed.
+   - `clear_cached_vault()` must zero every `String` and `serde_json::Value`
+     leaf — passwords, TOTP seeds, card numbers, CVV, identity SSNs, SSH
+     private keys and passphrases — before dropping the `CachedVault`. Neither
+     `String` nor `serde_json::Value` implements `Zeroize`, so the app scrubs
+     them in place via `scrub_vault_item()` rather than trusting the allocator
+     to overwrite the freed heap.
+   - `TrashDetails` holds a second plaintext copy of the trashed ciphers for
+     the duration of the loaded Trash. `store_trash_details()` and
+     `clear_trash_details()` scrub the outgoing items the same way, so a
+     re-read or a session end leaves no plaintext behind either.
+
+**Known Deviation (Resolved)**: `src/attachments.rs:379` previously pushed an absolute download path into the in-memory log ring. The line was changed to log only `"attachment saved"` and the destination path is no longer recorded. The logging boundary invariant (no absolute paths / local filenames in log lines) now holds without exception.
 
 ---
 
@@ -303,7 +361,7 @@ engine's `Config`. The daemon and the CLI must never gain a presentation field.
    - **`components/SearchHeader.tsx`**:
      - Search input with instant fuzzy filtering, a match counter pill (`visible / total`), a clear button, and the `"Scope"` selector trigger. Global actions live in the footer.
      - `Ctrl+F` puts the keyboard in the search box and selects the query already there, so the first keystroke replaces it while the filtered list stays put. It answers only while the vault is usable — unlocked, no dialog, window at or above its minimum — and the command palette carries the same row as `Search Vault`.
-     - The field is the vault's home position for the keyboard: unlocking or showing the vault focuses it, and the minimum-window gate or an open dialog blurs it, so a dialog's own fields and Escape get the keyboard. Closing a dialog does not give the focus back; only the palette's `Search Vault` asks for it.
+     - The field is the vault's home position for the keyboard: unlocking or showing the vault focuses it, and the minimum-window gate or an open dialog blurs it, so a dialog's own fields and Escape get the keyboard. Closing a dialog does not give the focus back; only the palette's `Search Vault` asks for it. The Inspector Form is the exception: closing it, saved or discarded, hands the keyboard back to the search with the query left as it was.
      - While the field holds the keyboard, NSH would hand every non-character key to it, so the vault's arrows and `Ctrl+Enter` are re-bound with `when: "always"` while the vault is usable. `Enter` submits through the field's own `onSubmit` (the primary copy, caret kept), and Tab blurs the field before moving the action ring so `Space` can activate the focused action. Escape stays the input's.
    - **`components/ScopeDropdown.tsx`**:
      - Filter by Vault Scope (`All Vaults`, `My Vault (Personal)`, or specific `Organizations` & `Collections`) and `Folders`, with live item counts per scope/folder.
@@ -312,7 +370,7 @@ engine's `Config`. The daemon and the CLI must never gain a presentation field.
    - **`components/VaultItemList.tsx`**:
      - Keyboard-navigable (`Up`/`Down`/`Enter`) list of matching `CipherRowView` items showing category icon, title, subtitle (username / masked card / identity name / SSH key type), favorite star, attachment count badge, and organization badge.
    - **`components/ItemInspector.tsx` & `components/EmptyInspector.tsx`**:
-     - Displays full details of the selected cipher, ported from the plugin's `ItemInspector.qml`: one scroll body that fills the pane, opened by the item's favicon or category glyph, its name with favorite/organization/folder badges and its category label, followed by one 6-point card per section (10 points of padding, 8-point gap) whose fields are a muted caption label above a medium-weight value, separated by 1pt rules.
+     - Displays full details of the selected cipher, ported from the plugin's `ItemInspector.qml`: one scroll body that fills the pane, opened by the item's favicon or category glyph, its name with a pressable favorite star (filled when favorited, outlined when not) and organization/folder badges and its category label, followed by one 6-point card per section (10 points of padding, 8-point gap) whose fields are a muted caption label above a medium-weight value, separated by 1pt rules.
        - **Login**: Username (ghost copy), Password (ghost reveal toggle + copy, monospace once revealed), TOTP block (`TOTP Code` label + TTL, accent monospace code, ghost copy, 3px progress bar that turns danger at 5s; the code rolls over on its own when the period ends), Website URIs (hostname display, ghost copy, ghost launch in browser).
        - **Card**: Cardholder name, Brand, Card number (masked `•••• •••• •••• 1234` vs spaced 4-digit groups when revealed, ghost reveal/copy), Expiration (`MM / YYYY`, ghost copy), CVV/Security Code (ghost reveal/copy).
        - **Identity**: Title/Full Name, Username, Company, Email, Phone, SSN/Passport/License numbers, Address fields (each with a ghost copy action).
@@ -322,6 +380,14 @@ engine's `Config`. The daemon and the CLI must never gain a presentation field.
        - **Attachments**: Filename, human-readable size, ghost preview (inline image/text preview panel) and ghost download actions.
        - **Metadata**: Created/Updated timestamps on the reader's clock and the Password History entry point.
      - Field-level actions use the shared 22x22 `components/GhostIconButton.tsx`; chunky text buttons are reserved for panel-level actions.
+   - **`components/CipherEditor.tsx` — the Inspector Form**:
+     - Personal Login and Secure Note creation and editing render in the Inspector pane itself, not in a dialog: the same pane alternates between the item view, the empty state, and the form, and the list and search stay visible. `Ctrl+E` opens it for the selected Login or Secure Note; `Ctrl+N` reaches it through the Type Picker.
+     - Fields: Name (focused on entry), Username, Password with `Generate…`, Websites (every row on a create; only the first on an edit, because an update replaces just the first URL), and Notes. Folder, favorite, and custom fields are not editable here.
+     - Save sends one `cipher_update` (or a create) with the name plus only the fields whose values differ from the snapshot taken when the form opened, so an untouched password is never cleared. `Ctrl+S` saves, `Esc` cancels and asks before discarding a changed draft with an inline `Discard` / `Keep Editing` strip. The form owns the keyboard while it is open: the vault shortcuts, the list arrows, and the search stand down (the search field is `readonly` for as long as a draft is open), and closing it returns the keyboard to the search.
+     - `Tab` walks the form's own ring: the text fields in the order they read, then the buttons the form declares (`Generate…`, `Add URL` and the per-row `Remove`, the discard strip's two buttons, `Cancel`, and `Create Item` / `Save Changes`). The ring cannot use the action registry's order, which is the platform's breadth-first mount order, so `setCipherFormActionRing` takes the list from the form itself. Landing on a button blurs the fields and focuses the control, so `Enter` and `Space` reach it; `Shift+Tab` on the first stop wraps to the save button.
+     - Leaving the form for a list row, a category tab, a scope, a folder, or the Trash is guarded: a clean draft closes and the move goes on, a changed one queues the move behind the same discard strip, and `Discard` runs it once the form is gone.
+   - **`components/TypePickerModal.tsx` (`Ctrl+N`)**:
+     - A compact dialog offering `Login` (default, `L`, Enter) and `Secure Note` (`N`); the arrows move the highlight and a second `Ctrl+N` toggles it. `Esc` closes it without a draft, and the chosen type opens the Inspector Form.
    - **`components/FooterBar.tsx`**:
      - Clickable ghost actions with shortcut badges: `Actions` (`Ctrl+K`), `Generate` (`Ctrl+G`), `Sync` (`Ctrl+R`), `Lock` (`Ctrl+L`), `Settings` (`Ctrl+,`).
      - A subtle rotating sync indicator appears beside `Sync` while a sync is in flight.
@@ -337,7 +403,7 @@ engine's `Config`. The daemon and the CLI must never gain a presentation field.
   - It has no controls. Only a resize clears it, and every keyboard path stands down while it is up.
   - It is an overlay rather than a replacement: the views beneath stay mounted, so a shrink-and-restore cycle preserves form input, modal state and scroll position. The vault shortcuts, the settings shortcut and the tab/space bindings stand down while it is up, and the vault search gives up the keyboard so typing goes nowhere until the window grows back.
 
-### 5.3 All 7 Modals
+### 5.3 All 8 Modals
 
 Every dialog is built on `components/ui.tsx`'s `ModalShell`: a centred card capped at 92% of the window height, with the body in a `Scroll` that has `flexShrink: 1`. The shrink is what bounds the body: NSH defaults `flexShrink` to 0, so a body left at `flexGrow: 0` sizes itself to its content, reports no scroll range, and strands every row below the window's bottom edge. Modals taller than the window (Settings at the 900 × 620 floor) must scroll.
 
@@ -350,9 +416,11 @@ The card keeps the width it asks for, and the header wraps to fit it: the title 
 2. **`components/PasswordGeneratorModal.tsx` (`Ctrl+G`)**:
    - Mode tabs: **Password** vs **Passphrase**.
    - Dynamic wrapping secret preview container with digit highlighting and entropy strength badge (`bits` + Weak/Fair/Good/Strong/Very Strong).
-   - Password controls: Length input (`5..=128`, explicit validation error if out of bounds — NO silent clamping!), Uppercase, Lowercase, Numbers, Special, Avoid Ambiguous toggles, Min Numbers & Min Special steppers.
-   - Passphrase controls: Word count input (`3..=20`, explicit validation error if out of bounds — NO silent clamping!), Separator input, Capitalize toggle.
-   - Regenerate and Copy & Close buttons.
+   - Password controls: Length stepper (`5..=128`) — a `−`/`+` pair around a typed field, the mouse wheel over the row steps it one notch per event, and a typed value outside the range is reported not rewritten (the first stepper press snaps it into range); Uppercase, Lowercase, Numbers, Special, Avoid Ambiguous toggles whose thumb slides like an iOS switch, Min Numbers & Min Special steppers.
+   - Passphrase controls: Word count stepper (`3..=20`) on the same rules, Separator input, Capitalize toggle.
+   - The preview regenerates as soon as any option changes — a length, word count, toggle, separator or mode change re-rolls under the new rules, so the **Regenerate** button only re-rolls the same options; an invalid entry keeps the last secret and shows the validation error.
+   - Copy & Close button.
+   - The form's `Generate…` / `Ctrl+G` opens it in **fill mode**: the primary action becomes **Use Password** (`Enter`), which puts the secret straight into the open form's password field and never touches the clipboard. Both modes share the same option signals (`store/generatorOptions.ts`), so the rules a password was generated with do not change between the loose dialog and the form.
 3. **`components/SshKeyModal.tsx`**:
    - Supports `"create"` (Generate new `ed25519`, `rsa-2048`, `rsa-4096`, `ecdsa-p256`, `ecdsa-p384` or Import existing OpenSSH private key into vault) and `"export"` (Write selected SSH key item to `~/.ssh/<filename>` with `0600`/`0644` permissions).
 4. **`components/SshApprovalModal.tsx`**:
@@ -360,14 +428,17 @@ The card keeps the width it asks for, and the header wraps to fit it: the title 
 5. **`components/PasswordHistoryModal.tsx`**:
    - Lists previous passwords and change timestamps for the active Login item with individual copy buttons.
 6. **`components/SettingsModal.tsx` (`Ctrl+,`)**:
-   - 5 Tabs:
+   - 6 Tabs:
      - **General**: Server URL, Identity URL, Remember Email toggle, Show Website Icons toggle, Remember Last Search toggle, Check for Updates toggle, Download Directory, Max Attachment Size (MB).
      - **Appearance**: Theme Appearance (Dark Tokyo Night / Light Catppuccin Latte, persisted through the UI preferences bridge rather than the engine config) and Text size (a slider from 100% to 400% in 10% steps with a live percentage readout, persisted through the same preferences bridge). The display preferences live on their own tab so the connection form stays a form.
      - **Security**: Auto-Lock Timeout (minutes), Clipboard Clear Timeout (seconds), Polkit Quick Unlock toggle (`quick_unlock`), SSH Agent toggle (`ssh_agent_enabled`), SSH Agent Confirmation Policy (`first-use`, `always`, `never`), Client mTLS Certificate & Key paths, Lock Now & Log Out actions.
-     - **Diagnose**: Engine Health check cards (Engine Installed, Server Reachable, Secret Service Keyring, Wayland Clipboard, Memory Locked `mlock`), Sanitized Server URL, Sanitized Log Viewer with `"Copy Diagnostic Report"` button (`Refresh` button).
+     - **Diagnose**: Engine Health check cards (Engine Installed, Server Reachable, Secret Service Keyring, Wayland Clipboard, Memory Locked `mlock`) with a `Refresh` button.
+     - **Logs**: Sanitized Server URL, Sanitized Log Viewer with All / Errors & Warnings / Info level filters and `"Copy Diagnostic Report"` and `"Refresh Health"` buttons.
      - **About**: App & Engine version, Git commit hash, Build date, Update check button (`checkUpdates(true)`), View Release Notes button, GitHub repository links.
 7. **`components/ReleaseNotesModal.tsx`**:
    - Displays latest release version, title, publication time on the reader's clock, markdown release notes (`<TextView markdown={...} />`), and link to release page.
+8. **`components/TypePickerModal.tsx` (`Ctrl+N`)**:
+   - A compact `Login` / `Secure Note` choice with single-key, arrow, and Enter selection; it hands the type to the Inspector Form, which is what the old centred cipher form used to do after asking the tab instead.
 
 ### 5.4 Shell Layout Sizes (`theme/layout.ts`)
 
@@ -382,7 +453,17 @@ The card keeps the width it asks for, and the header wraps to fit it: the title 
 - `components/EmptyInspector.tsx` caps its two-line empty-state column at `EMPTY_STATE_MAX_WIDTH` and centres it.
 - `store/windowGate.ts` exposes `windowBelowMinimum()`, the one predicate the gate and every keyboard path read. It passes the window size alone; the text size is not part of the question.
 - `store/searchFocus.ts` owns the vault search field's native ref and the only three ways anything moves the keyboard into or out of it: `setSearchField` (the `<Input ref>` callback), `focusSearch(selectAll)` (drops any action focus, focuses the field, and selects the whole query when asked) and `blurSearch()`. The `Ctrl+F` binding, the palette's `Search Vault` row and `SearchHeader`'s auto-focus all call it, so they cannot drift apart. The ref is a module value rather than a signal: it is a native handle, and the next mount overwrites it.
+- `store/cipherFormFocus.ts` owns the Inspector Form's field refs: each field registers under its key (`name`, `username`, `password`, `uri-N`, `notes`), `cipherFieldKeys()` sorts them into the order the form reads, and `focusedCipherField` says whether the keyboard is in a field or on a button. The password field's own handle lives here too, because the generator fills it from outside the form. Like the search's ref, the handles are module values rather than state.
+- `cycleVaultFocus` in `store/appStore.ts` is the one Tab entry point: it walks the form's ring while a draft is open (`currentLayer()` reports `"form"`) and the vault's action ring otherwise, so the two Tab bindings cannot disagree. `registerActionElement` and `setCipherFormActionRing` are what let that ring move real focus onto the form's buttons, and `guardCipherFormLeave` is the one way a navigation leaves the form behind.
 - `store/DateTime.ts` is the single source of every timestamp the interface shows. The engine hands out ISO-8601 instants in UTC, and `formatLocalDateTime(value)` renders them as `YYYY-MM-DD HH:mm GMT+X` on the reader's clock, with `gmtOffset(date)` spelling the zone (`GMT+8`, `GMT-5`, `GMT+5:30`). No value formats as `""`, and a string that is not a timestamp comes back unchanged. The item's Created/Updated rows, the footer's sync time, a password history entry's change date and a release's publication time all go through it; the About tab's build date is a build identifier rather than a moment, so it stays as the engine writes it.
+
+### 5.5 Tray and Window Lifecycle
+
+- The tray sits beside the views and modals as a second, small view of the same store, not as a second driver of the app. `store/tray.ts` is a pure builder: given the phase, pending SSH approval and window visibility, it returns an icon, tooltip and menu. It reads no signal, touches no window and performs no IO, so the same inputs always give the same description. The icon is `assets/icon.png` in every state; the tooltip names the phase or the waiting SSH client, and the menu's enabled items carry the actionable part of the state. The tray sets no colored title runs because Waybar and most Linux panels draw only the icon.
+- `store/trayWiring.ts` is the only place that joins that description to the platform. `App.tsx` calls `installTray()` once at module scope, never from `App()`, so a re-render cannot add a second listener. One effect follows the main window, its visibility and the store signals, then calls `Tray.set`. A left click and the menu's Show/Hide item share the same toggle: hide a visible window, `focus()` a hidden one. Settings… focuses first, then opens the existing settings modal.
+- `nsh.json` sets `window.closeOnPress: false`, so the close button reports a press instead of ending the app. The one close listener hides the window. The process, the tray icon, the vault session and the daemon all keep running, and the window is still open to the app even though it is off screen. `Quit` is a separate menu item calling `Application.quit()`; no window close, hide or quit sends a lock, logout or daemon `stop`.
+- The three relationships in §2.1 do not change: the window is a view, the daemon owns the vault session, and the app is a client. The tray is another view of that session, not an owner. The daemon's idle auto-lock remains the authority on when the session ends; a tray update never touches its timer. `capabilities.application` is granted for the tray, quit and main-window focus. The app does not use global shortcuts or launch-at-login, and `homeDir` and `statusBar` are not granted. Launch-at-login is deferred, and Hyprland does not read XDG autostart entries, so a future switch must state in the UI that it has no effect there.
+- In headless `nsh test` the tray is a safe no-op: `isAvailable` is false and no icon is asserted. Tests cover the pure builder's three states and menu matrix plus the show/hide seam. The rationale and the user-visible trade-off are recorded in `docs/specs/tray_icon_spec.md` and ADR 0004.
 
 ---
 
@@ -422,7 +503,7 @@ Profiling `nsh run --window-size 1440x960` on Linux with GTK4 + dual AMD Vulkan 
 3. **Windowed / Capped Vault List Rendering (`components/VaultItemList.tsx`)**:
    - Avoid mounting hundreds or thousands of GTK `<Button>` row subtrees simultaneously in `<Each of={store.visibleItems()}>`.
    - Render a windowed slice (`visibleLimit` defaults to `80`, resets to `80` when filters change, and grows automatically when keyboard navigation approaches the end) with a `Show more (… remaining)` button at the bottom of the scroll list.
-   - `<Each … key="index">` keeps row slots in place across category switches, and the row action id is `cipher-row-slot-${index}` so the registered action stays valid when a slot's item changes.
+   - Rows are keyed by the cipher (`<Each … key={(item) => item.id}>`), so NSH moves a row with its cipher instead of redrawing a different cipher into its slot, and the row action id is `cipher-row-${id}`, so the registered action stays valid when a reorder moves its row: `actionOrder` is the app's Tab ring and holds first-registration order.
 4. **Hot-Path FilterProjection Without Snapshot or Widget Churn**:
    - Category, scope, folder, and search changes update only `filteredItems()`, which filters the cached `rawItems` in memory. They perform no daemon IPC, no keyring lookups, and no `snapshot.set()`.
    - Phase and modal branches use `<If when={…}>` rather than bare JSX ternaries, so the `<VaultWorkspace />` subtree stays mounted across filter changes and inner badge views update in place instead of being recreated.

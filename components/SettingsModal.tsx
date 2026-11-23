@@ -1,21 +1,45 @@
 import { Text, View } from "nsh";
 import { Input, Slider } from "nsh/base";
 import { signal } from "nsh";
-import type { SshAgentPolicy, ThemeAppearance } from "omawarden-app/native";
+import type {
+  DaemonCandidateView,
+  DaemonSourceMode,
+  SshAgentPolicy,
+  ThemeAppearance,
+} from "omawarden-app/native";
 import * as store from "../store/appStore";
 import { tint } from "../theme/palette";
 import { TabButton, inputStyle } from "./AuthView";
 import { ActionButton, Chip, ModalShell, Panel, SectionTitle } from "./ui";
+import {
+  parseLogLine,
+  isProblemLine,
+  logLevelColor,
+  stableLogTestId,
+} from "../store/diagnosticReport";
 
-type SettingsTab = "general" | "appearance" | "security" | "diagnose" | "about";
+type SettingsTab =
+  | "general"
+  | "appearance"
+  | "security"
+  | "engine"
+  | "diagnose"
+  | "logs"
+  | "about";
+type LogFilter = "all" | "errors" | "info";
 
 const tab = signal<SettingsTab>("general");
+const logFilter = signal<LogFilter>("all");
+/** A mismatched external binary the user pressed, pending confirmation. */
+const enginePending = signal<{ path: string; mode: DaemonSourceMode } | null>(null);
 
 const TABS: Array<{ id: SettingsTab; label: string; testID: string }> = [
   { id: "general", label: "General", testID: "settings-tab-general" },
   { id: "appearance", label: "Appearance", testID: "settings-tab-appearance" },
   { id: "security", label: "Security", testID: "settings-tab-security" },
+  { id: "engine", label: "Engine", testID: "settings-tab-engine" },
   { id: "diagnose", label: "Diagnose", testID: "settings-tab-diagnose" },
+  { id: "logs", label: "Logs", testID: "settings-tab-logs" },
   { id: "about", label: "About", testID: "settings-tab-about" },
 ];
 
@@ -43,6 +67,25 @@ export function SettingsModal() {
         const config = () => current().config;
         const diagnostics = () => current().diagnostics;
         const percent = () => Math.round(store.appFontScale() * 100);
+        const logLines = () => (diagnostics().logs ?? []).map(parseLogLine);
+        const logCounts = () => {
+          const lines = logLines();
+          return {
+            all: lines.length,
+            problems: lines.filter(isProblemLine).length,
+            info: lines.filter((line) => line.level === "INFO").length,
+          };
+        };
+        const visibleLogs = () => {
+          const lines = logLines();
+          if (logFilter() === "errors") {
+            return lines.filter(isProblemLine);
+          }
+          if (logFilter() === "info") {
+            return lines.filter((line) => line.level === "INFO");
+          }
+          return lines;
+        };
         return (
           <ModalShell
             title="Settings"
@@ -57,7 +100,14 @@ export function SettingsModal() {
                     label={entry().label}
                     testID={entry().testID}
                     active={tab() === entry().id}
-                    onPress={() => tab.set(entry().id)}
+                    onPress={() => {
+                      tab.set(entry().id);
+                      // The list is a snapshot of PATH and the app directory;
+                      // reopening the tab is what picks up a new package.
+                      if (entry().id === "engine") {
+                        store.refreshDaemonCandidates();
+                      }
+                    }}
                   />
                 )}
               </Each>
@@ -322,6 +372,8 @@ export function SettingsModal() {
               </Panel>
             ) : null}
 
+            {tab() === "engine" ? <EnginePanel /> : null}
+
             {tab() === "diagnose" ? (
               <View style={{ gap: 12 }}>
                 <Panel testID="settings-diagnose">
@@ -368,10 +420,14 @@ export function SettingsModal() {
                     )}
                   </Each>
                 </Panel>
+              </View>
+            ) : null}
 
+            {tab() === "logs" ? (
+              <View style={{ gap: 12 }}>
                 <Panel testID="settings-diagnostic-logs">
                   <SectionTitle hint="Tokens, passwords, and private addresses are redacted.">
-                    Sanitized Server &amp; Logs
+                    Sanitized Server & Logs
                   </SectionTitle>
                   <Text
                     testID="diagnostic-server-url"
@@ -379,20 +435,93 @@ export function SettingsModal() {
                   >
                     {diagnostics().serverUrlSanitized}
                   </Text>
-                  <Each of={diagnostics().logs ?? []} key="index">
-                    {(line) => (
-                      <Text
-                        style={{
-                          color: palette().muted,
-                          fontSize: store.type().sm,
-                          fontFamily: "monospace",
-                          userSelect: "text",
+
+                  <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
+                    <ActionButton
+                      label={`All (${logCounts().all})`}
+                      testID="log-filter-all"
+                      tone={logFilter() === "all" ? "primary" : "secondary"}
+                      onPress={() => logFilter.set("all")}
+                    />
+                    <ActionButton
+                      label={`Errors & Warnings (${logCounts().problems})`}
+                      testID="log-filter-errors"
+                      tone={logFilter() === "errors" ? "primary" : "secondary"}
+                      onPress={() => logFilter.set("errors")}
+                    />
+                    <ActionButton
+                      label={`Info (${logCounts().info})`}
+                      testID="log-filter-info"
+                      tone={logFilter() === "info" ? "primary" : "secondary"}
+                      onPress={() => logFilter.set("info")}
+                    />
+                  </View>
+
+                  {visibleLogs().length === 0 ? (
+                    <Text
+                      testID="log-viewer-empty"
+                      style={{ color: palette().muted, fontSize: store.type().sm }}
+                    >
+                      {logLines().length === 0
+                        ? "No logs recorded yet"
+                        : "No lines match this filter"}
+                    </Text>
+                  ) : (
+                    <Each of={visibleLogs()} key="index">
+                      {(line, index) => {
+                          const testIdSuffix = stableLogTestId(line());
+                          return (
+                            <View
+                              testID={`log-line-${testIdSuffix}`}
+                              style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}
+                            >
+                              <Text
+                                testID={`log-level-badge-${testIdSuffix}`}
+                                style={{
+                                  color: logLevelColor(line().level, palette()),
+                                  fontSize: store.type().sm,
+                                  fontWeight: "bold",
+                                  fontFamily: "monospace",
+                                }}
+                              >
+                                {line().level}
+                              </Text>
+                              <Text
+                                style={{
+                                  color: palette().muted,
+                                  fontSize: store.type().sm,
+                                  fontFamily: "monospace",
+                                  userSelect: "text",
+                                }}
+                              >
+                                {line().timestamp}
+                              </Text>
+                              <Text
+                                style={{
+                                  color: palette().muted,
+                                  fontSize: store.type().sm,
+                                  fontFamily: "monospace",
+                                  userSelect: "text",
+                                }}
+                              >
+                                [{line().source}]
+                              </Text>
+                              <Text
+                                style={{
+                                  color: palette().popups.text,
+                                  fontSize: store.type().sm,
+                                  fontFamily: "monospace",
+                                  userSelect: "text",
+                                }}
+                              >
+                                {line().message}
+                              </Text>
+                            </View>
+                          );
                         }}
-                      >
-                        {line()}
-                      </Text>
-                    )}
-                  </Each>
+                      </Each>
+                  )}
+
                   <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
                     <ActionButton
                       label="Refresh Health"
@@ -408,7 +537,6 @@ export function SettingsModal() {
                 </Panel>
               </View>
             ) : null}
-
             {tab() === "about" ? (
               <View style={{ gap: 12 }}>
                 <Panel testID="settings-about">
@@ -458,6 +586,19 @@ export function SettingsModal() {
                         store.openReleaseNotes();
                       }}
                     />
+
+                                        <ActionButton
+                      label="App Repository"
+                      testID="github-app"
+                      onPress={() => store.openUrl("https://github.com/omawarden/omawarden-app")}
+                    />
+                    <ActionButton
+                      label="Engine Repository"
+                      testID="github-engine"
+                      onPress={() =>
+                        store.openUrl("https://github.com/omawarden/omawarden-cli")
+                      }
+                    />
                   </View>
                   {store.updateStatus() ? (
                     <View style={{ gap: 2 }}>
@@ -477,26 +618,6 @@ export function SettingsModal() {
                       </Text>
                     </View>
                   ) : null}
-
-                  <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
-                    <Chip label="omawarden-app" color={palette().info} />
-                    <Chip label="omawarden-cli" color={palette().purple} />
-                  </View>
-
-                  <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                    <ActionButton
-                      label="App Repository"
-                      testID="github-app"
-                      onPress={() => store.openUrl("https://github.com/omawarden/omawarden-app")}
-                    />
-                    <ActionButton
-                      label="Engine Repository"
-                      testID="github-engine"
-                      onPress={() =>
-                        store.openUrl("https://github.com/omawarden/omawarden-cli")
-                      }
-                    />
-                  </View>
                 </Panel>
               </View>
             ) : null}
@@ -504,6 +625,223 @@ export function SettingsModal() {
         );
       }}
     </If>
+  );
+}
+
+/** The first seven characters of a commit, as the engine prints it. */
+function shortCommit(commit: string): string {
+  return commit.slice(0, 7);
+}
+
+/**
+ * The Engine tab: which executable the app starts when no daemon answers.
+ *
+ * The choice is stored as soon as it is made, because it is an execution
+ * decision rather than a draft. An external binary that was not built from the
+ * pinned revision asks for a second press: it will hold the vault session, and
+ * the app does not supervise it.
+ */
+function EnginePanel() {
+  const palette = store.palette;
+  const source = store.daemonSource;
+  const candidates = store.daemonCandidates;
+
+  const bundled = () => candidates().find((candidate) => candidate.kind === "bundled");
+  const external = () => candidates().filter((candidate) => candidate.kind !== "bundled");
+  const mode = () => source()?.mode ?? "bundled";
+  const customPath = () => (mode() === "custom" ? (source()?.configuredPath ?? null) : null);
+
+  const choose = (candidate: DaemonCandidateView) => {
+    if (!candidate.selectable) {
+      return;
+    }
+    enginePending.set(null);
+    if (candidate.kind === "bundled") {
+      store.selectDaemonSource("bundled", null);
+      return;
+    }
+    const nextMode: DaemonSourceMode = candidate.kind === "custom" ? "custom" : "system";
+    if (!candidate.matchesPinned) {
+      enginePending.set({ path: candidate.path, mode: nextMode });
+      return;
+    }
+    store.selectDaemonSource(nextMode, candidate.path);
+  };
+
+  const chooseCustom = () => {
+    const path = customPath();
+    if (!path) {
+      return;
+    }
+    const known = candidates().find((candidate) => candidate.path === path);
+    if (known) {
+      choose({ ...known, kind: "custom" });
+      return;
+    }
+    store.selectDaemonSource("custom", path);
+  };
+
+  const pick = () => {
+    const path = store.pickDaemonBinary();
+    if (!path) {
+      return;
+    }
+    enginePending.set(null);
+    store.selectDaemonSource("custom", path);
+    store.refreshDaemonCandidates();
+  };
+
+  const candidateLabel = (candidate: DaemonCandidateView, active: boolean) => {
+    const parts = [active ? "●" : "○", candidate.path];
+    if (candidate.version) {
+      parts.push(candidate.version);
+    }
+    if (candidate.commit) {
+      parts.push(shortCommit(candidate.commit));
+    }
+    if (!candidate.selectable) {
+      parts.push("· not selectable");
+    } else if (!candidate.matchesPinned) {
+      parts.push("· different build");
+    } else {
+      parts.push("· matches engine");
+    }
+    return parts.join(" ");
+  };
+
+  const bundledLabel = () => {
+    const entry = bundled();
+    if (!entry) {
+      return "○ Bundled daemon · not shipped with this build";
+    }
+    return candidateLabel(entry, mode() === "bundled");
+  };
+
+  const runningText = () => {
+    const version = source()?.runningVersion;
+    if (!version) {
+      return "Running daemon: none. The selected source starts one on demand.";
+    }
+    const commit = source()?.runningCommit;
+    return `Running daemon: ${version}${commit ? ` (${shortCommit(commit)})` : ""}`;
+  };
+
+  return (
+    <Panel testID="settings-engine">
+      <SectionTitle hint="Which daemon this app starts when none is running.">
+        Engine
+      </SectionTitle>
+
+      <ActionButton
+        label={bundledLabel()}
+        testID="daemon-source-bundled"
+        tone={mode() === "bundled" ? "primary" : "secondary"}
+        disabled={!bundled()}
+        onPress={() => {
+          const entry = bundled();
+          if (entry) {
+            choose(entry);
+          }
+        }}
+      />
+      {!bundled() ? (
+        <Text
+          testID="daemon-source-bundled-missing"
+          style={{ color: palette().muted, fontSize: store.type().sm }}
+        >
+          This build did not ship a daemon. Install omawarden-bin or choose a binary.
+        </Text>
+      ) : null}
+
+      <Each of={external()} key="index">
+        {(candidate, index) => (
+          <ActionButton
+            label={candidateLabel(candidate(), candidate().path === source()?.resolvedPath)}
+            testID={`daemon-source-candidate-${index()}`}
+            tone={candidate().path === source()?.resolvedPath ? "primary" : "secondary"}
+            disabled={!candidate().selectable}
+            onPress={() => choose(candidate())}
+          />
+        )}
+      </Each>
+
+      <ActionButton
+        label={
+          customPath()
+            ? `○ Custom · ${customPath()}`
+            : mode() === "custom"
+              ? "○ Custom · not configured"
+              : "○ Custom…"
+        }
+        testID="daemon-source-custom"
+        tone={mode() === "custom" ? "primary" : "secondary"}
+        disabled={!customPath()}
+        onPress={chooseCustom}
+      />
+      <ActionButton label="Choose Binary…" testID="daemon-source-pick" onPress={pick} />
+
+      {enginePending() ? (
+        <View
+          testID="daemon-source-warning"
+          style={{
+            backgroundColor: tint(palette().warning, palette().popups.background, 0.14),
+            borderColor: tint(palette().warning, palette().popups.background, 0.4),
+            borderWidth: 1,
+            borderRadius: 8,
+            padding: 8,
+            gap: 6,
+          }}
+        >
+          <Text style={{ color: palette().popups.text, fontSize: store.type().base }}>
+            This binary will receive your vault credentials. The app does not supervise or stop
+            it.
+          </Text>
+          <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
+            {enginePending()?.path}
+          </Text>
+          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+            <ActionButton
+              label="Use This Binary"
+              testID="daemon-source-use-anyway"
+              tone="danger"
+              onPress={() => {
+                const pending = enginePending();
+                enginePending.set(null);
+                if (pending) {
+                  store.selectDaemonSource(pending.mode, pending.path);
+                }
+              }}
+            />
+            <ActionButton
+              label="Cancel"
+              testID="daemon-source-cancel"
+              onPress={() => enginePending.set(null)}
+            />
+          </View>
+        </View>
+      ) : null}
+
+      <Text
+        testID="daemon-source-running"
+        style={{ color: palette().popups.text, fontSize: store.type().base }}
+      >
+        {runningText()}
+      </Text>
+      <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
+        Changes apply the next time no daemon is running. Pinned engine revision:{" "}
+        {source()?.pinnedRev ? shortCommit(source()!.pinnedRev) : "unknown"}.
+      </Text>
+      {source()?.note ? (
+        <Text style={{ color: palette().warning, fontSize: store.type().sm }}>
+          {source()?.note}
+        </Text>
+      ) : null}
+      {source()?.problem ? (
+        <Text style={{ color: palette().danger, fontSize: store.type().sm }}>
+          {source()?.problem}
+        </Text>
+      ) : null}
+    </Panel>
   );
 }
 

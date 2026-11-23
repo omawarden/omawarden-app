@@ -8,7 +8,32 @@ export function DependencyCheckView() {
   const palette = store.palette;
   const status = store.dependencies;
   const packages = () => status()?.packages ?? [];
-  const missing = () => status()?.missingPackages ?? [];
+  // A resolved source means the engine is available even when the distro
+  // package that owns `/usr/bin/omawarden` is not installed, so the row and
+  // the installer follow the resolution, not the package name.
+  const missing = () => {
+    const names = status()?.missingPackages ?? [];
+    return status()?.daemonSource.resolvedPath
+      ? names.filter((name) => name !== "omawarden")
+      : names;
+  };
+
+  const sourceLine = () => {
+    const source = status()?.daemonSource;
+    if (!source) {
+      return "";
+    }
+    const mode =
+      source.mode === "system" ? "System" : source.mode === "custom" ? "Custom" : "Bundled";
+    if (!source.resolvedPath) {
+      return `Daemon Source: ${mode} · ${source.problem ?? "not resolved"}`;
+    }
+    const build = [source.resolvedVersion, source.resolvedCommit].filter(Boolean).join(" ");
+    const suffix = build ? ` (${build})` : "";
+    const match = source.matchesPinned ? "" : " · different build";
+    const note = source.note ? ` — ${source.note}` : "";
+    return `Daemon Source: ${mode} → ${source.resolvedPath}${suffix}${match}${note}`;
+  };
 
   // A package is green once it is there and red while it is missing; an
   // optional one that is absent is a warning rather than a blocker.
@@ -110,6 +135,14 @@ export function DependencyCheckView() {
                     <Text style={{ color: palette().muted, fontSize: store.type().base }}>
                       {pkg().description}
                     </Text>
+                    {pkg().name === "omawarden" && status()?.daemonSource ? (
+                      <Text
+                        testID="dependency-daemon-source"
+                        style={{ color: palette().muted, fontSize: store.type().sm }}
+                      >
+                        {sourceLine()}
+                      </Text>
+                    ) : null}
                   </View>
                   <View
                     style={{

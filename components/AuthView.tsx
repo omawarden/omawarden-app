@@ -988,7 +988,7 @@ export function TabButton(props: {
         borderColor: accent(),
       }}
       activeStyle={{ backgroundColor: tint(accent(), background(), 0.26) }}
-      focusStyle={{ borderColor: accent() }}
+      focusVisibleStyle={{ borderColor: accent() }}
       disabledStyle={{ opacity: 0.5 }}
     >
       <Text
