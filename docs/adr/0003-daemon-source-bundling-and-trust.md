@@ -74,9 +74,12 @@ is the semantics this app deliberately does not have.
 
 ## Consequences
 
-- Linux-only: the bundled binary is an ELF for the app's target triple. Other
-  NSH hosts keep the existing `OMA_DAEMON_BIN` / `PATH` resolution until they
-  have a release channel of their own.
+- Built for the bundle's target: the bundled binary is an ELF on Linux and a
+  Mach-O executable in a macOS bundle's `Contents/MacOS/`, both beside the app
+  binary, which is where the resolution probes first. (ADR 0007 supersedes the
+  earlier "Linux-only" wording without changing this decision: other NSH hosts
+  without a release channel of their own keep the existing `OMA_DAEMON_BIN` /
+  `PATH` resolution.)
 - The app's release contract now includes an engine revision, not just an app
   version. Bumping the engine is a deliberate edit that moves the linked crate,
   the bundled daemon and the `-V` comparison together.

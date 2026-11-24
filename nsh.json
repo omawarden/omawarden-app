@@ -14,5 +14,10 @@
     "network": {
       "hosts": ["*"]
     }
+  },
+  "macos": {
+    "infoPlist": {
+      "LSMinimumSystemVersion": "14.0"
+    }
   }
 }

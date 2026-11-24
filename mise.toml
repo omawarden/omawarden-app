@@ -23,9 +23,10 @@ run = "nsh run"
 description = "Run the app with hot reload"
 run = "nsh dev"
 
-# GPUI is a development/embedding backend in NSH 0.6.1, not a packaged target:
-# `nsh package` only ships the GTK 4 Linux runner. NSH installs the GPUI
-# component on first use; pre-add it with `nsh component add gpui` when offline.
+# GPUI is a development/embedding backend in NSH 0.6.1; `nsh package` writes
+# the GTK 4 Linux runner and (on a Mac) the AppKit macOS bundle, and neither
+# takes the GPUI backend. NSH installs the GPUI component on first use;
+# pre-add it with `nsh component add gpui` when offline.
 # This task previews the app as GPUI and GPUI Kit apps that embed it would draw it.
 [tasks.gpui]
 description = "Preview the app in the GPUI development host (not packaged)"
@@ -56,7 +57,7 @@ nsh package --target "${TARGET:-linux}" --out "${OUT:-.nsh/out}" "$@"
 '''
 
 [tasks.release]
-description = "Check, test, then package the Linux release"
+description = "Check, test, then package the release (TARGET defaults to linux)"
 run = '''
 #!/usr/bin/env bash
 set -euo pipefail

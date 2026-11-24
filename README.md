@@ -7,7 +7,7 @@
 
 `omawarden-app` is the cross-platform [Native Shell (`nsh`)](https://github.com/longbridge/nsh) frontend for the Omawarden ecosystem. It is a Bitwarden/Vaultwarden desktop client written as a TSX UI backed by a thin Rust native module that links directly against the `omawarden` engine crate.
 
-The primary desktop target is Linux with GTK 4. The same TSX app is structured for the other `nsh` hosts (macOS, Windows, iOS, Android, web, GPUI).
+Linux (GTK 4) and macOS (AppKit) are supported hosts. The same TSX app is structured for the other `nsh` hosts (Windows, iOS, Android, web, GPUI).
 
 ## Role in the Omawarden ecosystem
 
@@ -26,8 +26,8 @@ The primary desktop target is Linux with GTK 4. The same TSX app is structured f
 - **Password generator** with strict length validation and entropy display.
 - **EFF Diceware passphrase generator** with strict word-count validation.
 - **SSH keys**: generate, import, preview, save to the vault or export to `~/.ssh`, plus SSH agent signing-approval prompts.
-- **Polkit Quick Unlock** for re-unlocking a retained session with system authentication.
-- **Wayland clipboard guard** with sensitive-copy handling and automatic clearing after a configurable TTL.
+- **Polkit Quick Unlock** for re-unlocking a retained session with system authentication (Linux; macOS reports it as unavailable, so the action is hidden).
+- **Clipboard guard** with sensitive-copy handling and automatic clearing after a configurable TTL, through the platform's clipboard provider.
 - **WCAG 2.1 contrast-aware themes**: Tokyo Night Dark and Catppuccin Latte Light.
 
 ## Architecture
@@ -49,12 +49,20 @@ omawarden Rust crate ── Unix socket ── omawarden daemon (separate proces
 
 ## Prerequisites
 
-- **Linux** (primary target) with GTK 4 and WebKitGTK 6.0.
 - **Rust** `1.99.1` — pinned by [`rust-toolchain.toml`](rust-toolchain.toml).
 - **`nsh`** `0.6.1` — the Native Shell CLI.
 - **`mise`** — recommended for running the project tasks.
 - A sibling checkout of the engine at `../omarchy-bitwarden/omawarden` is used when present: `Cargo.toml` pins the engine by revision and `.cargo/config.toml` patches it to that checkout. Without the checkout, Cargo fetches the pinned revision.
-- Runtime tools used by engine features: `secret-tool` (libsecret) for the keyring, `wl-copy` (wl-clipboard) for the Wayland clipboard, and optionally `fido2-token` (libfido2) for security keys.
+
+On **Linux**, the native UI needs GTK 4 and WebKitGTK 6.0, and the engine's
+features use `secret-tool` (libsecret) for the keyring and `wl-copy`
+(wl-clipboard) for the Wayland clipboard, with `fido2-token` (libfido2)
+optional for security keys.
+
+On **macOS**, the same frameworks ship with the system: the build needs only
+the Xcode command line tools (`xcode-select --install`), and the Keychain and
+the pasteboard need no extra package. The bundle runs on **macOS 14** or later,
+the floor `nsh.json` declares.
 
 On Arch Linux:
 
@@ -98,7 +106,7 @@ mise run run        # run in the native development host
 mise run dev        # run with hot reload
 mise run gpui       # preview in the GPUI development host (not packaged)
 mise run build      # build the release bundle (no package)
-mise run package    # package a release (Linux by default)
+mise run package    # package a release (TARGET defaults to linux)
 mise run release    # check, test, then package
 ```
 
@@ -161,6 +169,8 @@ nsh run --target gpui
 nsh build --release
 nsh package --target linux
 nsh package --target linux --run
+nsh package --target macos     # on a Mac
+nsh package --target macos --run
 
 cargo check
 cargo test
@@ -169,7 +179,8 @@ cargo build --release
 
 ## Packaging output
 
-`mise run package` writes to `.nsh/out` by default:
+`mise run package` writes to `.nsh/out` by default. The packaged targets are
+Linux (GTK 4) and macOS (AppKit); `TARGET=macos` selects the second.
 
 ```text
 .nsh/out/Omawarden/
@@ -179,10 +190,15 @@ cargo build --release
 .nsh/out/Omawarden.tar.gz
 ```
 
+On a Mac the same command with `TARGET=macos` writes an ad hoc signed
+`.nsh/out/Omawarden.app`, with the executable in `Contents/MacOS/` and the
+bundled daemon beside it.
+
 Run the packaged binary directly with:
 
 ```sh
 ./.nsh/out/Omawarden/Omawarden
+open .nsh/out/Omawarden.app        # macOS
 ```
 
 ## Repository layout

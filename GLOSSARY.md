@@ -106,18 +106,55 @@ object.
 
 ## Clipboard Guard
 
-The sensitive-copy policy implemented by `clipboard_copy()` and the engine's
-clipboard manager. Sensitive values (passwords, TOTP codes, card numbers, CVVs,
-private keys) are written to the Wayland clipboard and cleared after the
-configured TTL, unless a newer copy supersedes them. Non-sensitive values are
-left in place.
+The sensitive-copy policy implemented by the app's clipboard seam and the
+engine's clipboard manager. Sensitive values (passwords, TOTP codes, card
+numbers, CVVs, private keys) are written through the engine's resolved
+Clipboard Provider and cleared after the configured TTL, unless a newer copy
+supersedes them. Non-sensitive values are left in place.
+
+The clear is the provider's own, not a hardcoded command, so it follows the
+platform: Wayland's `wl-copy` on Linux, the system pasteboard on macOS. A
+provider that sees another application take the selection over since our copy
+declines to wipe it, so the guard never eats something the user copied
+afterwards.
+
+## Host
+
+The system a build runs on: `Linux` or `MacOs`. It is a **value**, not
+conditional compilation — `Host::current()` reads the compiled target in one
+place, and every platform difference (the opener command, which dependency
+rows exist, what a health row is called, whether an install action is offered,
+how process memory is read) is a parameter on a pure function. That keeps both
+branches typechecked on every build and lets the tests ask what macOS would
+report without being on macOS.
+
+## Clipboard Provider
+
+The engine's platform adapter for the clipboard: Wayland (`wl-copy`), X11
+(`xclip`), or macOS (the system pasteboard). The engine resolves one at
+startup, and the app reports whichever resolved rather than guessing from a
+tool it expects to find. Contributes the pasteboard half of the platform's
+credential surface; see `Keyring Provider` for the other half.
+
+## Keyring Provider
+
+The engine's platform adapter for credential storage: the Secret Service
+through `secret-tool` on Linux, Security.framework's Keychain on macOS, plus a
+mock and a fail-closed unavailable provider. The provider is chosen from the
+target OS, and the app must never set an explicit override, so the Linux path
+stays untouched. This is what makes a macOS sign-in persist: without it the
+engine knows only `secret-tool`, which macOS does not have, and a session
+vanishes with the process.
 
 ## Quick Unlock
 
-Re-unlocking a retained session with system authentication (Polkit) instead of
-re-entering the master password. The engine reports `quick_unlock_ready`
-(system auth is available) and `quick_unlock_usable` (the user configured it);
-the app shows the quick-unlock action only when both hold.
+Re-unlocking a retained session with system authentication (Polkit on Linux)
+instead of re-entering the master password. The engine reports
+`quick_unlock_ready` (system auth is available) and `quick_unlock_usable` (the
+user configured it); the app shows the quick-unlock action only when both
+hold. A host with no system-authentication helper — macOS today — reports both
+as false, and the interface hides the action rather than offering a button
+that cannot work.
 
 ## Login Step
 
@@ -313,10 +350,14 @@ produces multi-architecture tarballs (`.tar.gz`) and standalone AppImages.
 
 ## Release Bundle
 
-The complete distribution package produced by `nsh package --target linux` and
-augmented with the Polkit authorization policy (`.policy`), install scriptlet,
-desktop entry, and application icon. Distributable via GitHub Releases and
-packaged for Arch Linux as `omawarden-app-git-bin`.
+The complete distribution package `nsh package` produces for a target, plus
+the extra files only the Linux channel needs. On Linux
+(`nsh package --target linux`) it gains the Polkit authorization policy
+(`.policy`), install scriptlet, desktop entry, and application icon, and is
+distributable via GitHub Releases and packaged for Arch Linux as
+`omawarden-app-git-bin`. On macOS (`nsh package --target macos`) it is an ad
+hoc signed `.app`; the Polkit policy, the scriptlet and the AUR package stay
+behind, because only the Linux release channel needs them.
 
 ## Log Pipeline
 
@@ -361,7 +402,11 @@ and the app never sends `stop` to take the socket.
 
 The daemon executable shipped inside an `omawarden-app` release, placed beside
 the app binary in the app's private directory. It is the default `Daemon
-Source` and is built from the same engine commit the app links.
+Source` and is built from the same engine commit the app links. It is built
+for the bundle's own target — an ELF on Linux, a Mach-O executable in a macOS
+bundle's `Contents/MacOS/` — which is the directory the lookup already probes
+first on either host. (This supersedes the "Linux-only, an ELF" sentence of
+ADR 0003 without changing that ADR's decision; see ADR 0007.)
 
 ## System Daemon
 
