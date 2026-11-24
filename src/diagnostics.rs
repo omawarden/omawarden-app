@@ -274,7 +274,7 @@ fn real_health() -> HealthSnapshotView {
     let memory_locked = daemon(json!({ "action": "ping", "touch": false }))
         .and_then(|value| value.get("memory_locked").and_then(|value| value.as_bool()))
         .unwrap_or(false);
-    let checks = vec![
+    let mut checks = vec![
         HealthCheckView {
             name: "Engine Installed".to_string(),
             ok: status.installed,
@@ -288,34 +288,21 @@ fn real_health() -> HealthSnapshotView {
             ok: status.server_reachable,
             detail: sanitize_server_url(&status.server_url),
         },
-        HealthCheckView {
-            name: "Secret Service Keyring".to_string(),
-            ok: status.keyring_available,
-            detail: if status.keyring_available {
-                "secret-tool is available".to_string()
-            } else {
-                "secret-tool is missing".to_string()
-            },
-        },
-        HealthCheckView {
-            name: "Wayland Clipboard".to_string(),
-            ok: status.clipboard_available,
-            detail: if status.clipboard_available {
-                "wl-copy is available".to_string()
-            } else {
-                "wl-copy is missing".to_string()
-            },
-        },
-        HealthCheckView {
-            name: "Memory Locked".to_string(),
-            ok: memory_locked,
-            detail: if memory_locked {
-                "mlock is active".to_string()
-            } else {
-                "mlock is not active".to_string()
-            },
-        },
     ];
+    checks.extend(provider_rows(
+        Host::current(),
+        status.keyring_available,
+        status.clipboard_available,
+    ));
+    checks.push(HealthCheckView {
+        name: "Memory Locked".to_string(),
+        ok: memory_locked,
+        detail: if memory_locked {
+            "mlock is active".to_string()
+        } else {
+            "mlock is not active".to_string()
+        },
+    });
     HealthSnapshotView {
         engine_installed: status.installed,
         engine_version: status.version.unwrap_or_default(),
@@ -328,9 +315,67 @@ fn real_health() -> HealthSnapshotView {
     }
 }
 
+/// The keyring and clipboard rows, named for what this host really uses.
+///
+/// The `ok` flags are the engine's values verbatim: the engine is the only
+/// thing that knows which provider resolved, so the app never re-derives
+/// availability from a tool it guesses at. Only the vocabulary changes.
+fn provider_rows(
+    host: Host,
+    keyring_available: bool,
+    clipboard_available: bool,
+) -> Vec<HealthCheckView> {
+    let (keyring_name, keyring_present, keyring_missing) = match host {
+        Host::Linux => (
+            "Secret Service Keyring",
+            "secret-tool is available",
+            "secret-tool is missing",
+        ),
+        Host::MacOs => (
+            "macOS Keychain",
+            "Security.framework is available",
+            "Security.framework did not answer",
+        ),
+    };
+    let (clipboard_name, clipboard_present, clipboard_missing) = match host {
+        Host::Linux => (
+            "Wayland Clipboard",
+            "wl-copy is available",
+            "wl-copy is missing",
+        ),
+        Host::MacOs => (
+            "Clipboard",
+            "the pasteboard is available",
+            "the pasteboard is unavailable",
+        ),
+    };
+    vec![
+        HealthCheckView {
+            name: keyring_name.to_string(),
+            ok: keyring_available,
+            detail: if keyring_available {
+                keyring_present
+            } else {
+                keyring_missing
+            }
+            .to_string(),
+        },
+        HealthCheckView {
+            name: clipboard_name.to_string(),
+            ok: clipboard_available,
+            detail: if clipboard_available {
+                clipboard_present
+            } else {
+                clipboard_missing
+            }
+            .to_string(),
+        },
+    ]
+}
+
 /// The mock health snapshot.
 pub(crate) fn mock_health(server_url: &str) -> HealthSnapshotView {
-    let checks = vec![
+    let mut checks = vec![
         HealthCheckView {
             name: "Engine Installed".to_string(),
             ok: true,
@@ -341,22 +386,13 @@ pub(crate) fn mock_health(server_url: &str) -> HealthSnapshotView {
             ok: true,
             detail: sanitize_server_url(server_url),
         },
-        HealthCheckView {
-            name: "Secret Service Keyring".to_string(),
-            ok: true,
-            detail: "secret-tool is available".to_string(),
-        },
-        HealthCheckView {
-            name: "Wayland Clipboard".to_string(),
-            ok: true,
-            detail: "wl-copy is available".to_string(),
-        },
-        HealthCheckView {
-            name: "Memory Locked".to_string(),
-            ok: true,
-            detail: "mlock is active".to_string(),
-        },
     ];
+    checks.extend(provider_rows(Host::current(), true, true));
+    checks.push(HealthCheckView {
+        name: "Memory Locked".to_string(),
+        ok: true,
+        detail: "mlock is active".to_string(),
+    });
     HealthSnapshotView {
         engine_installed: true,
         engine_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -596,17 +632,54 @@ fn format_rfc3339_now() -> String {
 }
 
 /// The process's resident set size in MiB, from `/proc/self/statm`.
+/// The process's resident set size in MiB.
 pub(crate) fn process_rss_mb() -> f64 {
+    process_rss_mb_for(Host::current())
+}
+
+/// The process's resident set size in MiB, read the way `host` provides it.
+fn process_rss_mb_for(host: Host) -> f64 {
+    match host {
+        Host::Linux => rss_mb_from_proc(),
+        Host::MacOs => rss_mb_from_ps(),
+    }
+}
+
+/// Reads `/proc/self/statm`, where the second number is resident pages.
+fn rss_mb_from_proc() -> f64 {
     let Ok(statm) = std::fs::read_to_string("/proc/self/statm") else {
         return 0.0;
     };
-    let pages = statm
-        .split_whitespace()
-        .nth(1)
-        .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(0);
-    let page_size = 4096_u64;
-    (pages.saturating_mul(page_size) as f64) / (1024.0 * 1024.0)
+    let pages = rss_pages(&statm).unwrap_or(0);
+    (pages.saturating_mul(4096) as f64) / (1024.0 * 1024.0)
+}
+
+/// Reads `ps -o rss= -p <pid>`, which reports KiB on macOS.
+fn rss_mb_from_ps() -> f64 {
+    let pid = std::process::id().to_string();
+    let Ok(output) = Command::new("ps")
+        .args(["-o", "rss=", "-p", &pid])
+        .stdin(Stdio::null())
+        .output()
+    else {
+        return 0.0;
+    };
+    if !output.status.success() {
+        return 0.0;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let kib = parse_rss_kib(&text).unwrap_or(0);
+    (kib as f64) / 1024.0
+}
+
+/// The resident pages in a `/proc/self/statm` line: total, then resident.
+fn rss_pages(statm: &str) -> Option<u64> {
+    statm.split_whitespace().nth(1)?.parse::<u64>().ok()
+}
+
+/// The KiB a `ps -o rss=` reading reports, or `None` when it is not a number.
+fn parse_rss_kib(text: &str) -> Option<u64> {
+    text.split_whitespace().next()?.parse::<u64>().ok()
 }
 
 /// Compares two dotted versions, ignoring a leading `v` and pre-release tags.
@@ -759,6 +832,72 @@ mod tests {
             String::new(),
         ]);
         assert_eq!(packages, vec!["wl-clipboard".to_string()]);
+    }
+
+    #[test]
+    fn each_host_names_its_own_keyring_and_clipboard() {
+        let linux = provider_rows(Host::Linux, true, true);
+        assert_eq!(linux[0].name, "Secret Service Keyring");
+        assert_eq!(linux[0].detail, "secret-tool is available");
+        assert_eq!(linux[1].name, "Wayland Clipboard");
+        assert_eq!(linux[1].detail, "wl-copy is available");
+
+        let macos = provider_rows(Host::MacOs, true, true);
+        assert_eq!(macos[0].name, "macOS Keychain");
+        assert!(macos[0].detail.contains("Security.framework"));
+        assert_eq!(macos[1].name, "Clipboard");
+        assert!(macos[1].detail.contains("pasteboard"));
+    }
+
+    #[test]
+    fn an_unavailable_provider_is_reported_in_the_hosts_own_words() {
+        let linux = provider_rows(Host::Linux, false, false);
+        assert_eq!(linux[0].detail, "secret-tool is missing");
+        assert_eq!(linux[1].detail, "wl-copy is missing");
+
+        let macos = provider_rows(Host::MacOs, false, false);
+        assert!(!macos[0].detail.contains("secret-tool"));
+        assert!(!macos[1].detail.contains("wl-copy"));
+        assert!(macos[0].detail.contains("Security.framework"));
+        assert!(macos[1].detail.contains("pasteboard"));
+    }
+
+    #[test]
+    fn the_ok_flag_is_the_engines_value_verbatim() {
+        for (keyring, clipboard) in [(true, true), (true, false), (false, true), (false, false)] {
+            for host in [Host::Linux, Host::MacOs] {
+                let rows = provider_rows(host, keyring, clipboard);
+                assert_eq!(rows[0].ok, keyring, "{host:?} re-derived the keyring flag");
+                assert_eq!(
+                    rows[1].ok, clipboard,
+                    "{host:?} re-derived the clipboard flag"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_proc_reading_parses_and_tolerates_garbage() {
+        assert_eq!(rss_pages("1234 567 89 0 0 0 0"), Some(567));
+        assert_eq!(rss_pages("not a statm line"), None);
+        assert_eq!(rss_pages(""), None);
+    }
+
+    #[test]
+    fn the_ps_reading_parses_and_tolerates_garbage() {
+        assert_eq!(parse_rss_kib("  24680\n"), Some(24680));
+        assert_eq!(parse_rss_kib("24680 extra"), Some(24680));
+        assert_eq!(parse_rss_kib(""), None);
+        assert_eq!(parse_rss_kib("garbage"), None);
+    }
+
+    #[test]
+    fn a_zero_reading_never_panics() {
+        assert_eq!(
+            rss_pages("0 0 0 0 0 0 0").map(|pages| pages as f64),
+            Some(0.0)
+        );
+        assert_eq!(parse_rss_kib("0").map(|kib| kib as f64), Some(0.0));
     }
 
     #[test]
