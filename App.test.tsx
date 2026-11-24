@@ -2975,8 +2975,6 @@ test("creating a login selects it and shows it in the inspector", async () => {
   // never shows a URL, so this only appears when the item is inspected.
   expect(app.shows("id:item-inspector")).toBe(true);
   expect(app.texts()).toContain("https://gitlab.example.com");
-  // The header's total comes from the cached rows, so it includes the new one.
-  expect(app.texts()).toContain("2 / 2");
 });
 
 test("creating a secure note from its tab adds a note", async () => {
@@ -3594,12 +3592,19 @@ test("the expanded workspace lists vaults, folders, the Trash and the account", 
   expect(app.shows("id:nav-folder-all")).toBe(true);
   expect(app.shows("id:nav-folder-folder:Work")).toBe(true);
 
-  // The foot is the Trash and the signed-in account.
+  // The Trash closes the list of places and the account is the column's foot.
   expect(app.shows("id:nav-trash")).toBe(true);
   expect(app.shows("id:nav-user")).toBe(true);
   expect(app.texts()).toContain("user@example.com");
   expect(app.texts()).toContain("vault.example.com");
   expect(app.shows("id:nav-settings")).toBe(true);
+
+  // Reading order runs vaults, folders, Trash, account: the Trash ends the
+  // navigation and the account follows it, so neither is drawn among the
+  // folders.
+  const texts = app.texts();
+  expect(texts.indexOf("Trash")).toBeGreaterThan(texts.indexOf("Work"));
+  expect(texts.indexOf("Trash")).toBeLessThan(texts.indexOf("user@example.com"));
 
   // Expanded, the dropdown's trigger is gone: the sidebar is where a vault is
   // picked, so there is no second way to the same filter.
@@ -3607,13 +3612,14 @@ test("the expanded workspace lists vaults, folders, the Trash and the account", 
   expect(app.shows("id:scope-dropdown")).toBe(false);
 });
 
-test("an empty folder group keeps its heading and shows a hint", async () => {
+test("an empty folder group keeps its heading and its reset row", async () => {
   const app = await openExpanded({ phase: "unlocked", items: [MAIL_ITEM] });
 
   // The layout must not move after a sync that brings folders, so the heading
-  // and the group's slot are there from the start.
+  // is there from the start. `All Folders` alone is the group's body: it is
+  // already the fallback, so an empty vault shows no hint beside it.
   expect(app.texts()).toContain("FOLDERS");
-  expect(app.texts()).toContain("No folders");
+  expect(app.texts()).not.toContain("No folders");
   expect(app.shows("id:nav-folder-all")).toBe(true);
   expect(app.shows("id:nav-folder-folder:Work")).toBe(false);
 });
@@ -3653,6 +3659,62 @@ test("a vault row and a folder row filter independently and highlight together",
   expect(app.shows("id:cipher-row-login3")).toBe(true);
   expect(app.viewStyle("id:nav-vault-personal")?.backgroundColor).toBeTruthy();
   expect(app.viewStyle("id:nav-folder-all")?.backgroundColor).toBeTruthy();
+});
+
+test("the folder list follows the selected vault", async () => {
+  // Two vaults with disjoint folders: Acme holds Work and Infra, the personal
+  // vault holds Home. A folder belongs to the vaults whose rows carry it, so
+  // the folder group must re-read when the vault does.
+  const app = await openExpanded({
+    phase: "unlocked",
+    items: [
+      LOGIN_ITEM, // Acme / Work
+      { id: "login4", title: "Acme Server", category: "login", organization: "Acme", folder: "Infra" },
+      MAIL_ITEM, // personal / no folder
+      { id: "login5", title: "Home Router", category: "login", folder: "Home" },
+    ],
+  });
+
+  // All Vaults: every folder either vault holds.
+  expect(app.shows("id:nav-folder-folder:Work")).toBe(true);
+  expect(app.shows("id:nav-folder-folder:Infra")).toBe(true);
+  expect(app.shows("id:nav-folder-folder:Home")).toBe(true);
+
+  // The Acme vault lists Acme's folders only.
+  await app.press("id:nav-vault-org:Acme");
+  expect(app.shows("id:nav-folder-folder:Work")).toBe(true);
+  expect(app.shows("id:nav-folder-folder:Infra")).toBe(true);
+  expect(app.shows("id:nav-folder-folder:Home")).toBe(false);
+
+  // The personal vault lists its own folder only.
+  await app.press("id:nav-vault-personal");
+  expect(app.shows("id:nav-folder-folder:Home")).toBe(true);
+  expect(app.shows("id:nav-folder-folder:Work")).toBe(false);
+  expect(app.shows("id:nav-folder-folder:Infra")).toBe(false);
+});
+
+test("a folder the new vault does not hold is dropped with the vault", async () => {
+  const app = await openExpanded({
+    phase: "unlocked",
+    items: [
+      LOGIN_ITEM, // Acme / Work
+      MAIL_ITEM, // personal / no folder
+      { id: "login5", title: "Home Router", category: "login", folder: "Home" },
+    ],
+  });
+
+  // Pick Acme's folder, then change vault: `Work` is not a personal folder, so
+  // keeping it would show an empty list under a row that is no longer drawn.
+  await app.press("id:nav-vault-org:Acme");
+  await app.press("id:nav-folder-folder:Work");
+  expect(app.shows("id:cipher-row-login1")).toBe(true);
+  expect(app.shows("id:cipher-row-login2")).toBe(false);
+
+  await app.press("id:nav-vault-personal");
+  expect(app.shows("id:cipher-row-login2")).toBe(true);
+  expect(app.shows("id:cipher-row-login5")).toBe(true);
+  expect(app.viewStyle("id:nav-folder-all")?.backgroundColor).toBeTruthy();
+  expect(app.shows("id:nav-folder-folder:Work")).toBe(false);
 });
 
 test("the Trash row dims both groups and a folder row leaves the Trash", async () => {

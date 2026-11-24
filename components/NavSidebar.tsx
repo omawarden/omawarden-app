@@ -136,8 +136,9 @@ function scopeIcon(kind: string): IconName {
  *
  * A full-height column of its own, beside the content column rather than inside
  * it, so the search row and the category tabs stop at its right edge and it
- * reads as navigation. The head and the foot are fixed; the middle scrolls
- * because the folder list has no bound.
+ * reads as navigation. The head is fixed, the middle scrolls because the folder
+ * list has no bound, and the Trash ends the list below the scroll; the account,
+ * under a rule of its own, is the column's foot.
  *
  * Vault and folder are independent dimensions and may both highlight: the list
  * shows their intersection. The Trash is a view rather than a scope, so while
@@ -218,19 +219,16 @@ export function NavSidebar() {
           <View style={{ height: 8 }} />
 
           <GroupTitle label="FOLDERS" />
-          <If when={snap().folders.length === 0}>
-            <GroupHint hint="No folders" />
-          </If>
           <SidebarRow
             testID="nav-folder-all"
             name="All Folders"
             icon="folder"
-            count={snap().totalCount}
+            count={store.scopeRowCount()}
             active={!inTrash() && store.folderId() === null}
             dimmed={inTrash()}
             onPress={() => store.setFolder(null)}
           />
-          <Each of={snap().folders} key="index">
+          <Each of={store.folderOptions()} key="index">
             {(folder) => (
               <SidebarRow
                 testID={`nav-folder-${folder().id}`}
@@ -246,16 +244,11 @@ export function NavSidebar() {
         </View>
       </Scroll>
 
-      {/* Foot: the Trash, then the account with the settings gear. */}
-      <View
-        style={{
-          borderTopWidth: 1,
-          borderTopColor: palette().popups.border,
-          paddingHorizontal: 6,
-          paddingVertical: 6,
-          gap: 6,
-        }}
-      >
+      {/* The list's own end: the Trash closes the navigation, so it sits below
+          the Scroll rather than inside it — a long folder list scrolls and the
+          Trash stays put — and it takes no rule of its own, so it reads as the
+          last row of the list rather than as the head of the foot. */}
+      <View style={{ paddingHorizontal: 6, paddingVertical: 6 }}>
         <SidebarRow
           testID="nav-trash"
           name="Trash"
@@ -264,7 +257,18 @@ export function NavSidebar() {
           active={inTrash()}
           onPress={store.openTrash}
         />
+      </View>
 
+      {/* The column's foot: the account and the gear. Not a navigation row, so
+          the rule above it — not above the Trash — is what sets it apart. */}
+      <View
+        style={{
+          borderTopWidth: 1,
+          borderTopColor: palette().popups.border,
+          paddingHorizontal: 6,
+          paddingVertical: 6,
+        }}
+      >
         <View
           style={{
             flexDirection: "row",

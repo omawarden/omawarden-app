@@ -130,11 +130,11 @@ export function ScopeDropdown() {
           <ScopeRow
             id="folder-all"
             name="All Folders"
-            count={snap().totalCount}
+            count={store.scopeRowCount()}
             active={store.folderId() === null}
             onPress={() => store.setFolder(null)}
           />
-          <Each of={snap().folders} key="index">
+          <Each of={store.folderOptions()} key="index">
             {(folder) => (
               <ScopeRow
                 id={folder().id}

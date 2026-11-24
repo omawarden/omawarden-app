@@ -19,11 +19,12 @@ The cheap, derived subset of a `VaultSnapshot` produced entirely in memory. In
 the TSX store, `filteredItems()` recomputes from `rawItems` (the cached
 `allItems`) plus the category, scope, folder, and search signals, using the same
 subsequence fuzzy scorer as the Rust engine. `visibleItems()` then applies the
-render window (`visibleLimit`).
-
-Filtering a `FilterProjection` performs **zero IPC**, **zero keyring lookups**,
-and **zero `snapshot.set()`** calls, so switching tabs or typing in the search
-box only re-renders the list rows.
+render window (`visibleLimit`). The folder options (`folderOptions`) and the
+active vault's total (`scopeRowCount`) are derived the same way, so a scope
+switch re-lists the folders of the vault it picked instead of the folders of the
+vault it left. Filtering a `FilterProjection` performs **zero IPC**, **zero
+keyring lookups**, and **zero `snapshot.set()`** calls, so switching tabs or
+typing in the search box only re-renders the list rows.
 
 ## Trash
 

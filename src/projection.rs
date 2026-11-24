@@ -246,7 +246,6 @@ pub(crate) fn build_snapshot(
         },
     ];
     let mut organizations: Vec<(String, u32)> = Vec::new();
-    let mut folders: Vec<FolderOptionView> = Vec::new();
     for row in &all_rows {
         if let Some(org) = &row.organization {
             if let Some(entry) = organizations.iter_mut().find(|(name, _)| name == org) {
@@ -254,6 +253,16 @@ pub(crate) fn build_snapshot(
             } else {
                 organizations.push((org.clone(), 1));
             }
+        }
+    }
+    // A folder belongs to the vaults whose rows carry it, so the list narrows
+    // with the active scope: picking another vault must not leave the previous
+    // vault's folders behind. Organizations stay counted over every row,
+    // because the vault rows are how the user changes scope.
+    let mut folders: Vec<FolderOptionView> = Vec::new();
+    for row in &all_rows {
+        if !row_in_scope(row, &active_scope) {
+            continue;
         }
         if let Some(folder) = &row.folder {
             if let Some(entry) = folders.iter_mut().find(|entry| &entry.name == folder) {
@@ -386,5 +395,113 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["Newer", "Older"]
         );
+    }
+
+    /// Two vaults whose folders do not overlap: the personal vault holds Home,
+    /// the Acme organization holds Work and Infra.
+    fn two_vaults() -> Vec<CipherRowView> {
+        let mut rows = Vec::new();
+        for (index, (organization, folder)) in [
+            (None, Some("Home")),
+            (Some("Acme"), Some("Work")),
+            (Some("Acme"), Some("Infra")),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut row = row_from_item(&login(None), 0);
+            row.id = format!("row-{index}");
+            row.organization = organization.map(str::to_string);
+            row.folder = folder.map(str::to_string);
+            rows.push(row);
+        }
+        rows
+    }
+
+    /// Builds a snapshot for `scope` over `rows`, with the defaults the others
+    /// do not vary.
+    fn snapshot_for(rows: Vec<CipherRowView>, scope: &str) -> VaultSnapshotView {
+        build_snapshot(
+            AppPhase::Unlocked,
+            String::new(),
+            String::new(),
+            None,
+            false,
+            false,
+            None,
+            None,
+            rows,
+            &VaultFilterInput {
+                search: String::new(),
+                category: ItemCategory::All,
+                scope_id: Some(scope.to_string()),
+                folder_id: None,
+            },
+            None,
+            None,
+            None,
+            None,
+        )
+    }
+
+    fn folder_names(snapshot: &VaultSnapshotView) -> Vec<&str> {
+        snapshot
+            .folders
+            .iter()
+            .map(|folder| folder.name.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn all_vaults_lists_every_folder() {
+        let snapshot = snapshot_for(two_vaults(), "all");
+        assert_eq!(folder_names(&snapshot), vec!["Home", "Work", "Infra"]);
+    }
+
+    #[test]
+    fn an_organization_lists_only_its_own_folders() {
+        let snapshot = snapshot_for(two_vaults(), "org:Acme");
+        assert_eq!(folder_names(&snapshot), vec!["Work", "Infra"]);
+        assert_eq!(snapshot.folders.iter().map(|f| f.count).sum::<u32>(), 2);
+    }
+
+    #[test]
+    fn the_personal_vault_lists_only_its_own_folders() {
+        let snapshot = snapshot_for(two_vaults(), "personal");
+        assert_eq!(folder_names(&snapshot), vec!["Home"]);
+    }
+
+    #[test]
+    fn a_folder_counts_its_rows_in_every_vault_that_holds_it() {
+        // The same folder name in the personal vault and in the organization:
+        // the count is per-vault, not a global sum.
+        let mut rows = two_vaults();
+        let mut shared = row_from_item(&login(None), 0);
+        shared.id = "row-shared".to_string();
+        shared.organization = Some("Acme".to_string());
+        shared.folder = Some("Home".to_string());
+        rows.push(shared);
+
+        let personal = snapshot_for(rows.clone(), "personal");
+        assert_eq!(personal.folders.len(), 1);
+        assert_eq!(personal.folders[0].count, 1);
+
+        let acme = snapshot_for(rows, "org:Acme");
+        let home = acme
+            .folders
+            .iter()
+            .find(|folder| folder.name == "Home")
+            .expect("the organization holds Home too");
+        assert_eq!(home.count, 1);
+    }
+
+    #[test]
+    fn organizations_stay_listed_under_a_narrowed_scope() {
+        // The vault rows themselves are how the user changes scope, so they
+        // cannot follow the scope the way folders do.
+        let acme = snapshot_for(two_vaults(), "org:Acme");
+        assert!(acme.scopes.iter().any(|scope| scope.id == "org:Acme"));
+        let personal = snapshot_for(two_vaults(), "personal");
+        assert!(personal.scopes.iter().any(|scope| scope.id == "org:Acme"));
     }
 }

@@ -36,10 +36,10 @@ function SidebarToggle() {
       disabled={blocked()}
       onPress={store.toggleSidebar}
       style={{
-        width: 30,
-        height: 30,
-        minWidth: 30,
-        minHeight: 30,
+        width: store.lengths().searchControlHeight,
+        height: store.lengths().searchControlHeight,
+        minWidth: store.lengths().searchControlHeight,
+        minHeight: store.lengths().searchControlHeight,
         alignItems: "center",
         justifyContent: "center",
         backgroundColor: palette().menu.background,
@@ -79,12 +79,16 @@ function ScopeTrigger() {
       testID="scope-trigger"
       onPress={store.toggleScope}
       style={{
+        height: store.lengths().searchControlHeight,
+        minHeight: store.lengths().searchControlHeight,
         backgroundColor: scopeBackground(),
         borderColor: scopeFocused() ? scopeAccent() : palette().menu.border,
         borderWidth: 1,
         borderRadius: 8,
         paddingHorizontal: 10,
-        paddingVertical: 6,
+        paddingVertical: 0,
+        alignItems: "center",
+        justifyContent: "center",
         ...focusOutline(scopeFocused(), scopeAccent()),
       }}
       hoverStyle={{
@@ -150,7 +154,6 @@ export function SearchHeader() {
       <SidebarToggle />
 
       <View style={{ flex: 1, minWidth: 220, flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Icon name="search" size={14} color={palette().muted} />
         <Input
           testID="vault-search"
           ref={setSearchField}
@@ -164,7 +167,13 @@ export function SearchHeader() {
           readonly={store.cipherForm() !== null}
           onSubmit={() => store.primaryCopy()}
           onChange={({ value }) => store.setSearch(value)}
-          style={{ ...inputStyle(), flex: 1 }}
+          style={{
+            ...inputStyle(),
+            flex: 1,
+            height: store.lengths().searchControlHeight,
+            minHeight: store.lengths().searchControlHeight,
+            paddingVertical: 0,
+          }}
         />
         {store.search() ? (
           <GhostIconButton
@@ -174,18 +183,6 @@ export function SearchHeader() {
             onPress={() => store.setSearch("")}
           />
         ) : null}
-        <View
-          style={{
-            backgroundColor: palette().menu.selectedBackground,
-            borderRadius: 999,
-            paddingHorizontal: 9,
-            paddingVertical: 3,
-          }}
-        >
-          <Text style={{ color: palette().menu.selectedText, fontSize: store.type().sm, fontWeight: "bold" }}>
-            {store.filteredItems().length} / {store.viewRows().length}
-          </Text>
-        </View>
       </View>
 
       {/* Expanded, the sidebar is where the vault is picked, so the trigger
