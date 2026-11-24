@@ -26,6 +26,7 @@ mod diagnostics;
 mod engine;
 mod format;
 mod generator;
+mod host;
 mod inspector;
 mod platform;
 mod projection;
@@ -43,6 +44,16 @@ pub use ui_prefs::{UiPrefsUpdateInput, UiPrefsView};
 
 /// Pins Linux rendering to one lightweight GPU driver before GTK or `wgpu`
 /// initializes.
+///
+/// This block is attribute-gated rather than routed through [`host::Host`], and
+/// it is the one exception to the "platform differences are values" rule: it is
+/// not a behaviour difference between two hosts but linker plumbing. An
+/// `.init_array` entry only exists in an ELF image, and the environment it sets
+/// (`GSK_RENDERER`, `WGPU_BACKEND=vulkan`) is actively wrong on a host without
+/// Mesa. Keeping the gate means a Mach-O build links no such constructor at
+/// all, instead of running a no-op one whose section name only happens to be
+/// ignored. Everything that decides *what the app does* per platform lives in
+/// [`host::Host`].
 ///
 /// GTK4 defaults to Vulkan, which on hybrid systems loads both `amdvlkpro64.so`
 /// and `libvulkan_radeon.so` plus large anonymous GPU arenas. `GSK_RENDERER=ngl`

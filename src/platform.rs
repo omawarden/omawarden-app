@@ -1,12 +1,14 @@
 //! The host platform: opening a URL, the native file dialogs, and reading a
 //! text file.
 //!
-//! [`PlatformEngine`] is the seam. [`InProcess`] shells out to `xdg-open`,
-//! opens the desktop's own dialogs, and touches the filesystem; [`Mock`] names
-//! a path under `/tmp/omawarden-mock` so the UI tests never show a dialog.
+//! [`PlatformEngine`] is the seam. [`InProcess`] opens the desktop's own
+//! dialogs, launches the host's opener (see [`crate::host`]), and touches the
+//! filesystem; [`Mock`] names a path under `/tmp/omawarden-mock` so the UI tests
+//! never show a dialog.
 
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+
+use crate::host::{Host, open_with};
 
 /// The platform capabilities the bridge exposes.
 pub(crate) trait PlatformEngine {
@@ -31,7 +33,8 @@ pub(crate) trait PlatformEngine {
     fn read_text_file(&self, path: String) -> Option<String>;
 }
 
-/// The real adapter: `xdg-open`, the desktop's dialogs, and the filesystem.
+/// The real adapter: the host's opener, the desktop's dialogs, and the
+/// filesystem.
 pub(crate) struct InProcess;
 
 impl PlatformEngine for InProcess {
@@ -39,13 +42,7 @@ impl PlatformEngine for InProcess {
         let Ok(parsed) = validate_launch_url(&raw_url) else {
             return false;
         };
-        Command::new("xdg-open")
-            .arg(parsed.as_str())
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .is_ok()
+        open_with(Host::current(), parsed.as_str().as_ref())
     }
 
     fn pick_file(
@@ -148,5 +145,25 @@ pub(crate) fn validate_launch_url(raw: &str) -> Result<url::Url, String> {
         other => Err(format!(
             "Only http:// and https:// URLs can be opened (got {other})."
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn url_launching_accepts_only_http_and_https() {
+        assert!(validate_launch_url("https://vault.example.com").is_ok());
+        assert!(validate_launch_url("http://127.0.0.1:8080").is_ok());
+        assert!(validate_launch_url("file:///etc/passwd").is_err());
+        assert!(validate_launch_url("javascript:alert(1)").is_err());
+        assert!(validate_launch_url("   ").is_err());
+    }
+
+    #[test]
+    fn a_parsed_url_is_what_the_launcher_receives() {
+        let parsed = validate_launch_url("  https://vault.example.com/items  ").unwrap();
+        assert_eq!(parsed.as_str(), "https://vault.example.com/items");
     }
 }
