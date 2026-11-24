@@ -4,11 +4,11 @@
 //! attachment layer and the daemon; [`Mock`] answers from the seeded items.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use serde_json::{Value, json};
 
 use crate::diagnostics::{LogLevel, push_log};
+use crate::host::{Host, open_with};
 use crate::{AttachmentOutcomeView, MockState, daemon, load_config, with_mock};
 
 /// The attachment capabilities the bridge exposes.
@@ -434,27 +434,107 @@ fn mock_save_attachment(
 }
 
 fn real_open_attachment_path(path: String) -> bool {
-    let candidate = PathBuf::from(path.trim());
-    if !candidate.is_absolute() || !candidate.is_file() {
-        return false;
-    }
-    let runtime = std::env::var("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/tmp"))
-        .join("omawarden");
+    let candidate = Path::new(path.trim());
+    let preview_root = engine_preview_root();
     let download = PathBuf::from(load_config().download_dir);
-    if !candidate.starts_with(&runtime) && !candidate.starts_with(&download) {
+    if !candidate.is_file() || !attachment_openable(candidate, &preview_root, &download) {
         return false;
     }
-    Command::new("xdg-open")
-        .arg(candidate)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .is_ok()
+    open_with(Host::current(), candidate.as_os_str())
+}
+
+/// The directory the engine writes decrypted previews into.
+///
+/// The engine builds this from its own runtime directory and a private
+/// `preview_root()`, which it does not export, so the subdirectory is repeated
+/// here and moves with it. The runtime directory is the engine's for the same
+/// reason: it is what the daemon actually writes under, and re-deriving it from
+/// `XDG_RUNTIME_DIR` with a `/tmp` fallback is how the old guard came to name a
+/// directory nothing ever wrote to.
+fn engine_preview_root() -> PathBuf {
+    omawarden::daemon::get_runtime_dir().join("omarchy-bitwarden/scoped-attachments")
+}
+
+/// Decides whether `candidate` is a file the app may hand to the opener.
+///
+/// The allow-list is where the engine really writes decrypted previews plus the
+/// user's download directory. Everything else is refused, so a stale path from
+/// an older session cannot make the app open an arbitrary file. The decision is
+/// a pure function of the three paths, so it is testable without a filesystem.
+fn attachment_openable(candidate: &Path, preview_root: &Path, download_dir: &Path) -> bool {
+    if !candidate.is_absolute() {
+        return false;
+    }
+    let fits = |root: &Path| !root.as_os_str().is_empty() && candidate.starts_with(root);
+    fits(preview_root) || fits(download_dir)
 }
 
 fn mock_open_attachment_path(_state: &mut MockState, _path: String) -> bool {
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn preview_root() -> PathBuf {
+        PathBuf::from("/run/user/1000/omarchy-bitwarden/scoped-attachments")
+    }
+
+    fn download_dir() -> PathBuf {
+        PathBuf::from("/home/user/Downloads")
+    }
+
+    fn openable(candidate: &str) -> bool {
+        attachment_openable(Path::new(candidate), &preview_root(), &download_dir())
+    }
+
+    #[test]
+    fn a_preview_inside_the_engine_root_is_openable() {
+        assert!(openable(
+            "/run/user/1000/omarchy-bitwarden/scoped-attachments/slot/item/attachment/report.pdf"
+        ));
+    }
+
+    #[test]
+    fn a_file_in_the_download_directory_is_openable() {
+        assert!(openable("/home/user/Downloads/report.pdf"));
+    }
+
+    #[test]
+    fn a_sibling_directory_that_shares_a_prefix_is_refused() {
+        assert!(!openable("/home/user/Downloads-backup/report.pdf"));
+        assert!(!openable(
+            "/run/user/1000/omarchy-bitwarden/scoped-attachments-old/report.pdf"
+        ));
+    }
+
+    #[test]
+    fn a_relative_path_is_refused() {
+        assert!(!openable("report.pdf"));
+        assert!(!openable("./report.pdf"));
+    }
+
+    #[test]
+    fn the_old_wrong_runtime_subdirectory_is_refused() {
+        // The guard used to name `<runtime>/omawarden`, which is not where the
+        // engine writes; pinning the defect keeps it from coming back.
+        assert!(!openable("/run/user/1000/omawarden/report.pdf"));
+        assert!(!openable("/tmp/omawarden/report.pdf"));
+    }
+
+    #[test]
+    fn a_path_outside_every_allowed_root_is_refused() {
+        assert!(!openable("/etc/passwd"));
+        assert!(!openable("/home/user/Documents/report.pdf"));
+    }
+
+    #[test]
+    fn an_empty_download_directory_does_not_allow_everything() {
+        assert!(!attachment_openable(
+            Path::new("/etc/passwd"),
+            &preview_root(),
+            Path::new("")
+        ));
+    }
 }
