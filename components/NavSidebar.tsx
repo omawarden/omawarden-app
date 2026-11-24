@@ -137,9 +137,8 @@ function scopeIcon(kind: string): IconName {
  * A full-height column of its own, beside the content column rather than inside
  * it, so the search row and the category tabs stop at its right edge and it
  * reads as navigation. The head is fixed, the middle scrolls because the folder
- * list has no bound, and the Trash sits below the scroll with the account under
- * it: the Trash closes the list of places, so it is part of the body yet stays
- * put when folders scroll, and only the account is the column's foot.
+ * list has no bound, and the Trash ends the list below the scroll; the account,
+ * under a rule of its own, is the column's foot.
  *
  * Vault and folder are independent dimensions and may both highlight: the list
  * shows their intersection. The Trash is a view rather than a scope, so while
@@ -250,15 +249,9 @@ export function NavSidebar() {
 
       {/* The list's own end: the Trash closes the navigation, so it sits below
           the Scroll rather than inside it — a long folder list scrolls and the
-          Trash stays put — and the rule above it says the list stops here. */}
-      <View
-        style={{
-          borderTopWidth: 1,
-          borderTopColor: palette().popups.border,
-          paddingHorizontal: 6,
-          paddingVertical: 6,
-        }}
-      >
+          Trash stays put — and it takes no rule of its own, so it reads as the
+          last row of the list rather than as the head of the foot. */}
+      <View style={{ paddingHorizontal: 6, paddingVertical: 6 }}>
         <SidebarRow
           testID="nav-trash"
           name="Trash"
@@ -270,8 +263,15 @@ export function NavSidebar() {
       </View>
 
       {/* The column's foot: the account and the gear. Not a navigation row, so
-          it is set apart by the rule above rather than keeping one of its own. */}
-      <View style={{ paddingHorizontal: 6, paddingBottom: 6 }}>
+          the rule above it — not above the Trash — is what sets it apart. */}
+      <View
+        style={{
+          borderTopWidth: 1,
+          borderTopColor: palette().popups.border,
+          paddingHorizontal: 6,
+          paddingVertical: 6,
+        }}
+      >
         <View
           style={{
             flexDirection: "row",

@@ -51,9 +51,9 @@ and the two content panes:
 │ FOLDERS    │              │              │
 │  All       │              │              │
 │  Work      │              │              │
-│            │              │              │
 ├────────────┤              │              │
 │  Trash     │              │              │
+├────────────┤              │              │
 │ me@ex… ⚙   │              │              │
 │            ├──────────────┴──────────────┤
 │            │ Actions Generate Sync Lock  │  FooterBar
@@ -79,9 +79,10 @@ footer keeps every button it has today, `Settings` included.
 
 Top to bottom, four bands: the head, the scrolling middle, the Trash, and the
 account. Everything but the middle is fixed. The Trash sits between the scroll
-and the account rather than inside either, because it ends the list of places —
-it is part of the body, so it is not the foot, yet it stays put the way the foot
-does and does not scroll away with a long folder list.
+and the account rather than inside either: it ends the list of places, so it
+takes no rule of its own and reads as the list's last row, while the rule below
+it separates the account, which alone is the column's foot. It stays put the way
+the foot does and does not scroll away with a long folder list.
 
 **Head** — the app icon (`assets/icon.png`, imported as an asset, 28pt scaled by
 `scaleLength`) beside the word `Omawarden`. Neither is a control.
@@ -100,14 +101,14 @@ muted one-line hint (`No folders`), so the sidebar's shape does not move when a
 sync changes the data.
 
 **Trash** — the Trash row (`trash` glyph, count from `trashCount()`) alone,
-under a rule that closes the scrolling list. It is the last place rather than a
-view beside them: picking it leaves whatever vault and folder were selected, so
-it reads as the list's end and not as another filter.
+straight after the scrolling list and with no rule above it. It is the last place
+rather than a view beside them: picking it leaves whatever vault and folder were
+selected, so it reads as the list's end and not as another filter.
 
-**Foot** — the account row: a circular initial avatar, `snapshot.email`
-truncated to one line, and the server host in small muted type. The account row
-is **not** clickable; the gear beside it opens settings. It needs no rule of its
-own: the one above the Trash already separates the whole bottom band.
+**Foot** — the account row, under a rule the Trash does not share: a circular
+initial avatar, `snapshot.email` truncated to one line, and the server host in
+small muted type. The account row is **not** clickable; the gear beside it opens
+settings.
 
 ## Selection Rules
 

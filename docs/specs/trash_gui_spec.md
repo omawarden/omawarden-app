@@ -124,8 +124,8 @@ the Trash rather than narrowing it. No stale active scope or folder is applied
 to the Trash rows.
 
 The Trash has a second entry point once the Navigation Sidebar is expanded: the
-`nav-trash` row that closes the sidebar's scrolling list, above the account and
-under a rule of its own. It is the same view reached the same way,
+`nav-trash` row that ends the sidebar's scrolling list, directly under it and
+with no rule between the two. It is the same view reached the same way,
 so it is the same `openTrash()`, and the sidebar dims both its groups while it
 is open because the Trash is a view rather than a scope. A folder row in the
 sidebar is clickable there and leaves the Trash, so the sidebar is not a trap.
