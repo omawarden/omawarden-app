@@ -1071,7 +1071,7 @@ impl OmawardenBridge {
         vault::real_snapshot(VaultFilterInput::default())
     }
 
-    /// Re-check system dependencies (omawarden, libsecret, wl-clipboard, libfido2).
+    /// Re-check this host's system dependencies (the daemon, plus libsecret, wl-clipboard and libfido2 on Linux).
     pub fn check_dependencies() -> DependencyStatusView {
         engine::diagnostics().dependencies()
     }
@@ -1196,7 +1196,7 @@ impl OmawardenBridge {
         engine::inspector().totp(cipher_id)
     }
 
-    /// Copy a specific field of a cipher item to the Wayland clipboard with Clipboard Guard TTL.
+    /// Copy a specific field of a cipher item to the platform clipboard with Clipboard Guard TTL.
     pub fn copy_cipher_field(
         cipher_id: String,
         field: String,
@@ -1328,7 +1328,7 @@ impl OmawardenBridge {
         engine::diagnostics().updates(force)
     }
 
-    /// Safely open an `http://` or `https://` URL via `xdg-open` (rejecting all other schemes).
+    /// Safely open an `http://` or `https://` URL through the host launcher (`xdg-open` on Linux, `open` on macOS; rejecting all other schemes).
     pub fn launch_url(raw_url: String) -> bool {
         engine::platform().launch_url(raw_url)
     }

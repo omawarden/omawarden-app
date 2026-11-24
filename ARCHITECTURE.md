@@ -44,7 +44,7 @@ Following deep-module design principles ("Design It Twice" Hybrid Design 3 + Des
    - `omawarden::clipboard::ClipboardManager::copy_with_expiry` spawns `std::env::current_exe().arg("clipboard-holder")` when `clear_seconds > 0`.
    - To avoid spawning the NSH GUI binary as `clipboard-holder`, `clipboard_copy(text, sensitive)` **MUST**:
      1. Call `ClipboardManager::default().copy(text, sensitive, 0)`, which copies through the engine's resolved Clipboard Provider (Wayland's `wl-copy` on Linux, the pasteboard on macOS) without spawning `current_exe()`.
-     2. If `sensitive && config.clipboard_clear_seconds > 0`, take the next value of a global `AtomicU64` generation counter and spawn an in-process Rust timer thread that sleeps for `clipboard_clear_seconds` and then clears the clipboard through `ClipboardManager::default().clear()` if the generation counter has not changed. The clear MUST go through the engine rather than an external command, so the resolved provider decides how to clear and its takeover-protection applies: a provider that sees another application take the selection over declines to wipe it. Whether a scheduled clear is still the newest is a pure function of the counter, so tests exercise both answers without sleeping.
+     2. If `sensitive && config.clipboard_clear_seconds > 0`, take the next value of a global `AtomicU64` generation counter and spawn an in-process Rust timer thread that sleeps for `clipboard_clear_seconds` and then clears the clipboard through `ClipboardManager::default().clear()` if the generation counter has not changed. The clear MUST go through the engine rather than an external command, so the resolved provider decides how to clear instead of the app hardcoding a Linux command. Where a provider offers takeover protection it now applies: the macOS pasteboard provider compares the `changeCount` it recorded at copy time and declines to wipe a selection another application took over. (At this engine revision the Linux providers still clear unconditionally, so their behaviour is unchanged there.) Whether a scheduled clear is still the newest is a pure function of the counter, so tests exercise both answers without sleeping.
 4. **Stateful Vault & SSH Agent Operations**: Talk to the Unix socket daemon (`omawarden::daemon::send_request`) using the existing IPC actions (`ping`, `status`, `unlock`, `quick_unlock`, `wipe_quick_unlock`, `set_quick_unlock`, `lock`, `sync`, `list`, `search`, `ssh_key_create`, `get_item`, `get_ssh_key`, `get_attachment_key`, `totp`, `ssh_agent_apply`, `ssh_agent_status`, `ssh_agent_pending`, `ssh_agent_reply`).
    - Background status/ping polls **MUST** pass `"touch": false` so daemon idle auto-lock is never reset by background UI timers.
 5. **Stateless Operations**: Call `omawarden` Rust library functions directly in-process:
@@ -80,7 +80,7 @@ pub mod native {
         /// Initialize the app or handle an external summon payload (e.g. `{"view":"ssh-approval","id":1}`).
         pub fn boot(payload_json: Option<String>) -> VaultSnapshotView;
 
-        /// Re-check system dependencies (omawarden, libsecret/secret-tool, wl-clipboard/wl-copy, libfido2).
+        /// Re-check this host's system dependencies (the daemon, plus libsecret/secret-tool, wl-clipboard/wl-copy and optional libfido2 on Linux).
         pub fn check_dependencies() -> DependencyStatusView;
 
         /// Launch floating terminal to install missing system packages.
@@ -116,7 +116,7 @@ pub mod native {
         /// Compute live TOTP code and remaining TTL for a cipher item.
         pub fn refresh_totp(cipher_id: String) -> TotpLiveView;
 
-        /// Copy a specific field of a cipher item to the Wayland clipboard with Clipboard Guard TTL.
+        /// Copy a specific field of a cipher item to the platform clipboard with Clipboard Guard TTL.
         pub fn copy_cipher_field(cipher_id: String, field: String, custom_index: Option<u32>) -> CopyOutcomeView;
 
         /// Copy arbitrary text to the clipboard with optional sensitivity flag.
@@ -164,7 +164,7 @@ pub mod native {
         /// Check for engine/plugin updates.
         pub fn check_updates(force: bool) -> UpdateStatusView;
 
-        /// Safely open an `http://` or `https://` URL via `xdg-open` (rejecting all other schemes).
+        /// Safely open an `http://` or `https://` URL through the host launcher (`xdg-open` on Linux, `open` on macOS; rejecting all other schemes).
         pub fn launch_url(raw_url: String) -> bool;
     }
 }
@@ -340,8 +340,8 @@ engine's `Config`. The daemon and the CLI must never gain a presentation field.
 ### 5.1 Core View States (`effectiveView`)
 1. **`components/DependencyCheckView.tsx`** — the plugin's prerequisite gate, on the app's primitives:
    - Header: accent `terminal` glyph (the icon set has no wrench), `System Dependencies Required`, a `Prerequisite Setup` badge, and the Arch/AUR explanation.
-   - One card per package (`omawarden`, `libsecret`, `wl-clipboard`, `libfido2`): background and border tinted by state (green installed, red missing required, warning missing optional), a state dot, the name, a `Required`/`Optional` tag, the version when known, the description, and a `✓ Ready` / `✗ Missing` pill.
-   - `↻ Recheck` beside one full-width install button whose label carries the state and the missing names (`⚡ Install Missing Packages (libsecret)`, or `✓ All Dependencies Installed` and disabled). It calls `OmawardenBridge.installMissingDependencies`; the floating-terminal note sits underneath.
+   - One card per dependency row this host reports (`omawarden`, `libsecret`, `wl-clipboard`, `libfido2` on Linux; the daemon and the optional `libfido2` on macOS): background and border tinted by state (green installed, red missing required, warning missing optional), a state dot, the name, a `Required`/`Optional` tag, the version when known, the description, and a `✓ Ready` / `✗ Missing` pill.
+   - `↻ Recheck` beside one full-width install button whose label carries the state and the missing names (`⚡ Install Missing Packages (libsecret)`, or `✓ All Dependencies Installed` and disabled). It calls `OmawardenBridge.installMissingDependencies`; the floating-terminal note sits underneath. On a host whose packages the app cannot install, `canInstall()` hides the button and the note, and `↻ Recheck` stands alone.
    - There is no `Continue`: a missing required package is not something the screen lets you click past. The engine minimum-version check is not ported — the app ships its own engine.
 2. **`components/AuthView.tsx`** — login, two-factor and lock share one flat, centred column (`maxWidth: 360`) and one header shape: the app's logo (login) or a `lock` glyph (locked), the action's title (`Log In to Bitwarden`, `Vault is Locked`), and a subtitle. The engine error banner sits between the header and the form.
    - **Login Step** — logging in takes two steps. This is a deliberate divergence from the plugin, which keeps the first factor's fields visible under the two-factor block:

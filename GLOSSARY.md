@@ -113,10 +113,13 @@ Clipboard Provider and cleared after the configured TTL, unless a newer copy
 supersedes them. Non-sensitive values are left in place.
 
 The clear is the provider's own, not a hardcoded command, so it follows the
-platform: Wayland's `wl-copy` on Linux, the system pasteboard on macOS. A
-provider that sees another application take the selection over since our copy
-declines to wipe it, so the guard never eats something the user copied
-afterwards.
+platform: Wayland's `wl-copy` on Linux, the system pasteboard on macOS. Where a
+provider offers takeover protection it uses it: the macOS pasteboard provider
+compares the `changeCount` it recorded at copy time and declines to wipe a
+selection another application took over, so the guard does not eat what the
+user copied afterwards. At this engine revision the Linux providers clear
+unconditionally, so moving the clear onto the engine is protection-neutral
+there; what changes is that the platform, not the app, picks the command.
 
 ## Host
 

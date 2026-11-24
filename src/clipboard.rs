@@ -103,9 +103,11 @@ fn clear_generation(sensitive: bool, ttl_seconds: u32, generation: &AtomicU64) -
 /// after `clipboard_clear_seconds` unless a newer copy superseded it.
 ///
 /// The clear goes through the engine's own manager rather than an external
-/// command, so the resolved provider decides how to clear: the pasteboard on
-/// macOS, and on Linux the Wayland provider, which declines to wipe a selection
-/// another application has taken over since our copy.
+/// command, so the resolved provider decides how to clear. On macOS the
+/// pasteboard provider compares the `changeCount` it recorded at copy time and
+/// declines to wipe a selection another application took over since our copy.
+/// At this engine revision the Linux providers still clear unconditionally, so
+/// there the app now calls the engine without gaining that protection yet.
 fn clipboard_copy(text: &str, sensitive: bool) -> bool {
     let config = load_config();
     let copied = ClipboardManager::default().copy(text, sensitive, 0);

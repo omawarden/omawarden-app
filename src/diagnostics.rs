@@ -631,7 +631,6 @@ fn format_rfc3339_now() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
-/// The process's resident set size in MiB, from `/proc/self/statm`.
 /// The process's resident set size in MiB.
 pub(crate) fn process_rss_mb() -> f64 {
     process_rss_mb_for(Host::current())

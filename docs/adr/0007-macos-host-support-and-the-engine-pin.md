@@ -20,9 +20,10 @@ user who built it on macOS got four kinds of breakage:
 3. **The Clipboard Guard silently never fired.** The clear was a hardcoded
    `wl-copy --clear`. The copy succeeded through the engine and the clear did
    nothing, so a sensitive value stayed on the pasteboard forever. That is a
-   security regression, not a cosmetic one — and it was a smaller bug on Linux
-   too, because the raw command bypassed the provider that declines to wipe a
-   selection another application has taken over.
+   security regression, not a cosmetic one. On Linux the same command happened
+   to be what the engine's provider runs, so nothing visible changed there; the
+   defect was that the app owned a mechanism the engine owns, so a host without
+   `wl-copy` could not clear at all.
 4. **Working parts were reported as broken.** The dependency surface listed
    `secret-tool` and `wl-copy` as *required*, the Diagnose surface named them,
    and the process RSS was read from `/proc/self/statm`, which macOS does not
@@ -59,13 +60,19 @@ contract that is enforced.**
   to Cargo — the CI shape.
 - **Attachment opening is gated on where the engine really writes.** The
   allow-list is the engine's own preview root plus the download directory, and
-  the accept/refuse decision is a pure function. The previous guard named
-  `<runtime>/omawarden`, which the engine never writes to, so **no preview path
-  could pass it on any platform**; that pre-existing defect is fixed here.
+  the accept/refuse decision is a pure function. The runtime directory comes
+  from the engine; the `omarchy-bitwarden/scoped-attachments` subdirectory is
+  repeated in the app because the engine does not export it, so it has to move
+  with the engine's layout. The previous guard named `<runtime>/omawarden`,
+  which the engine never writes to, so **no preview path could pass it on any
+  platform**; that pre-existing defect is fixed here.
 - **The Clipboard Guard clears through the engine's provider**, not an external
-  command, so the platform decides how to clear and the provider's
-  takeover-protection applies. The "am I still newest" test is a pure function
-  of a generation counter, so a test exercises both answers without sleeping.
+  command, so the platform decides how to clear and any takeover protection the
+  provider has applies. On macOS the pasteboard provider compares its recorded
+  change count and declines to wipe a selection another application took over;
+  at the pinned revision the Linux providers still clear unconditionally, so
+  that branch is unchanged. The "am I still newest" test is a pure function of
+  a generation counter, so a test exercises both answers without sleeping.
 - **Capabilities are reported, never assumed.** The keyring and clipboard
   availability values still come from the engine, which is the only thing that
   knows which provider resolved; only the vocabulary around them is per-host.

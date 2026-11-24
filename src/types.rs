@@ -814,9 +814,9 @@ pub struct HealthSnapshotView {
     pub engine_version: String,
     /// Whether the server is reachable.
     pub server_reachable: bool,
-    /// Whether the secret service keyring is available.
+    /// Whether the host's keyring provider is available.
     pub keyring_available: bool,
-    /// Whether the Wayland clipboard is available.
+    /// Whether the host's clipboard provider is available.
     pub clipboard_available: bool,
     /// Whether memory locking is active.
     pub memory_locked: bool,
