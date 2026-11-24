@@ -43,8 +43,16 @@ Set `kSecUseDataProtectionKeychain: true` on the add/match/update/delete
 queries so items live in the data-protection keychain, and set
 `kSecAttrAccessGroup` when an access group is available. Leave room for a
 `keychain-access-groups` entitlement so a Developer ID build can name a stable
-group rather than the ad-hoc default, and fall back to today's behaviour when
-no group is configured so a locally built app keeps working.
+group rather than the ad-hoc default.
+
+The fallback needs care, because the obvious form is wrong. "Fall back when no
+group is configured" does not cover the case that matters: an ad-hoc-signed
+binary has no `application-identifier` entitlement at all, and the
+data-protection keychain refuses such a process with `errSecMissingEntitlement`
+(-34018). A local build would then fail to store anything rather than falling
+back. So gate on what the process can actually do — try the data-protection
+keychain first, and on `errSecMissingEntitlement` retry the legacy path — not on
+whether an access group was configured.
 
 Because both the app and the daemon write, they need the same group for the
 prompt to stop appearing twice.

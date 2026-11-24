@@ -89,4 +89,15 @@ They live in three different files — `omawarden/src/keyring/macos.rs`,
 ## Why it belongs in this repository
 
 `omawarden-app` can assert what `Host::MacOs` *decides*, but it cannot prove the
-engine's macOS provider works. That proof lives where the FFI lives.
+engine's macOS provider works. That proof lives where the FFI lives, and a
+`macos-latest` runner here is the only way to get it: the alternative, building
+the engine's macOS targets from a machine that is not a Mac, needs a macOS SDK
+and a cross toolchain that neither this repository nor CI has.
+
+Two of the three `real_system_*` tests already self-skip when the provider is
+unavailable — `test_macos_real_system_pasteboard_changecount` returns early on
+`if !provider.is_available()`, and `test_macos_real_cli_copy_and_pasteboard`
+returns early when the built binary is not where it expects. On a macOS runner
+both should run. If they skip instead, that is a signal worth failing on rather
+than a green check: a job that passes because the tests declined to look is the
+same false confidence this request exists to remove.

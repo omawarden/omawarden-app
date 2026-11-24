@@ -1,4 +1,4 @@
-# Engine follow-up: the SSH approval card cannot name the requester off Linux
+# Engine follow-up: the SSH approval card cannot identify the requester off Linux
 
 **Repository**: `icyleaf/omarchy-bitwarden`
 **Issue**: icyleaf/omarchy-bitwarden#435
@@ -6,13 +6,22 @@
 
 ## Symptom
 
-On macOS, an SSH signing request reaches the approval card with no client name
-and no command. The user is asked "Sign this?" without being told who is asking,
-which is the one piece of information the card exists to show.
+On macOS, an SSH signing request reaches the approval card with the client shown
+as the literal string `A program` and the command field empty. The user is asked
+to approve a signature with no way to tell which program asked, or what it wants
+to run.
 
-`omawarden-app` cannot compensate: it renders `client` and `command` from what
-the engine reports, and its own test fixtures seed `client: "git (ssh)"` only so
-the mock snapshot is not empty. A real request is not seeded.
+That placeholder is deliberate, not a defect: `Peer::describe()` returns
+`"A program"` when `comm` is empty and appends `" in <app>"` only when the app
+name is known. Off Linux both are unknown, so the fallback is all that is left.
+The request is therefore not "stop showing nothing" but "make the fallback the
+best it can be on macOS, and be honest about what it cannot know".
+
+`omawarden-app` cannot compensate: `components/SshApprovalModal.tsx` renders
+`client` and `command` verbatim from what the engine reports, so the engine's
+placeholder is what the user sees. Its test fixtures seed
+`client: "git (ssh)"` only so a mock snapshot is not empty; a real request is
+not seeded.
 
 ## Why it happens
 
@@ -42,15 +51,21 @@ other). So on macOS, `first-use` also degrades to prompting every time.
 
 Either name the requester on macOS — `LOCAL_PEERPID` on the accepted socket via
 `getsockopt(..., LOCAL_PEERPID, ...)`, then the process's executable and
-arguments through `proc_pidpath` and `KERN_PROCARGS2` — or report explicitly that
-the requester is unknown.
+arguments through `proc_pidpath` and `KERN_PROCARGS2` — or finish the
+stated-unknown story.
 
-The second is the smaller change and the more honest one if the first is more
-work than it is worth. An empty field reads as a bug; a stated unknown does not,
-and it would also tell the `first-use` policy that it cannot key on the
-requester, instead of silently prompting forever.
+The `client` field already has one: `A program`. The other two do not. `command`
+renders empty, which reads as "we looked and found nothing" rather than "this
+host cannot look", and the `first-use` policy silently declines to remember, so
+the user is re-prompted on every request with no explanation. Either say the
+approval cannot be remembered on this host, or let the user remember it keyed on
+the key alone.
+
+The second path is the smaller change and the more honest one if naming the
+requester is more work than it is worth.
 
 ## Why it belongs in this repository
 
-`omawarden-app` renders the card from whatever the engine reports. It cannot
-invent a requester, and guessing one would be worse than the blank.
+`omawarden-app` renders the card from whatever the engine reports — `client` and
+`command` verbatim. It cannot invent a requester, and guessing one would be worse
+than the placeholder.

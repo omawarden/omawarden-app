@@ -145,8 +145,9 @@ contract that is enforced.**
   duplicate copy of the mechanism: `attachment::get_attachment` still shells out
   to `xdg-open` for an open it performs itself (reachable through
   `omawarden attachment download --open`), and the SSH agent's `Peer::of`
-  returns an empty peer off Linux, so the approval card names no requester and
-  the `first-use` policy cannot remember an approval and re-prompts every time.
+  returns an empty peer off Linux, so the approval card falls back to the
+  literal `A program` with no command and the `first-use` policy cannot
+  remember an approval, re-prompting every time.
   Filed as [#434](https://github.com/icyleaf/omarchy-bitwarden/issues/434) and
   [#435](https://github.com/icyleaf/omarchy-bitwarden/issues/435).
 
