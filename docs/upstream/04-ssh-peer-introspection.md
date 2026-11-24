@@ -33,7 +33,7 @@ way. Off Linux there is no `/proc`, so `Peer::default()` returns empty `exe`,
 name.
 
 There is a second consequence worth knowing: the `first-use` confirmation policy
-keys its remembered approvals on `fingerprint|client exe|app exe`, and it
+keys its remembered approvals on `{scope}|{fingerprint}|{exe}|{app}`, and it
 explicitly refuses to remember when `peer.exe` is empty (the code comments say
 why: without `/proc/<pid>/exe` the requester cannot be told apart from any
 other). So on macOS, `first-use` also degrades to prompting every time.

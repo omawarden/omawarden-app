@@ -15,13 +15,13 @@ Every workflow in this repository runs on `ubuntu-latest`, including
 (`x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`). So these blocks are
 never compiled anywhere except a developer's Mac:
 
-- `src/keyring/macos.rs` — the `security_ffi` module, behind
+- `omawarden/src/keyring/macos.rs` — the `security_ffi` module, behind
   `#[cfg(target_os = "macos")]`, including the `SecItemAdd`/`SecItemUpdate`
   declarations.
-- `src/clipboard/macos.rs` — the `pasteboard_ffi` module, which links `AppKit`
-  and `objc` and calls `objc_msgSend` for `changeCount`.
-- `src/keyring/provider.rs` and `src/clipboard/provider.rs` — the
-  `#[cfg(target_os = "macos")]` arms of provider resolution.
+- `omawarden/src/clipboard/macos.rs` — the `pasteboard_ffi` module, which links
+  `AppKit` and `objc` and calls `objc_msgSend` for `changeCount`.
+- `omawarden/src/keyring/provider.rs` and `omawarden/src/clipboard/provider.rs`
+  — the `#[cfg(target_os = "macos")]` arms of provider resolution.
 
 A typo in a selector name, a wrong `objc_msgSend` signature or a missing
 framework link would only surface on a user's machine, as a sign-in that
@@ -70,14 +70,21 @@ A `macos-latest` job in `.github/workflows/ci.yml` that:
 4. runs `cargo clippy --all-targets -- -D warnings` and `cargo fmt --check`,
    matching the `backend` job, so the macOS arms cannot rot into warnings.
 
-Steps 2 and 3 are the whole point: a compile-only job already catches the FFI
-signature mistakes, and it does not need a logged-in desktop session.
+Step 2 is the minimum that pays off: it compiles the FFI declarations, so a
+wrong `extern "C"` signature, a mangled framework link or a type mismatch fails
+the job, and it needs no desktop session. Step 3 is still worth having, because
+what compiles can still be wrong at runtime: a mis-spelled Objective-C selector
+is a byte string, not a symbol, so `sel_registerName(b"changeCount")` compiles
+and returns null. A compile job narrows the risk substantially; it does not
+remove it.
 
 The three `real_system_*` tests need a live login session (Keychain access and
 a pasteboard). On a CI runner they may fail for that reason rather than a code
-reason; if that happens, `#[ignore]` only those three with a recorded reason
-and keep the rest running. Do not ignore the whole file, and do not let a
-skipped test count as coverage.
+reason; if that happens, `#[ignore]` only those three with a recorded reason.
+They live in three different files — `omawarden/src/keyring/macos.rs`,
+`omawarden/src/clipboard/macos.rs` and `omawarden/tests/macos_clipboard_cli.rs`
+— so the unit is "ignore this one test", never "ignore the file" and never
+"skip the crate". Do not let a skipped test count as coverage.
 
 ## Why it belongs in this repository
 

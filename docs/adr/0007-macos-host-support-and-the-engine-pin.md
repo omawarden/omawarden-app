@@ -137,13 +137,17 @@ contract that is enforced.**
   *locked*) → unlock → log out → the Keychain item is gone, and inspecting it
   shows no plaintext secret. It has not been run. Nothing in this repository's
   CI can run it, and this record says so rather than implying it passed.
-- **Two engine-side Linux mechanisms still reach macOS, at a lower severity.**
-  The app opens every path it hands to the desktop through its own host-aware
-  launcher, so the user-visible flows work; but `attachment::get_attachment`
-  still shells out to `xdg-open` for the open it performs itself, and the SSH
-  agent's `Peer::of` returns an empty peer off Linux, so the approval card shows
-  no requester and the `first-use` policy cannot remember an approval. Filed as
-  [#434](https://github.com/icyleaf/omarchy-bitwarden/issues/434) and
+- **Two engine-side Linux mechanisms are still Linux-only, at the engine's own
+  entry points rather than in this app's flows.** The app opens every path it
+  hands to the desktop through its own host-aware launcher, and both of its
+  `get_attachment` calls pass `open_file = false` and `notify = false`, so the
+  attachment path is correct from the app today. What remains is the engine's
+  duplicate copy of the mechanism: `attachment::get_attachment` still shells out
+  to `xdg-open` for an open it performs itself (reachable through
+  `omawarden attachment download --open`), and the SSH agent's `Peer::of`
+  returns an empty peer off Linux, so the approval card names no requester and
+  the `first-use` policy cannot remember an approval and re-prompts every time.
+  Filed as [#434](https://github.com/icyleaf/omarchy-bitwarden/issues/434) and
   [#435](https://github.com/icyleaf/omarchy-bitwarden/issues/435).
 
 ## See also
