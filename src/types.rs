@@ -117,6 +117,9 @@ pub struct DependencyStatusView {
     pub packages: Vec<PackageStatusView>,
     /// Whether every required package is installed.
     pub all_required_installed: bool,
+    /// Whether this host offers an install action at all. macOS has no package
+    /// manager the app may drive, so the interface hides the button there.
+    pub install_available: bool,
     /// The names of the packages that are missing.
     pub missing_packages: Vec<String>,
     /// The names of the missing required packages.

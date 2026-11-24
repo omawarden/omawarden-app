@@ -47,6 +47,10 @@ export function DependencyCheckView() {
       : `⚡ Install Missing Packages (${names.join(", ")})`;
   };
 
+  // macOS has no package manager the app may drive, so the action is absent
+  // rather than opening a terminal that cannot work.
+  const canInstall = () => status()?.installAvailable ?? false;
+
   return (
     <View
       testID="dependency-check-view"
@@ -183,19 +187,23 @@ export function DependencyCheckView() {
                   testID="recheck-dependencies"
                   onPress={store.refreshDependencies}
                 />
-                <View style={{ flex: 1 }}>
-                  <ActionButton
-                    label={installLabel()}
-                    testID="install-dependencies"
-                    tone="primary"
-                    disabled={missing().length === 0}
-                    onPress={store.installMissingDependencies}
-                  />
-                </View>
+                <If when={canInstall()}>
+                  <View style={{ flex: 1 }}>
+                    <ActionButton
+                      label={installLabel()}
+                      testID="install-dependencies"
+                      tone="primary"
+                      disabled={missing().length === 0}
+                      onPress={store.installMissingDependencies}
+                    />
+                  </View>
+                </If>
               </View>
-              <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
-                Installs in an Omarchy floating terminal through paru / yay / pacman.
-              </Text>
+              <If when={canInstall()}>
+                <Text style={{ color: palette().muted, fontSize: store.type().sm }}>
+                  Installs in an Omarchy floating terminal through paru / yay / pacman.
+                </Text>
+              </If>
             </View>
           )}
         </If>

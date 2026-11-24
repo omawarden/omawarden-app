@@ -14,6 +14,7 @@ use omawarden::health::check_system_health;
 use omawarden::logging::sanitize_log_message;
 use serde_json::{Value, json};
 
+use crate::host::Host;
 use crate::{
     DependencyStatusView, HealthCheckView, HealthSnapshotView, PackageStatusView, ReleaseNotesView,
     UpdateStatusView, daemon, load_config, sanitize_server_url, with_mock,
@@ -43,6 +44,9 @@ impl DiagnosticsEngine for InProcess {
     }
 
     fn install_missing(&self, packages: Vec<String>) -> bool {
+        if !install_offered(Host::current()) {
+            return false;
+        }
         let safe = sanitize_packages(packages);
         if safe.is_empty() {
             return false;
@@ -88,7 +92,7 @@ impl DiagnosticsEngine for Mock {
     }
 
     fn install_missing(&self, packages: Vec<String>) -> bool {
-        !sanitize_packages(packages).is_empty()
+        install_offered(Host::current()) && !sanitize_packages(packages).is_empty()
     }
 
     fn health(&self) -> HealthSnapshotView {
@@ -111,6 +115,18 @@ fn sanitize_packages(packages: Vec<String>) -> Vec<String> {
                     .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+'))
         })
         .collect()
+}
+
+/// Whether this host offers a package-install action.
+///
+/// The action drives the Arch/Omarchy package manager in a terminal. macOS has
+/// no equivalent the app may run, so it is refused rather than opening a
+/// terminal that cannot work, and the interface hides the button.
+fn install_offered(host: Host) -> bool {
+    match host {
+        Host::Linux => true,
+        Host::MacOs => false,
+    }
 }
 
 /// Checks one package.
@@ -145,28 +161,17 @@ fn package_status(
 /// The real dependency check.
 fn real_dependencies() -> DependencyStatusView {
     let daemon_source = crate::daemon_source::view();
-    let packages = vec![
-        PackageStatusView {
+    let packages = dependency_rows(
+        Host::current(),
+        &PackageStatusView {
             name: "omawarden".to_string(),
             description: "Omawarden daemon".to_string(),
             required: true,
             installed: daemon_source.resolved_path.is_some(),
             version: daemon_source.resolved_version.clone(),
         },
-        package_status(
-            "secret-tool",
-            "libsecret",
-            "Secret Service keyring bridge",
-            true,
-        ),
-        package_status("wl-copy", "wl-clipboard", "Wayland clipboard", true),
-        package_status(
-            "fido2-token",
-            "libfido2",
-            "FIDO2 security keys (optional)",
-            false,
-        ),
-    ];
+        &package_status,
+    );
     let missing_packages: Vec<String> = packages
         .iter()
         .filter(|package| !package.installed)
@@ -179,11 +184,42 @@ fn real_dependencies() -> DependencyStatusView {
         .collect();
     DependencyStatusView {
         all_required_installed: missing_required.is_empty(),
+        install_available: install_offered(Host::current()),
         packages,
         missing_packages,
         missing_required,
         daemon_source,
     }
+}
+
+/// The dependency rows this host actually needs.
+///
+/// A macOS keyring and pasteboard are platform frameworks, not packages, so
+/// macOS lists neither `secret-tool` nor `wl-copy`; a working install would
+/// otherwise report two missing requirements it can never satisfy. The daemon
+/// is required on both, and the security-key tool is always optional.
+fn dependency_rows(
+    host: Host,
+    daemon: &PackageStatusView,
+    probe: &dyn Fn(&str, &str, &str, bool) -> PackageStatusView,
+) -> Vec<PackageStatusView> {
+    let mut rows = vec![daemon.clone()];
+    if host == Host::Linux {
+        rows.push(probe(
+            "secret-tool",
+            "libsecret",
+            "Secret Service keyring bridge",
+            true,
+        ));
+        rows.push(probe("wl-copy", "wl-clipboard", "Wayland clipboard", true));
+    }
+    rows.push(probe(
+        "fido2-token",
+        "libfido2",
+        "FIDO2 security keys (optional)",
+        false,
+    ));
+    rows
 }
 
 /// The mock dependency check.
@@ -193,21 +229,24 @@ fn mock_dependencies(
 ) -> DependencyStatusView {
     let daemon_missing = missing.iter().any(|entry| entry == "omawarden");
     let daemon_source = crate::daemon_source::mock_view(stored, daemon_missing);
-    let packages = vec![
-        ("omawarden", "Omawarden daemon", true),
-        ("libsecret", "Secret Service keyring bridge", true),
-        ("wl-clipboard", "Wayland clipboard", true),
-        ("libfido2", "FIDO2 security keys (optional)", false),
-    ]
-    .into_iter()
-    .map(|(name, description, required)| PackageStatusView {
-        name: name.to_string(),
-        description: description.to_string(),
-        required,
-        installed: !missing.iter().any(|entry| entry == name),
+    let daemon = PackageStatusView {
+        name: "omawarden".to_string(),
+        description: "Omawarden daemon".to_string(),
+        required: true,
+        installed: !daemon_missing,
         version: Some("mock".to_string()),
-    })
-    .collect::<Vec<_>>();
+    };
+    let packages = dependency_rows(
+        Host::current(),
+        &daemon,
+        &|_binary, name, description, required| PackageStatusView {
+            name: name.to_string(),
+            description: description.to_string(),
+            required,
+            installed: !missing.iter().any(|entry| entry == name),
+            version: Some("mock".to_string()),
+        },
+    );
     let missing_packages: Vec<String> = packages
         .iter()
         .filter(|package| !package.installed)
@@ -220,6 +259,7 @@ fn mock_dependencies(
         .collect();
     DependencyStatusView {
         all_required_installed: missing_required.is_empty(),
+        install_available: install_offered(Host::current()),
         packages,
         missing_packages,
         missing_required,
@@ -624,6 +664,102 @@ fn fetch_latest_release() -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A probe that reports every binary as installed, so row composition can
+    /// be asserted without touching the machine.
+    fn all_installed(
+        binary: &str,
+        name: &str,
+        description: &str,
+        required: bool,
+    ) -> PackageStatusView {
+        PackageStatusView {
+            name: name.to_string(),
+            description: description.to_string(),
+            required,
+            installed: true,
+            version: Some(binary.to_string()),
+        }
+    }
+
+    fn daemon_row() -> PackageStatusView {
+        all_installed("omawarden", "omawarden", "Omawarden daemon", true)
+    }
+
+    fn row_names(rows: &[PackageStatusView]) -> Vec<&str> {
+        rows.iter().map(|row| row.name.as_str()).collect()
+    }
+
+    #[test]
+    fn linux_lists_both_runtime_packages_as_required() {
+        let rows = dependency_rows(Host::Linux, &daemon_row(), &all_installed);
+        assert_eq!(
+            row_names(&rows),
+            vec!["omawarden", "libsecret", "wl-clipboard", "libfido2"]
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row.name == "libsecret" && row.required)
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row.name == "wl-clipboard" && row.required)
+        );
+    }
+
+    #[test]
+    fn macos_lists_neither_secret_tool_nor_wl_copy() {
+        let rows = dependency_rows(Host::MacOs, &daemon_row(), &all_installed);
+        assert_eq!(row_names(&rows), vec!["omawarden", "libfido2"]);
+        assert!(!rows.iter().any(|row| row.name == "libsecret"));
+        assert!(!rows.iter().any(|row| row.name == "wl-clipboard"));
+    }
+
+    #[test]
+    fn the_daemon_row_is_required_on_both_hosts() {
+        for host in [Host::Linux, Host::MacOs] {
+            let rows = dependency_rows(host, &daemon_row(), &all_installed);
+            let daemon = rows.iter().find(|row| row.name == "omawarden").unwrap();
+            assert!(daemon.required, "{host:?} dropped the required daemon row");
+        }
+    }
+
+    #[test]
+    fn the_security_key_row_is_never_required() {
+        for host in [Host::Linux, Host::MacOs] {
+            let rows = dependency_rows(host, &daemon_row(), &all_installed);
+            let key = rows.iter().find(|row| row.name == "libfido2").unwrap();
+            assert!(!key.required, "{host:?} made the optional row required");
+        }
+    }
+
+    #[test]
+    fn the_rows_carry_the_daemon_state_they_were_given() {
+        let mut daemon = daemon_row();
+        daemon.installed = false;
+        daemon.version = None;
+        let rows = dependency_rows(Host::MacOs, &daemon, &all_installed);
+        assert!(!rows[0].installed);
+        assert_eq!(rows[0].version, None);
+    }
+
+    #[test]
+    fn the_install_action_is_offered_on_linux_and_refused_on_macos() {
+        assert!(install_offered(Host::Linux));
+        assert!(!install_offered(Host::MacOs));
+    }
+
+    #[test]
+    fn install_names_are_sanitized_on_every_host() {
+        // The platform refusal does not replace the guard: a name that would
+        // reach the install path is filtered on any host.
+        let packages = sanitize_packages(vec![
+            "libsecret; rm -rf /".to_string(),
+            "wl-clipboard".to_string(),
+            String::new(),
+        ]);
+        assert_eq!(packages, vec!["wl-clipboard".to_string()]);
+    }
 
     #[test]
     fn version_comparison_detects_newer_releases() {
