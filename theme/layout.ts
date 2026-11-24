@@ -69,6 +69,17 @@ export const OTP_CELL_HEIGHT = 44;
 /** The shortest a single-line input renders. */
 export const INPUT_MIN_HEIGHT = 36;
 
+/**
+ * The height of every control in the search row.
+ *
+ * The sidebar toggle, the search field and the scope trigger are one row, so
+ * they share one height rather than each asking for its own: the toggle's
+ * square box, the field's own minimum and the trigger's text plus padding would
+ * otherwise leave three edges at three different heights. It scales with the
+ * text, because the field and the trigger both have to hold a line of it.
+ */
+export const SEARCH_CONTROL_HEIGHT = 32;
+
 /** The frame around the footer's sync spinner. */
 export const SYNC_INDICATOR_SIZE = 14;
 

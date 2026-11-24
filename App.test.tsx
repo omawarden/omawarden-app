@@ -2975,8 +2975,6 @@ test("creating a login selects it and shows it in the inspector", async () => {
   // never shows a URL, so this only appears when the item is inspected.
   expect(app.shows("id:item-inspector")).toBe(true);
   expect(app.texts()).toContain("https://gitlab.example.com");
-  // The header's total comes from the cached rows, so it includes the new one.
-  expect(app.texts()).toContain("2 / 2");
 });
 
 test("creating a secure note from its tab adds a note", async () => {

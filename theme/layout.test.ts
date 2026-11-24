@@ -13,6 +13,7 @@ import {
   ITEM_LIST_MAX_WIDTH,
   ITEM_LIST_MIN_WIDTH,
   ITEM_LIST_WIDTH_RATIO,
+  SEARCH_CONTROL_HEIGHT,
   SYNC_INDICATOR_SIZE,
   VAULT_ICON_SIZE,
   WIDE_INPUT_WIDTH,
@@ -42,6 +43,7 @@ test("layout module owns the lengths that make room for text", () => {
   expect(OTP_CELL_WIDTH).toBe(40);
   expect(OTP_CELL_HEIGHT).toBe(44);
   expect(INPUT_MIN_HEIGHT).toBe(36);
+  expect(SEARCH_CONTROL_HEIGHT).toBe(32);
   expect(SYNC_INDICATOR_SIZE).toBe(14);
   expect(VAULT_ICON_SIZE).toBe(16);
 });

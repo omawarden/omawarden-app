@@ -39,6 +39,7 @@ import {
   LABEL_GUTTER_WIDTH,
   OTP_CELL_HEIGHT,
   OTP_CELL_WIDTH,
+  SEARCH_CONTROL_HEIGHT,
   WIDE_INPUT_WIDTH,
   itemListWidth,
   scaleLength,
@@ -301,6 +302,7 @@ export const lengths = computed(() => ({
   otpCellWidth: scaleLength(OTP_CELL_WIDTH, totalScale()),
   otpCellHeight: scaleLength(OTP_CELL_HEIGHT, totalScale()),
   inputMinHeight: scaleLength(INPUT_MIN_HEIGHT, totalScale()),
+  searchControlHeight: scaleLength(SEARCH_CONTROL_HEIGHT, totalScale()),
 }));
 
 function isSubsequence(pattern: string, text: string): boolean {
