@@ -128,6 +128,18 @@ It uses the `[patch]` in `.cargo/config.toml`, so it builds against the sibling
 `omawarden` checkout rather than the git dependency CI resolves. A green run
 means the push should pass CI.
 
+The engine pin runs on every push, not just before a release. Enable the hook
+once per clone:
+
+```sh
+mise run hooks        # or ./scripts/install_hooks.sh
+```
+
+It points `core.hooksPath` at [`.githooks/`](.githooks), whose `pre-push` runs
+`scripts/check_engine_pin.sh`. That check exists because local builds patch the
+engine to the sibling checkout while CI fetches the pinned revision, so a push
+is the moment the two can silently disagree.
+
 ### GPUI preview
 
 NSH 0.6.1 packages Linux with GTK 4 only. GPUI is a development and embedding

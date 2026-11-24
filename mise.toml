@@ -43,6 +43,10 @@ run = "nsh test"
 description = "Build the release bundle without packaging"
 run = "nsh build --release"
 
+[tasks.hooks]
+description = "Point git at the hooks in .githooks (once per clone)"
+run = "bash scripts/install_hooks.sh"
+
 [tasks.package]
 description = "Package a release (TARGET defaults to linux, OUT to .nsh/out)"
 run = '''
