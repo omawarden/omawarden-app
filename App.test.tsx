@@ -3594,12 +3594,19 @@ test("the expanded workspace lists vaults, folders, the Trash and the account", 
   expect(app.shows("id:nav-folder-all")).toBe(true);
   expect(app.shows("id:nav-folder-folder:Work")).toBe(true);
 
-  // The foot is the Trash and the signed-in account.
+  // The Trash closes the list of places and the account is the column's foot.
   expect(app.shows("id:nav-trash")).toBe(true);
   expect(app.shows("id:nav-user")).toBe(true);
   expect(app.texts()).toContain("user@example.com");
   expect(app.texts()).toContain("vault.example.com");
   expect(app.shows("id:nav-settings")).toBe(true);
+
+  // Reading order runs vaults, folders, Trash, account: the Trash ends the
+  // navigation and the account follows it, so neither is drawn among the
+  // folders.
+  const texts = app.texts();
+  expect(texts.indexOf("Trash")).toBeGreaterThan(texts.indexOf("Work"));
+  expect(texts.indexOf("Trash")).toBeLessThan(texts.indexOf("user@example.com"));
 
   // Expanded, the dropdown's trigger is gone: the sidebar is where a vault is
   // picked, so there is no second way to the same filter.
