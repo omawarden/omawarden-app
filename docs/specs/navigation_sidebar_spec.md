@@ -93,12 +93,21 @@ holding two labelled groups:
 - `VAULTS`: every `snapshot.scopes` entry in projection order — `All Vaults`
   (`shield`), `My Vault` (`user`), then one row per organization (`building`).
   Each row carries its count.
-- `FOLDERS`: an `All Folders` reset row (`folderId === null`) followed by every
-  `snapshot.folders` entry (`folder`).
+- `FOLDERS`: an `All Folders` reset row (`folderId === null`) followed by the
+  folders the active vault holds (`folderOptions`), each with its count. The
+  reset row's count is the active vault's own total (`scopeRowCount`).
 
-Both groups are always rendered. An empty group keeps its heading and shows a
-muted one-line hint (`No folders`), so the sidebar's shape does not move when a
-sync changes the data.
+A folder belongs to the vaults whose rows carry it, so the `FOLDERS` group
+follows the selected vault: picking `Acme` lists Acme's folders only, and the
+personal vault lists its own. A folder held only by the previous vault is
+dropped when the vault changes, so the list cannot empty out under a row that
+is no longer drawn. Both the sidebar and the collapsed dropdown read the same
+live derivation, which keeps the two from disagreeing.
+
+Both groups are always rendered, and the `FOLDERS` heading stays even when the
+active vault holds none: the `All Folders` reset row is the group's fallback, so
+an empty vault shows that row alone and never a "no folders" hint beside it. The
+shape does not move when a sync or a vault change brings folders.
 
 **Trash** — the Trash row (`trash` glyph, count from `trashCount()`) alone,
 straight after the scrolling list and with no rule above it. It is the last place
@@ -285,12 +294,13 @@ current names, so existing selectors stay valid.
 - **New coverage.** Expanded layout: the sidebar renders and lists vaults,
   folders, Trash and the account; an empty folder group keeps its heading and
   shows its hint; a vault row filters the list; a folder row filters it to the
-  intersection while both keep their highlight; the Trash row clears both
-  highlights and dims both groups, and a folder row still leaves the Trash; the
-  toggle collapses and expands; `Ctrl+\` does the same; collapsing keeps the
-  vault filter; a narrow window disables the toggle and renders collapsed with
-  the preference untouched and restores it when the window grows; the
-  preference survives a relaunch through `ui.json`.
+  intersection while both keep their highlight; the folder group follows the
+  selected vault and drops a folder the new vault does not hold; the Trash row
+  clears both highlights and dims both groups, and a folder row still leaves the
+  Trash; the toggle collapses and expands; `Ctrl+\` does the same; collapsing
+  keeps the vault filter; a narrow window disables the toggle and renders
+  collapsed with the preference untouched and restores it when the window grows;
+  the preference survives a relaunch through `ui.json`.
 - **Renames.** `theme/layout.test.ts` moves to the `ITEM_LIST_*` names, keeps
   every curve assertion of `itemListWidth`, and adds the two new constants.
 

@@ -219,19 +219,16 @@ export function NavSidebar() {
           <View style={{ height: 8 }} />
 
           <GroupTitle label="FOLDERS" />
-          <If when={snap().folders.length === 0}>
-            <GroupHint hint="No folders" />
-          </If>
           <SidebarRow
             testID="nav-folder-all"
             name="All Folders"
             icon="folder"
-            count={snap().totalCount}
+            count={store.scopeRowCount()}
             active={!inTrash() && store.folderId() === null}
             dimmed={inTrash()}
             onPress={() => store.setFolder(null)}
           />
-          <Each of={snap().folders} key="index">
+          <Each of={store.folderOptions()} key="index">
             {(folder) => (
               <SidebarRow
                 testID={`nav-folder-${folder().id}`}

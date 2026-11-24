@@ -15,6 +15,7 @@ import {
   type DaemonTickView,
   type DependencyStatusView,
   type GeneratedSecretView,
+  type FolderOptionView,
   type HealthSnapshotView,
   type InspectorView,
   type ItemCategory,
@@ -339,19 +340,9 @@ function filterRows(
   const scored: Array<{ score: number; row: CipherRowView }> = [];
   for (const row of rows) {
     if (cat !== "all" && row.category !== cat) continue;
-    if (activeScope === "personal") {
-      if (row.organization !== null) continue;
-    } else if (activeScope !== "all" && activeScope !== "") {
-      if (activeScope.startsWith("org:")) {
-        const orgName = activeScope.slice(4);
-        if (row.organization !== orgName) continue;
-      }
-    }
+    if (!rowInScope(row, activeScope)) continue;
     if (activeFolder !== null) {
-      const folderName = activeFolder.startsWith("folder:")
-        ? activeFolder.slice(7)
-        : activeFolder;
-      if (row.folder !== folderName) continue;
+      if (row.folder !== folderNameOf(activeFolder)) continue;
     }
     const haystack = `${row.title} ${row.subtitle} ${row.organization ?? ""} ${row.folder ?? ""}`;
     const score = fuzzyScore(queryText, haystack);
@@ -365,6 +356,49 @@ function filterRows(
     return a.row.title.toLowerCase().localeCompare(b.row.title.toLowerCase());
   });
   return scored.map((entry) => entry.row);
+}
+
+/** Whether a row belongs to the active scope, matching the projection's rule. */
+function rowInScope(row: CipherRowView, activeScope: string): boolean {
+  if (activeScope === "personal") {
+    return row.organization === null;
+  }
+  if (activeScope === "all" || activeScope === "") {
+    return true;
+  }
+  if (activeScope.startsWith("org:")) {
+    return row.organization === activeScope.slice(4);
+  }
+  return true;
+}
+
+/** The folder name an option id carries. */
+function folderNameOf(activeFolder: string): string {
+  return activeFolder.startsWith("folder:") ? activeFolder.slice(7) : activeFolder;
+}
+
+/**
+ * The folder options the active scope holds, in first-seen order with counts.
+ *
+ * A folder belongs to the vaults whose rows carry it, so this re-derives from
+ * the cached rows instead of reading the snapshot: a scope switch is a hot
+ * path, and a stale folder list would stay behind the scope the user picked.
+ * The counts follow the scope only, like the projection's own.
+ */
+function foldersInScope(rows: CipherRowView[], activeScope: string): FolderOptionView[] {
+  const options: FolderOptionView[] = [];
+  for (const row of rows) {
+    if (!rowInScope(row, activeScope)) continue;
+    const folder = row.folder;
+    if (!folder) continue;
+    const entry = options.find((option) => option.name === folder);
+    if (entry) {
+      entry.count += 1;
+    } else {
+      options.push({ id: `folder:${folder}`, name: folder, count: 1 });
+    }
+  }
+  return options;
 }
 
 /**
@@ -394,6 +428,32 @@ export const filteredItems = computed<CipherRowView[]>(() =>
     ? filterTrashRows(trashItems() ?? [], category(), search())
     : filterRows(rawItems(), category(), scopeId(), folderId(), search()),
 );
+
+/**
+ * The folders the active vault holds, re-derived from the cached rows.
+ *
+ * Scope and folder are live dimensions on a hot path, so this follows
+ * `scopeId()` rather than reading the snapshot's cold-path list: picking
+ * another vault must drop the previous vault's folders at once. Both groups
+ * that draw folders (`NavSidebar`, `ScopeDropdown`) read this, so the sidebar
+ * and the dropdown never disagree.
+ */
+export const folderOptions = computed<FolderOptionView[]>(() =>
+  foldersInScope(rawItems(), scopeId()),
+);
+
+/**
+ * How many items the active vault holds, before the folder and search narrow
+ * it: the count the `All Folders` reset row shows.
+ *
+ * It is the scope's own total, not the vault-wide one, so it agrees with the
+ * folder rows beside it. The Trash keeps the active vault's count: its own
+ * rows are loaded on demand and the row is not drawn in that view.
+ */
+export const scopeRowCount = computed<number>(() => {
+  const rows = rawItems();
+  return rows.filter((row) => rowInScope(row, scopeId())).length;
+});
 
 /** Every row the current view can list, before filtering. */
 export const viewRows = computed<CipherRowView[]>(() =>
@@ -505,7 +565,7 @@ export const activeFolderName = computed(() => {
   if (!active) {
     return "All Folders";
   }
-  const match = snapshot().folders.find((folder) => folder.id === active);
+  const match = folderOptions().find((folder) => folder.id === active);
   return match ? match.name : active;
 });
 
@@ -1270,6 +1330,13 @@ export function setScope(next: string): void {
   scopeOpen.set(false);
   if (guardCipherFormLeave(() => setScope(next))) return;
   scopeId.set(next);
+  // A folder belongs to the vaults that hold it, so a folder the new vault
+  // does not carry is dropped rather than kept: leaving it active would filter
+  // the list to nothing under a row the user can no longer see.
+  const active = folderId();
+  if (active !== null && !foldersInScope(rawItems(), next).some((folder) => folder.id === active)) {
+    folderId.set(null);
+  }
   // A scope belongs to the active vault: picking one leaves the Trash.
   leaveTrash();
   query();
@@ -2228,11 +2295,14 @@ function folderNameFor(folderId: string | null | undefined): string | null {
   if (!folderId) {
     return null;
   }
-  const match = snapshot().folders.find((folder) => folder.id === folderId);
+  const match = folderOptions().find((folder) => folder.id === folderId);
   if (match) {
     return match.name;
   }
-  return folderId.startsWith("folder:") ? folderId.slice(7) : folderId;
+  // A folder id is `folder:<name>`, and a cipher carries the bare name, so
+  // stripping the prefix covers both shapes even when the option is not drawn
+  // under the active vault.
+  return folderNameOf(folderId);
 }
 
 /** Builds the list row a freshly created cipher shows, from the form input. */
