@@ -1,6 +1,7 @@
 # Engine follow-up: the SSH approval card cannot name the requester off Linux
 
 **Repository**: `icyleaf/omarchy-bitwarden`
+**Issue**: icyleaf/omarchy-bitwarden#435
 **Affects**: `src/ssh_agent.rs` (`Peer::of`)
 
 ## Symptom

@@ -1,6 +1,7 @@
 # Engine follow-up: stop opening files through a fixed freedesktop command
 
 **Repository**: `icyleaf/omarchy-bitwarden`
+**Issue**: icyleaf/omarchy-bitwarden#434
 **Affects**: `src/attachment.rs`
 
 ## Symptom

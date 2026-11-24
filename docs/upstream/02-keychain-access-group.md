@@ -1,6 +1,7 @@
 # Engine follow-up: Keychain items that survive a re-signed binary
 
 **Repository**: `icyleaf/omarchy-bitwarden`
+**Issue**: icyleaf/omarchy-bitwarden#433
 **Affects**: `src/keyring/macos.rs` (`MacOsKeychainProvider`)
 
 ## Symptom

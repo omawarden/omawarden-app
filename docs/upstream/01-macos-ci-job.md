@@ -1,6 +1,7 @@
 # Engine follow-up: compile and run the macOS-gated code in CI
 
 **Repository**: `icyleaf/omarchy-bitwarden`
+**Issue**: icyleaf/omarchy-bitwarden#432
 **Blocks**: any trustworthy claim that `omawarden-app` works on macOS
 
 ## Symptom
