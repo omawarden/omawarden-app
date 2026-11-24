@@ -16,8 +16,14 @@ nsh-base = "0.6.1"
 # Pinned by revision, not branch: the release builds the bundled daemon from
 # this commit, and the app compares every external daemon against it. Update
 # the comment and the revision together. scripts/check_engine_pin.sh enforces it.
-# engine 0.12.0
-omawarden = { git = "https://github.com/icyleaf/omarchy-bitwarden.git", rev = "29584b95d3e6eb557f6075003bf20dde1c5f680e" }
+#
+# engine 0.12.2 (`omawarden-0.12.2`) — the first line that has the pluggable
+# Keyring Provider, so `MacOsKeychainProvider` talks to Security.framework and
+# `SecretToolKeyringProvider` keeps the Linux path. An older engine knows only
+# `secret-tool`, which macOS does not have, so a macOS session would not
+# persist. The revision is the engine's `develop` line, which is what the
+# sibling checkout builds locally.
+omawarden = { git = "https://github.com/icyleaf/omarchy-bitwarden.git", rev = "d36deae9a1ce8ec48b310f3dcba26d69131a3249" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 base64 = "0.22"
