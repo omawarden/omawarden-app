@@ -1,0 +1,136 @@
+name: Install Linux build dependencies
+description: >-
+  Install the GTK 4 and X11 development packages the Linux runner links, from a
+  cached set of `.deb` files when one is available.
+
+# `archive.ubuntu.com` is the slow part of CI, and not because of the index:
+# `apt-get update` takes ~18s, but the 39 MB of package archives behind it took
+# 9 minutes in the worst recorded run. The bandwidth to the mirror is what
+# moves, so the fix is to keep the archives themselves between runs and let apt
+# install from disk.
+#
+# The cache holds `.deb` files, not an installed tree. Everything a package
+# installs still runs through dpkg — `glib-compile-schemas`, `ldconfig`, the
+# gdk-pixbuf loaders at the bottom of GTK 4 — which is exactly why the archives
+# are cached instead of a tarball of `/usr/lib`.
+#
+# The index is deliberately *not* cached. A restored index pins the packages to
+# whatever the mirror published when the cache was written, so a GTK security
+# update would never reach CI until the cache key changed. `apt-get update`
+# costs 18s against the minutes saved, and it also keeps the archives honest: an
+# archive whose version is no longer what the index names is refetched.
+inputs:
+  packages:
+    description: >-
+      The packages to install, space separated. The list is part of the cache
+      key, so editing it starts a fresh cache instead of restoring a set that
+      cannot satisfy the new list.
+    required: true
+  apt-timeout:
+    description: >-
+      Seconds to allow the network path. `apt-get` has no overall deadline of
+      its own, so a throttled mirror hangs until the job's timeout; this turns
+      that into a failure at a known point.
+    required: false
+    default: "600"
+
+runs:
+  using: composite
+  steps:
+    # The list hashes into the key, so a changed dependency set misses the old
+    # cache by construction rather than restoring debs that cannot satisfy it.
+    - name: Key the cache by the package list
+      id: key
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        digest=$(printf '%s' "$PACKAGES" | sha256sum | cut -c1-16)
+        echo "value=apt-${{ runner.os }}-${{ runner.arch }}-${digest}" >> "$GITHUB_OUTPUT"
+
+    - name: Restore the package archives
+      id: cache
+      uses: actions/cache/restore@v6
+      with:
+        path: |
+          ~/.cache/apt/debs
+          ~/.cache/apt/lists
+        key: ${{ steps.key.outputs.value }}
+
+    - name: Install the packages
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+        APT_TIMEOUT: ${{ inputs.apt-timeout }}
+      run: |
+        set -euo pipefail
+
+        # Under $HOME, which the runner user owns, so the cache action can write
+        # it back without a chown.
+        DEBS="$HOME/.cache/apt/debs"
+        CACHED_LISTS="$HOME/.cache/apt/lists"
+        mkdir -p "$DEBS/partial"
+
+        APT_TIMEOUT="${APT_TIMEOUT:-600}"
+
+        # The index is refreshed into a directory that is never cached, so the
+        # packages resolve to what the mirror publishes today. A restored index
+        # would pin them to the mirror's state when the cache was written, and a
+        # GTK security update would then never reach CI.
+        LISTS=$(mktemp -d)/lists
+        mkdir -p "$LISTS/partial"
+
+        # But a restored index is still worth having as a fallback: when the
+        # mirror is unreachable, `apt-get update` leaves this directory empty and
+        # `install` cannot resolve anything, so the cached copy is seeded first
+        # and a successful `update` overwrites it.
+        if [ -d "$CACHED_LISTS" ]; then
+          cp -a "$CACHED_LISTS/." "$LISTS/"
+        fi
+
+        OPTS=(-o "Dir::Cache::archives=$DEBS" -o "Dir::State::lists=$LISTS")
+
+        # `apt-get` run through sudo creates `partial/` as `_apt` with mode 700,
+        # which leaves the directory unreadable to the runner user and to the
+        # cache action that tars it afterwards. Hand it back.
+        restore_ownership() {
+          sudo chown -R "$(id -u):$(id -g)" "$DEBS"
+        }
+
+        # A failed refresh is not fatal: with the seeded index in place, apt
+        # installs from the restored archives and reports the repository as
+        # stale (`W: ... old ones used instead`). A throttled mirror should cost
+        # time, not a red build.
+        sudo timeout "$APT_TIMEOUT" apt-get update -qq "${OPTS[@]}" \
+          -o Acquire::Retries=3 \
+          || echo "::warning::apt-get update failed; installing from the restored index"
+
+        # Installs from the restored archives when their versions still match
+        # the index, and fetches only what changed when they do not: apt trusts
+        # the archive's checksum and filename, so a stale file is refetched
+        # rather than used.
+        sudo timeout "$APT_TIMEOUT" apt-get install -y -qq "${OPTS[@]}" \
+          -o Acquire::Retries=3 \
+          $PACKAGES
+
+        restore_ownership
+
+        # The index that satisfied this run is kept for the next one to fall
+        # back on. Copied out of the temp directory before it goes away.
+        mkdir -p "$CACHED_LISTS"
+        sudo cp -a "$LISTS/." "$CACHED_LISTS/"
+        sudo chown -R "$(id -u):$(id -g)" "$CACHED_LISTS"
+
+    # Saved after a successful install, so the archives on disk are exactly the
+    # set that satisfied the list. Only a non-pull-request run saves: GitHub
+    # scopes a PR's cache to `refs/pull/<n>/merge`, which nothing else can
+    # restore, and a ~370 MB entry per PR is what filled the 10 GB quota and
+    # evicted the branch caches PRs actually need.
+    - name: Save the package archives
+      if: steps.cache.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
+      uses: actions/cache/save@v6
+      with:
+        path: |
+          ~/.cache/apt/debs
+          ~/.cache/apt/lists
+        key: ${{ steps.cache.outputs.cache-primary-key }}

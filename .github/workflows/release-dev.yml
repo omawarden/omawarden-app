@@ -77,12 +77,19 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang llvm libclang-dev pkg-config \
-            libgtk-4-dev libwebkitgtk-6.0-dev libgstreamer1.0-dev \
-            libgstreamer-plugins-base1.0-dev libssl-dev libxcb1-dev \
+        uses: ./.github/actions/install-linux-deps
+        with:
+          # The release build links more than the test build: the packaged
+          # runner carries WebKit and GStreamer. The list is deliberately kept
+          # whole even though the runner image already provides some of it — a
+          # package that is already installed downloads nothing, and a release
+          # should not depend on the image's exact set.
+          packages: >-
+            clang llvm libclang-dev pkg-config libgtk-4-dev
+            libwebkitgtk-6.0-dev libgstreamer1.0-dev
+            libgstreamer-plugins-base1.0-dev libssl-dev libxcb1-dev
             libsecret-1-dev libzstd-dev file wget
+          apt-timeout: "900"
 
       # The Linux archive carries this platform's release runner next to
       # `bin/nsh`; the installer lays it out under ~/.nsh on both runners, so

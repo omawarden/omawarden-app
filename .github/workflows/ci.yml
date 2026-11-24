@@ -14,6 +14,47 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The checks that need no toolchain beyond Rust and Python, and no build at
+  # all. Split out so a formatting or privacy slip turns red in seconds
+  # instead of queueing behind the linker.
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        run: |
+          TOOLCHAIN=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$TOOLCHAIN" --profile minimal --component rustfmt
+          rustup default "$TOOLCHAIN"
+          cargo fmt --version
+
+      - name: Verify version consistency
+        run: |
+          CARGO_VER=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)
+          NSH_VER=$(grep '"version":' nsh.json | head -1 | cut -d'"' -f4)
+          echo "Cargo.toml version: $CARGO_VER, nsh.json version: $NSH_VER"
+          if [ "$CARGO_VER" != "$NSH_VER" ]; then
+            echo "::error::Cargo.toml ($CARGO_VER) and nsh.json ($NSH_VER) version mismatch!"
+            exit 1
+          fi
+
+      - name: Check the engine pin
+        run: bash scripts/check_engine_pin.sh
+
+      - name: Reject private details
+        run: python3 scripts/check_privacy.py
+
+      - name: Check the AUR PKGBUILD
+        run: bash scripts/check_aur_pkgbuild.sh
+
+      - name: Check Rust formatting
+        run: cargo fmt --all --check
+
   test:
     name: Test & Verify (x86_64-linux)
     runs-on: ubuntu-24.04
@@ -53,10 +94,16 @@ jobs:
           rustup default "$TOOLCHAIN"
           cargo fmt --version
 
+      # The runner image already carries clang, pkg-config and libssl-dev, but
+      # the list stays whole on purpose: apt downloads nothing for a package
+      # that is already at the required version, so keeping them costs nothing
+      # and does not depend on the image's exact set. The GTK 4, xcb and
+      # libsecret archives are what the cache actually holds. See the action
+      # for why the `.deb` files are cached rather than an installed tree.
       - name: Install Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang pkg-config libgtk-4-dev libssl-dev libxcb1-dev libsecret-1-dev
+        uses: ./.github/actions/install-linux-deps
+        with:
+          packages: clang pkg-config libgtk-4-dev libssl-dev libxcb1-dev libsecret-1-dev
 
       # The Linux archive carries this platform's runtimes next to `bin/nsh`,
       # which the CLI needs to run apps; keep the official installer's layout
@@ -68,32 +115,20 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           nsh --version
 
+      # A pull request restores the cache of its base branch and its own merge
+      # ref, never a sibling's. So a compiled tree saved here is only ever
+      # restorable by a re-run of the same PR: `target` is 800 MB, and eight of
+      # those filled the 10 GB quota and evicted the branch cache that later PRs
+      # do restore. Six of seven sampled runs then found no cache at all.
+      #
+      # Restoring still matters — a hit turns the Rust build from minutes into
+      # seconds — so the cache is read on every run and written only where it
+      # can be read back: the branch pushes and the release workflow.
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           key: ci-x86_64
-
-      - name: Verify version consistency
-        run: |
-          CARGO_VER=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)
-          NSH_VER=$(grep '"version":' nsh.json | head -1 | cut -d'"' -f4)
-          echo "Cargo.toml version: $CARGO_VER, nsh.json version: $NSH_VER"
-          if [ "$CARGO_VER" != "$NSH_VER" ]; then
-            echo "::error::Cargo.toml ($CARGO_VER) and nsh.json ($NSH_VER) version mismatch!"
-            exit 1
-          fi
-
-      - name: Check the engine pin
-        run: bash scripts/check_engine_pin.sh
-
-      - name: Reject private details
-        run: python3 scripts/check_privacy.py
-
-      - name: Check the AUR PKGBUILD
-        run: bash scripts/check_aur_pkgbuild.sh
-
-      - name: Check Rust formatting
-        run: cargo fmt --all --check
+          save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: TypeScript type-check
         run: nsh check
