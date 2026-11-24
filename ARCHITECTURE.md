@@ -42,9 +42,9 @@ Following deep-module design principles ("Design It Twice" Hybrid Design 3 + Des
    - In `real_snapshot()`, when the daemon is not yet unlocked or running, also query `auth_manager().get_status(false)` in-process so `locked` vs `login` state, `email`, `server_url`, and `quick_unlock` readiness are always accurate even before the daemon starts.
 3. **In-Process Clipboard Guard (`clipboard_copy`)**:
    - `omawarden::clipboard::ClipboardManager::copy_with_expiry` spawns `std::env::current_exe().arg("clipboard-holder")` when `clear_seconds > 0`.
-   - To avoid spawning the NSH GUI binary as `clipboard-holder`, `clipboard_copy(text, sensitive)` in `src/lib.rs` **MUST**:
-     1. Call `ClipboardManager::default().copy(text, sensitive, 0)` (which sets the Wayland clipboard via `wl-copy` without spawning `current_exe()`).
-     2. If `sensitive && config.clipboard_clear_seconds > 0`, increment a global `AtomicU64` generation counter and spawn an in-process Rust timer thread (`std::thread::spawn`) that sleeps for `clipboard_clear_seconds` and clears the clipboard (`Command::new("wl-copy").arg("--clear")`) if the generation counter has not changed.
+   - To avoid spawning the NSH GUI binary as `clipboard-holder`, `clipboard_copy(text, sensitive)` **MUST**:
+     1. Call `ClipboardManager::default().copy(text, sensitive, 0)`, which copies through the engine's resolved Clipboard Provider (Wayland's `wl-copy` on Linux, the pasteboard on macOS) without spawning `current_exe()`.
+     2. If `sensitive && config.clipboard_clear_seconds > 0`, take the next value of a global `AtomicU64` generation counter and spawn an in-process Rust timer thread that sleeps for `clipboard_clear_seconds` and then clears the clipboard through `ClipboardManager::default().clear()` if the generation counter has not changed. The clear MUST go through the engine rather than an external command, so the resolved provider decides how to clear and its takeover-protection applies: a provider that sees another application take the selection over declines to wipe it. Whether a scheduled clear is still the newest is a pure function of the counter, so tests exercise both answers without sleeping.
 4. **Stateful Vault & SSH Agent Operations**: Talk to the Unix socket daemon (`omawarden::daemon::send_request`) using the existing IPC actions (`ping`, `status`, `unlock`, `quick_unlock`, `wipe_quick_unlock`, `set_quick_unlock`, `lock`, `sync`, `list`, `search`, `ssh_key_create`, `get_item`, `get_ssh_key`, `get_attachment_key`, `totp`, `ssh_agent_apply`, `ssh_agent_status`, `ssh_agent_pending`, `ssh_agent_reply`).
    - Background status/ping polls **MUST** pass `"touch": false` so daemon idle auto-lock is never reset by background UI timers.
 5. **Stateless Operations**: Call `omawarden` Rust library functions directly in-process:
@@ -235,7 +235,7 @@ pub mod native {
    - Password generator length MUST be strictly validated in `5..=128`. Values outside this range (or non-numeric) must return an explicit, actionable error (`"Password length must be between 5 and 128 characters. Use 14 or more characters for a strong password."`) and NEVER be silently clamped.
    - Passphrase generator word count MUST be strictly validated in `3..=20`. Values outside this range must return `"Passphrase word count must be between 3 and 20 words."` and NEVER be silently clamped.
 2. **No Plaintext Secret Leakage**:
-   - Clipboard copies of passwords, TOTPs, CVVs, private keys, and hidden custom fields MUST pass `sensitive = true` (`wl-copy --sensitive` + Clipboard Guard auto-clear after `clipboard_clear_seconds`).
+   - Clipboard copies of passwords, TOTPs, CVVs, private keys, and hidden custom fields MUST pass `sensitive = true` (the provider marks the copy sensitive where it can, and the Clipboard Guard auto-clears after `clipboard_clear_seconds`).
    - Diagnostic logs and server URLs in the Logs tab must redact tokens, passwords, private IPs, **absolute paths, and local filenames** (`sanitize_log` / `sanitize_server_url`).
 3. **Strict URL Scheme Validation**:
    - `launch_url` must parse with `url::Url::parse` and only allow `http` or `https` schemes.

@@ -1,13 +1,15 @@
 //! The clipboard: copying a cipher field, copying arbitrary text, and the
 //! clear timer.
 //!
-//! [`ClipboardEngine`] is the seam. [`InProcess`] writes the real Wayland
-//! clipboard; [`Mock`] only reports the toast the UI tests assert on.
+//! [`ClipboardEngine`] is the seam. [`InProcess`] copies through the engine's
+//! clipboard manager, which dispatches to the platform provider (Wayland's
+//! `wl-copy` on Linux, the pasteboard on macOS); [`Mock`] only reports the toast
+//! the UI tests assert on.
 
-use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+use omawarden::clipboard::ClipboardManager;
 use omawarden::vault::VaultItem;
 use serde_json::json;
 
@@ -29,7 +31,7 @@ pub(crate) trait ClipboardEngine {
     fn copy_text(&self, text: String, label: String, sensitive: bool) -> CopyOutcomeView;
 }
 
-/// The real adapter: the Wayland clipboard and its clear timer.
+/// The real adapter: the engine's clipboard manager and its clear timer.
 pub(crate) struct InProcess;
 
 impl ClipboardEngine for InProcess {
@@ -68,32 +70,60 @@ impl ClipboardEngine for Mock {
 /// Monotonic token that invalidates older clipboard-clear timers.
 static CLIPBOARD_GENERATION: AtomicU64 = AtomicU64::new(0);
 
-/// Copies text with the in-process clipboard guard.
+/// Whether a clear scheduled for `scheduled` is still the newest copy.
+///
+/// The guard's timer asks this instead of comparing inside a thread, so a test
+/// can exercise both answers without sleeping: the newest generation clears, a
+/// superseded one does not.
+fn still_the_newest_copy(newest: u64, scheduled: u64) -> bool {
+    newest == scheduled
+}
+
+/// Whether a copy of this shape schedules a clear at all.
+fn schedules_clear(sensitive: bool, ttl_seconds: u32) -> bool {
+    sensitive && ttl_seconds > 0
+}
+
+/// The clear this copy scheduled: the generation it belongs to, if it has one.
+///
+/// A non-sensitive copy, and one with a zero TTL, keep their value on the
+/// clipboard, so they schedule nothing.
+fn clear_generation(sensitive: bool, ttl_seconds: u32, generation: &AtomicU64) -> Option<u64> {
+    if !schedules_clear(sensitive, ttl_seconds) {
+        return None;
+    }
+    Some(generation.fetch_add(1, Ordering::SeqCst) + 1)
+}
+
+/// Copies text and, for a sensitive copy, schedules the Clipboard Guard clear.
 ///
 /// `ClipboardManager` spawns `std::env::current_exe() clipboard-holder` when a
 /// timeout is passed. Inside an nsh host that executable is the GUI binary, so
 /// the copy is made without a timeout and a Rust timer clears the clipboard
 /// after `clipboard_clear_seconds` unless a newer copy superseded it.
+///
+/// The clear goes through the engine's own manager rather than an external
+/// command, so the resolved provider decides how to clear: the pasteboard on
+/// macOS, and on Linux the Wayland provider, which declines to wipe a selection
+/// another application has taken over since our copy.
 fn clipboard_copy(text: &str, sensitive: bool) -> bool {
     let config = load_config();
-    let copied = omawarden::clipboard::ClipboardManager::default().copy(text, sensitive, 0);
-    if copied && sensitive && config.clipboard_clear_seconds > 0 {
-        let generation = CLIPBOARD_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
-        let seconds = config.clipboard_clear_seconds as u64;
-        let _ = std::thread::Builder::new()
-            .name("omawarden-clipboard-guard".into())
-            .spawn(move || {
-                std::thread::sleep(Duration::from_secs(seconds));
-                if CLIPBOARD_GENERATION.load(Ordering::SeqCst) == generation {
-                    let _ = Command::new("wl-copy")
-                        .arg("--clear")
-                        .stdin(Stdio::null())
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status();
-                }
-            });
+    let copied = ClipboardManager::default().copy(text, sensitive, 0);
+    let ttl = u32::try_from(config.clipboard_clear_seconds.max(0)).unwrap_or(0);
+    if !copied {
+        return false;
     }
+    let Some(generation) = clear_generation(sensitive, ttl, &CLIPBOARD_GENERATION) else {
+        return copied;
+    };
+    let _ = std::thread::Builder::new()
+        .name("omawarden-clipboard-guard".into())
+        .spawn(move || {
+            std::thread::sleep(Duration::from_secs(ttl as u64));
+            if still_the_newest_copy(CLIPBOARD_GENERATION.load(Ordering::SeqCst), generation) {
+                let _ = ClipboardManager::default().clear();
+            }
+        });
     copied
 }
 
@@ -414,5 +444,58 @@ fn mock_copy_text(
         sensitive,
         cleared_after_seconds: ttl,
         error: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_newest_generation_clears() {
+        assert!(still_the_newest_copy(7, 7));
+    }
+
+    #[test]
+    fn a_superseded_generation_does_not_clear() {
+        assert!(!still_the_newest_copy(8, 7));
+    }
+
+    #[test]
+    fn only_a_sensitive_copy_with_a_ttl_schedules_a_clear() {
+        assert!(schedules_clear(true, 30));
+        assert!(!schedules_clear(false, 30));
+        assert!(!schedules_clear(true, 0));
+        assert!(!schedules_clear(false, 0));
+    }
+
+    #[test]
+    fn a_scheduled_clear_takes_the_next_generation() {
+        let generation = AtomicU64::new(41);
+        assert_eq!(clear_generation(true, 30, &generation), Some(42));
+        assert_eq!(generation.load(Ordering::SeqCst), 42);
+    }
+
+    #[test]
+    fn a_copy_that_schedules_nothing_leaves_the_generation_alone() {
+        let generation = AtomicU64::new(41);
+        assert_eq!(clear_generation(false, 30, &generation), None);
+        assert_eq!(clear_generation(true, 0, &generation), None);
+        assert_eq!(generation.load(Ordering::SeqCst), 41);
+    }
+
+    #[test]
+    fn a_superseded_copy_loses_the_clear_to_the_newer_one() {
+        let generation = AtomicU64::new(0);
+        let first = clear_generation(true, 30, &generation).unwrap();
+        let second = clear_generation(true, 30, &generation).unwrap();
+        assert!(!still_the_newest_copy(
+            generation.load(Ordering::SeqCst),
+            first
+        ));
+        assert!(still_the_newest_copy(
+            generation.load(Ordering::SeqCst),
+            second
+        ));
     }
 }
