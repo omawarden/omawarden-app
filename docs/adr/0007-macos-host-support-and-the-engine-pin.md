@@ -115,6 +115,36 @@ contract that is enforced.**
 
 ## What has been settled since
 
+- **This repository has a macOS job of its own.** `.github/workflows/ci.yml`
+  gained a `macos-latest` job (`Test & Verify (macos-arm64)`) that runs the same
+  gates as Linux: version consistency, the pin check, the privacy check,
+  formatting, `nsh check`, and `nsh test`. The suite covers `cargo test` through
+  the runner's own configuration, so there is no separate step. What it buys is
+  the one thing no Linux run can do — this app's Rust compiled for a real macOS
+  target, and the whole suite passing in a process whose `cfg!(target_os)` is
+  macOS. What it does *not* do is written into the job itself: no Keychain round
+  trip, no signed bundle, no `--target macos`, so `open({ platform })` remains a
+  weaker claim than "a macOS window behaves".
+- **The pin check could pass without running, and that is fixed.** In CI the
+  pinned engine's source arrives only with the dependency, so the script has
+  nothing to inspect until `cargo fetch` has run; the "no checkout" path then
+  returned success *before* the macOS Keychain provider check, which is the
+  script's whole reason to exist. It now also accepts Cargo's own checkout as a
+  source of truth, both jobs fetch before the check, and under `CI` an
+  uninspectable pin is a failure rather than a warning — a warning was what let
+  the build print a green tick over a check that never happened. Locally it
+  stays a warning, because a missing sibling checkout is a missing convenience.
+  All three paths were exercised by hand.
+- **The macOS job's first run found a defect Linux had been hiding.** Nineteen
+  headless tests failed on the runner and passed on Linux and on a real Mac.
+  The cause is not the platform: the store defers bridge calls that touch the
+  network or the disk so the press paints first, and a test step resolves on a
+  fixed quiet window that does not cover a timer. On fast hardware the timer won
+  every time. Raising the deferral to three seconds on Linux reproduced 52
+  failures, so the tests had always been passing on luck. They now wait for the
+  settled view, the closed modal, or the preference write they assert on, while
+  the one case whose subject *is* the loading transition keeps observing it. The
+  guard is the exaggerated delay, not a slow runner.
 - **The engine's macOS code is compiled and tested by CI.** The engine's
   workflow gained a blocking `backend-macos` job on `macos-latest` that runs
   clippy and the whole test suite after provisioning an ephemeral unlocked
@@ -148,9 +178,6 @@ contract that is enforced.**
 
 ## What remains unverified
 
-- **This repository has no macOS job of its own.** The engine's job covers the
-  engine; nothing in this repository's CI compiles its Rust or runs its `nsh`
-  suite on macOS. Every macOS result below was obtained by hand on one machine.
 - **Keychain access control under ad-hoc signing.** An ad-hoc signature's
   designated requirement is its code hash, so it changes on every rebuild; the
   default Keychain ACL trusts only the process that wrote the item; and both the
@@ -169,10 +196,23 @@ contract that is enforced.**
   sign-in against a real server or about the Keychain surviving a relaunch.
   Nothing in this repository's CI can run the manual flow, and this record says
   so rather than implying it passed.
+- **What a packaged macOS bundle needs.** `nsh package --target macos` has never
+  been run, so bundle layout, the daemon's place inside it, the `Info.plist`, and
+  whether the artifact launches at all are unknown. The bundled-daemon argument
+  is from source — the lookup probes `current_exe().parent()`, which is where a
+  bundle puts the executable — and has never been checked against an artifact.
+  The macOS job does not close this: it never packages.
+- **macOS Tab focus traversal.** The app moves focus itself on the premise that
+  the platform's native traversal visits only text fields. On macOS the
+  documentation says Tab visits fields *and* pressable views. Either the premise
+  is stale or macOS double-steps; it was never measured, so nothing was decided.
 
 ## See also
 
-- `docs/specs/macos_support_spec.md` — the specification this ADR records
+- `docs/specs/macos_support_spec.md` — the specification that made macOS a
+  supported host
+- `docs/specs/macos_adaptation_spec.md` — the second specification: what
+  *finished adapting* means, now that the app runs
 - `docs/upstream/` — the four engine-side requests this repository filed
   against `icyleaf/omarchy-bitwarden`, mirrored here with the details. Three are
   closed: a macOS CI job (#432), a host-aware opener (#434), and SSH peer
