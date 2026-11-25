@@ -73,6 +73,12 @@ jobs:
         with:
           key: ci-x86_64
 
+      # The pin check inspects the engine source to prove it carries a macOS
+      # Keychain provider, and in CI that source arrives only with the dependency.
+      # See the macOS job for the same step.
+      - name: Fetch dependencies
+        run: cargo fetch
+
       - name: Verify version consistency
         run: |
           CARGO_VER=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)
@@ -171,6 +177,23 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: ci-macos
+
+      # `check_engine_pin.sh` inspects the pinned engine to prove it has a macOS
+      # Keychain provider. That inspection needs the source, and in CI the source
+      # only arrives with the dependency itself — so fetch first, or the script
+      # has nothing to look at and its own warning would be the only output.
+      - name: Fetch dependencies
+        run: cargo fetch
+
+      - name: Verify version consistency
+        run: |
+          CARGO_VER=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)
+          NSH_VER=$(grep '"version":' nsh.json | head -1 | cut -d'"' -f4)
+          echo "Cargo.toml version: $CARGO_VER, nsh.json version: $NSH_VER"
+          if [ "$CARGO_VER" != "$NSH_VER" ]; then
+            echo "::error::Cargo.toml ($CARGO_VER) and nsh.json ($NSH_VER) version mismatch!"
+            exit 1
+          fi
 
       - name: Check the engine pin
         run: bash scripts/check_engine_pin.sh

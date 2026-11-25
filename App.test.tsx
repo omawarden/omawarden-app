@@ -249,7 +249,7 @@ test("dependency check lists packages and launches the installer", async () => {
 
   await app.press("id:install-dependencies");
   expect(app.shows("id:toast")).toBe(true);
-  expect(app.texts()).toContain("Installing missing packages in a floating terminal.");
+  await app.waitFor(`text:Installing missing packages in a floating terminal.`);
 
   await app.press("id:recheck-dependencies");
   expect(app.shows("id:dependency-check-view")).toBe(true);
@@ -390,7 +390,7 @@ test("master password login unlocks the vault", async () => {
   await app.type("id:login-password", "correct horse battery staple");
   await app.press("id:login-submit");
 
-  expect(app.shows("id:vault-workspace")).toBe(true);
+  await app.waitFor("id:vault-workspace");
   expect(app.shows("id:search-header")).toBe(true);
   expect(app.shows("id:empty-inspector")).toBe(true);
 });
@@ -401,7 +401,7 @@ test("login validates a missing email and password", async () => {
   expect(app.shows("id:auth-logo")).toBe(true);
   await app.press("id:login-submit");
   expect(app.shows("id:auth-view-login")).toBe(true);
-  expect(app.texts()).toContain("Email and master password are required.");
+  await app.waitFor(`text:Email and master password are required.`);
   // The form already shows the failure inline; a toast would repeat it.
   expect(app.shows("id:toast")).toBe(false);
 });
@@ -411,18 +411,18 @@ test("failed login preserves typed credentials and a success clears them", async
 
   await app.type("id:login-password", "hunter2");
   await app.press("id:login-submit");
-  expect(app.texts()).toContain("Email and master password are required.");
+  await app.waitFor(`text:Email and master password are required.`);
   expect(app.value("id:login-password")).toBe("hunter2");
 
   await app.type("id:login-email", "user@example.com");
   await app.press("id:login-submit");
-  expect(app.shows("id:vault-workspace")).toBe(true);
+  await app.waitFor("id:vault-workspace");
 
   await app.press("id:lock-vault");
-  expect(app.shows("id:auth-view-locked")).toBe(true);
+  await app.waitFor("id:auth-view-locked");
   await app.press("id:logout");
   await app.press("id:logout-confirm");
-  expect(app.shows("id:auth-view-login")).toBe(true);
+  await app.waitFor("id:auth-view-login");
   expect(app.value("id:login-password")).toBe("");
 });
 
@@ -484,7 +484,7 @@ test("API key login unlocks the vault", async () => {
   await app.type("id:login-client-secret", "client-secret");
   await app.press("id:login-submit");
 
-  expect(app.shows("id:vault-workspace")).toBe(true);
+  await app.waitFor("id:vault-workspace");
 });
 
 test("two-factor verification supports email resend and completes login", async () => {
@@ -498,18 +498,18 @@ test("two-factor verification supports email resend and completes login", async 
   await app.type("id:login-password", "master-password");
   await app.press("id:login-submit");
 
-  expect(app.shows("id:auth-view-twoFactor")).toBe(true);
+  await app.waitFor("id:auth-view-twoFactor");
   expect(app.shows("id:twofactor-provider-0")).toBe(true);
   expect(app.shows("id:twofactor-provider-1")).toBe(true);
 
   await app.press("id:twofactor-provider-1");
   expect(app.shows("id:twofactor-resend")).toBe(true);
   await app.press("id:twofactor-resend");
-  expect(app.texts()).toContain("Verification email sent.");
+  await app.waitFor(`text:Verification email sent.`);
 
   await app.type("id:twofactor-code", "123456");
   await app.press("id:twofactor-submit");
-  expect(app.shows("id:vault-workspace")).toBe(true);
+  await app.waitFor("id:vault-workspace");
 });
 
 test("the second login step hides the credentials it no longer needs", async () => {
@@ -523,7 +523,7 @@ test("the second login step hides the credentials it no longer needs", async () 
   await app.type("id:login-password", "master-password");
   await app.press("id:login-submit");
 
-  expect(app.shows("id:auth-view-twoFactor")).toBe(true);
+  await app.waitFor("id:auth-view-twoFactor");
   expect(app.shows("id:login-email")).toBe(false);
   expect(app.shows("id:login-password")).toBe(false);
   expect(app.shows("id:login-tab-password")).toBe(false);
@@ -546,6 +546,7 @@ test("Back from the second step returns to the credentials it kept", async () =>
   await app.type("id:login-email", "user@example.com");
   await app.type("id:login-password", "master-password");
   await app.press("id:login-submit");
+  await app.waitFor("id:auth-view-twoFactor");
   await app.press("id:login-back");
 
   expect(app.shows("id:auth-view-login")).toBe(true);
@@ -569,8 +570,9 @@ test("Back clears the second-factor error with the step", async () => {
   await app.type("id:login-password", "master-password");
   await app.press("id:login-submit");
 
+  await app.waitFor("id:auth-view-twoFactor");
   await app.press("id:twofactor-submit");
-  expect(app.texts()).toContain("Enter a verification code.");
+  await app.waitFor(`text:Enter a verification code.`);
 
   await app.press("id:login-back");
   expect(app.texts()).not.toContain("Enter a verification code.");
@@ -594,7 +596,7 @@ test("new-device verification is the same step without provider tabs", async () 
   await app.type("id:login-password", "master-password");
   await app.press("id:login-submit");
 
-  expect(app.shows("id:auth-view-twoFactor")).toBe(true);
+  await app.waitFor("id:auth-view-twoFactor");
   expect(app.shows("id:twofactor-provider-0")).toBe(false);
   expect(app.texts()).toContain("New Device Email Verification Code:");
   expect(app.shows("id:login-email")).toBe(false);
@@ -602,7 +604,7 @@ test("new-device verification is the same step without provider tabs", async () 
 
   await app.type("id:twofactor-code", "123456");
   await app.press("id:twofactor-submit");
-  expect(app.shows("id:vault-workspace")).toBe(true);
+  await app.waitFor("id:vault-workspace");
 });
 
 test("two-factor verification rejects an empty code", async () => {
@@ -616,13 +618,14 @@ test("two-factor verification rejects an empty code", async () => {
   await app.type("id:login-password", "master-password");
   await app.press("id:login-submit");
 
+  await app.waitFor("id:auth-view-twoFactor");
   await app.press("id:twofactor-submit");
+  await app.waitFor(`text:Enter a verification code.`);
   expect(app.shows("id:auth-view-twoFactor")).toBe(true);
-  expect(app.texts()).toContain("Enter a verification code.");
 
   await app.type("id:twofactor-code", "654321");
   await app.press("id:twofactor-submit");
-  expect(app.shows("id:vault-workspace")).toBe(true);
+  await app.waitFor("id:vault-workspace");
 });
 
 test("two-factor selects the server's default FIDO2 provider", async () => {
@@ -645,7 +648,7 @@ test("two-factor selects the server's default FIDO2 provider", async () => {
   await app.type("id:login-password", "master-password");
   await app.press("id:login-submit");
 
-  expect(app.shows("id:auth-view-twoFactor")).toBe(true);
+  await app.waitFor("id:auth-view-twoFactor");
   expect(app.shows("id:twofactor-retry-fido2")).toBe(true);
   expect(app.shows("id:twofactor-code")).toBe(false);
   expect(app.shows("id:login-back")).toBe(true);
@@ -677,7 +680,7 @@ test("FIDO2 is offered on Linux but not on macOS", async () => {
     await app.type("id:login-email", "user@example.com");
     await app.type("id:login-password", "master-password");
     await app.press("id:login-submit");
-    expect(app.shows("id:auth-view-twoFactor")).toBe(true);
+    await app.waitFor("id:auth-view-twoFactor");
     return app;
   };
 
@@ -714,9 +717,9 @@ test("FIDO2 retry performs the security key assertion and unlocks", async () => 
   await app.type("id:login-password", "master-password");
   await app.press("id:login-submit");
 
-  expect(app.shows("id:twofactor-retry-fido2")).toBe(true);
+  await app.waitFor("id:twofactor-retry-fido2");
   await app.press("id:twofactor-retry-fido2");
-  expect(app.shows("id:vault-workspace")).toBe(true);
+  await app.waitFor("id:vault-workspace");
 });
 
 test("locked vault offers quick unlock and master password unlock", async () => {
@@ -732,7 +735,7 @@ test("locked vault offers quick unlock and master password unlock", async () => 
   expect(app.shows("id:quick-unlock")).toBe(true);
 
   await app.press("id:quick-unlock");
-  expect(app.shows("id:vault-workspace")).toBe(true);
+  await app.waitFor("id:vault-workspace");
 });
 
 test("locked vault unlocks with the master password and can log out", async () => {
@@ -746,16 +749,16 @@ test("locked vault unlocks with the master password and can log out", async () =
 
   await app.type("id:unlock-password", "master-password");
   await app.press("id:unlock-submit");
-  expect(app.shows("id:vault-workspace")).toBe(true);
+  await app.waitFor("id:vault-workspace");
 
   await app.press("id:lock-vault");
-  expect(app.shows("id:auth-view-locked")).toBe(true);
+  await app.waitFor("id:auth-view-locked");
   expect(app.texts()).toContain("Vault locked.");
 
   await app.press("id:logout");
-  expect(app.shows("id:logout-confirm")).toBe(true);
+  await app.waitFor("id:logout-confirm");
   await app.press("id:logout-confirm");
-  expect(app.shows("id:auth-view-login")).toBe(true);
+  await app.waitFor("id:auth-view-login");
 });
 
 // ---------------------------------------------------------------------------
@@ -999,7 +1002,7 @@ test("sync while the Trash is open reloads the Trash", async () => {
   expect(app.shows("id:action-palette-modal")).toBe(true);
   await app.press("id:action-sync");
   expect(app.shows("id:action-palette-modal")).toBe(false);
-  expect(app.texts()).toContain("Vault synchronized.");
+  await app.waitFor(`text:Vault synchronized.`);
 
   // Trash was re-read on sync.
   expect(OmawardenBridge.mockTrashQueries()).toBe(2);
@@ -1073,7 +1076,7 @@ test("restoring from the Trash removes the row, keeps the view, and toasts", asy
   // One press, no confirmation dialog.
   await app.press("id:trash-restore");
   expect(app.shows("id:cipher-delete-modal")).toBe(false);
-  expect(app.texts()).toContain('Restored "Old GitHub".');
+  await app.waitFor(`text:Restored "Old GitHub".`);
   expect(app.shows("id:cipher-row-trashed1")).toBe(false);
 
   // The user stays in the Trash; its rows were re-read after the mutation.
@@ -1102,7 +1105,7 @@ test("restoring keeps the selection inside the remaining Trash rows", async () =
 
   await app.press("id:trash-restore");
   expect(app.shows("id:cipher-row-trashed1")).toBe(true);
-  expect(app.shows("id:cipher-row-trashed2")).toBe(false);
+  await app.waitFor("id:cipher-row-trashed2", { state: "gone" });
   // The clamped selection still inspects a Trash row, not the empty state.
   expect(app.shows("id:trash-inspector")).toBe(true);
   expect(app.texts()).toContain("Scope: Trash");
@@ -1121,7 +1124,7 @@ test("a failed restore shows the daemon error and leaves the row in place", asyn
   await app.press("id:cipher-row-trashed1");
   await app.press("id:trash-restore");
 
-  expect(app.texts()).toContain(error);
+  await app.waitFor(`text:${error}`);
   expect(app.shows("id:cipher-row-trashed1")).toBe(true);
   expect(app.texts()).toContain("Scope: Trash");
   // A failure does not invalidate or re-read the loaded Trash list.
@@ -1174,7 +1177,7 @@ test("confirming permanent delete purges the row and keeps the Trash open", asyn
 
   // Confirm the permanent delete.
   await app.press("id:cipher-delete-confirm");
-  expect(app.shows("id:cipher-delete-modal")).toBe(false);
+  await app.waitFor("id:cipher-delete-modal", { state: "gone" });
   expect(app.shows("id:cipher-row-trashed1")).toBe(false);
   // Newest deletion first, so trashed2 is still there and becomes the first row.
   expect(app.shows("id:cipher-row-trashed2")).toBe(true);
@@ -1197,7 +1200,7 @@ test("a failed permanent delete shows the daemon error and leaves the row in pla
   await app.press("id:trash-delete-permanent");
   await app.press("id:cipher-delete-confirm");
 
-  expect(app.texts()).toContain(error);
+  await app.waitFor(`text:${error}`);
   expect(app.shows("id:cipher-row-trashed1")).toBe(true);
   expect(app.texts()).toContain("Scope: Trash");
   // A failure does not invalidate or re-read the loaded Trash list.
@@ -1225,7 +1228,7 @@ test("a permanent delete shows a loading state before the purge finishes", async
 
   // Once the deferred work runs, the modal closes and the row is gone.
   await app.wait(100);
-  expect(app.shows("id:cipher-delete-modal")).toBe(false);
+  await app.waitFor("id:cipher-delete-modal", { state: "gone" });
   expect(app.shows("id:cipher-row-trashed1")).toBe(false);
 });
 
@@ -1244,7 +1247,7 @@ test("active vault delete stays soft and never reaches permanent mode", async ()
 
   // Confirm soft delete.
   await app.press("id:cipher-delete-confirm");
-  expect(app.shows("id:cipher-delete-modal")).toBe(false);
+  await app.waitFor("id:cipher-delete-modal", { state: "gone" });
   expect(app.shows("id:cipher-row-login1")).toBe(false);
   // The item is in the Trash now.
   await app.press("id:scope-trigger");
@@ -1689,7 +1692,7 @@ test("SSH inspector reveals, copies, and exports the private key", async () => {
   expect(app.shows("id:ssh-key-modal")).toBe(true);
   expect(app.shows("id:ssh-export-panel")).toBe(true);
   await app.press("id:ssh-export-save");
-  expect(app.shows("id:ssh-key-modal")).toBe(false);
+  await app.waitFor("id:ssh-key-modal", { state: "gone" });
   expect(app.texts()).toContain("Exported to ~/.ssh/id_ed25519");
 });
 
@@ -1928,7 +1931,7 @@ test("action palette lists context actions, filters, syncs, and opens modals", a
 
   await app.press("id:action-sync");
   expect(app.shows("id:action-palette-modal")).toBe(false);
-  expect(app.texts()).toContain("Vault synchronized.");
+  await app.waitFor(`text:Vault synchronized.`);
 
   await app.keyboard.press("mod+k");
   await app.type("id:action-palette-search", "not-a-command");
@@ -1947,7 +1950,7 @@ test("action palette lists context actions, filters, syncs, and opens modals", a
 
   await app.keyboard.press("mod+k");
   await app.press("id:action-lock");
-  expect(app.shows("id:auth-view-locked")).toBe(true);
+  await app.waitFor("id:auth-view-locked");
   expect(app.texts()).toContain("Vault locked.");
 });
 
@@ -1973,7 +1976,7 @@ test("action palette selects with arrows, runs with enter, and honors direct sho
   await app.type("id:action-palette-search", "sync");
   await app.keyboard.press("enter");
   expect(app.shows("id:action-palette-modal")).toBe(false);
-  expect(app.texts()).toContain("Vault synchronized.");
+  await app.waitFor(`text:Vault synchronized.`);
 });
 
 test("global shortcuts copy TOTP, username, and toggle the password reveal", async () => {
@@ -2008,7 +2011,7 @@ test("a failed sync keeps the vault unlocked and surfaces the error", async () =
   expect(app.shows("id:item-inspector")).toBe(true);
 
   await app.press("id:sync-vault");
-  expect(app.texts()).toContain("Network unavailable.");
+  await app.waitFor(`text:Network unavailable.`);
   expect(app.shows("id:item-inspector")).toBe(true);
   expect(app.shows("id:auth-view-locked")).toBe(false);
 });
@@ -2067,7 +2070,7 @@ test("keyboard shortcuts navigate, copy, open modals, and lock", async () => {
   expect(app.shows("id:password-generator-modal")).toBe(false);
 
   await app.keyboard.press("mod+r");
-  expect(app.texts()).toContain("Vault synchronized.");
+  await app.waitFor(`text:Vault synchronized.`);
 
   await app.keyboard.press("mod+,");
   expect(app.shows("id:settings-modal")).toBe(true);
@@ -2075,7 +2078,7 @@ test("keyboard shortcuts navigate, copy, open modals, and lock", async () => {
   expect(app.shows("id:settings-modal")).toBe(false);
 
   await app.keyboard.press("mod+l");
-  expect(app.shows("id:auth-view-locked")).toBe(true);
+  await app.waitFor("id:auth-view-locked");
 
   await app.keyboard.press("mod+g");
   expect(app.shows("id:password-generator-modal")).toBe(false);
@@ -2142,7 +2145,7 @@ test("unlocking puts the keyboard in the vault search", async () => {
   });
 
   await app.press("id:quick-unlock");
-  expect(app.shows("id:vault-workspace")).toBe(true);
+  await app.waitFor("id:vault-workspace");
 
   await app.keyboard.press("g");
   expect(app.value("id:vault-search")).toBe("g");
@@ -2200,7 +2203,7 @@ test("settings modal exposes general, appearance, security, diagnose, logs, and 
   await app.press("id:settings-policy-always");
   await app.press("id:settings-quick-unlock");
   await app.press("id:settings-save");
-  expect(app.texts()).toContain("Settings saved.");
+  await app.waitFor(`text:Settings saved.`);
 
   await app.press("id:settings-tab-diagnose");
   expect(app.shows("id:settings-diagnose")).toBe(true);
@@ -2225,7 +2228,7 @@ test("settings modal exposes general, appearance, security, diagnose, logs, and 
   expect(app.shows("id:view-release-notes")).toBe(true);
 
   await app.press("id:check-updates");
-  expect(app.texts()).toContain("You are running the latest version.");
+  await app.waitFor(`text:You are running the latest version.`);
 
   await app.press("id:view-release-notes");
   expect(app.shows("id:release-notes-modal")).toBe(true);
@@ -2426,16 +2429,16 @@ test("integration: unlock, auth failure, diagnose, filter, and copy report", asy
   await app.type("id:login-email", "user@example.com");
   await app.type("id:login-password", "correct horse battery staple");
   await app.press("id:login-submit");
-  expect(app.shows("id:vault-workspace")).toBe(true);
+  await app.waitFor("id:vault-workspace");
 
   // 2. Trigger an authentication failure (empty master password), then recover.
   await app.press("id:lock-vault");
-  expect(app.shows("id:auth-view-locked")).toBe(true);
+  await app.waitFor("id:auth-view-locked");
   await app.press("id:unlock-submit");
-  expect(app.shows("id:auth-view-locked")).toBe(true);
+  await app.waitFor(`text:Master password is required.`);
   await app.type("id:unlock-password", "correct horse battery staple");
   await app.press("id:unlock-submit");
-  expect(app.shows("id:vault-workspace")).toBe(true);
+  await app.waitFor("id:vault-workspace");
 
   // 3. Open Settings -> Logs.
   await app.press("id:open-settings");
@@ -2508,7 +2511,11 @@ test("settings switches between dark and light themes", async () => {
   expect(app.shows("id:settings-theme-dark")).toBe(true);
 
   await app.press("id:settings-theme-light");
-  expect(app.texts()).toContain("Theme: Light");
+  await app.waitFor(`text:Theme: Light`);
+
+  // The theme is written behind the press so the switch paints first; the
+  // relaunch must not read the preference before the write lands.
+  await app.waitUntil(() => OmawardenBridge.getUiPrefs().theme === "light");
 
   // A reload starts a fresh app over the process-wide mock preferences, the
   // same way a real launch reads `ui.json`; the theme must come back. No
@@ -2521,7 +2528,7 @@ test("settings switches between dark and light themes", async () => {
     platform: "linux",
     host: { params: { mock: true } },
   });
-  expect(reloaded.texts()).toContain("Theme: Light");
+  await reloaded.waitFor(`text:Theme: Light`);
 
   await reloaded.press("id:open-settings");
   await reloaded.press("id:settings-tab-appearance");
@@ -2619,7 +2626,7 @@ test("release notes load when an update is available", async () => {
   await app.press("id:open-settings");
   await app.press("id:settings-tab-about");
   await app.press("id:check-updates");
-  expect(app.texts()).toContain("Latest: 0.6.0");
+  await app.waitFor(`text:Latest: 0.6.0`);
 
   await app.press("id:modal-close");
   expect(app.shows("id:update-badge")).toBe(true);
@@ -2662,7 +2669,7 @@ test("SSH key modal previews, reveals, copies, and saves a generated key", async
   expect(app.texts()).toContain("Copied public key to clipboard.");
 
   await app.press("id:ssh-save");
-  expect(app.shows("id:ssh-key-modal")).toBe(false);
+  await app.waitFor("id:ssh-key-modal", { state: "gone" });
   expect(app.texts()).toContain("Saved SSH key to the vault.");
 });
 
@@ -2684,7 +2691,7 @@ test("SSH key modal rejects an invalid imported key and blocks empty export", as
 
   await app.press("id:ssh-save");
   expect(app.shows("id:ssh-key-modal")).toBe(true);
-  expect(app.texts()).toContain("Could not prepare the SSH key.");
+  await app.waitFor(`text:Could not prepare the SSH key.`);
   expect(app.shows("id:ssh-save-error")).toBe(true);
   expect(app.texts().join("\n")).toContain("Unable to parse OpenSSH private key");
 
@@ -2992,7 +2999,7 @@ test("SSH key saves to the vault and its inspector reveals the saved private key
   // Save the key to the vault. The mock adapter answers ssh_key_create_v2 with
   // a receipt and "Saved SSH key to the vault.", then the modal closes.
   await app.press("id:ssh-save");
-  expect(app.shows("id:ssh-key-modal")).toBe(false);
+  await app.waitFor("id:ssh-key-modal", { state: "gone" });
   expect(app.texts()).toContain("Saved SSH key to the vault.");
 
   // The saved key shows up in the SSH key category without another query and
@@ -3026,7 +3033,7 @@ test("creating a login from the Logins tab adds a row", async () => {
   await app.type("id:inspector-form-password", "hunter2");
   await app.press("id:inspector-form-submit");
 
-  expect(app.shows("id:inspector-form")).toBe(false);
+  await app.waitFor("id:inspector-form", { state: "gone" });
   expect(app.shows("id:cipher-row-mock-cipher")).toBe(true);
   expect(app.texts()).toContain("GitLab");
 });
@@ -3047,7 +3054,7 @@ test("a new login appears in the list before the vault is synced", async () => {
   await app.type("id:inspector-form-password", "hunter2");
   await app.press("id:inspector-form-submit");
 
-  expect(app.shows("id:inspector-form")).toBe(false);
+  await app.waitFor("id:inspector-form", { state: "gone" });
   expect(app.texts()).toContain("GitLab");
 });
 
@@ -3064,7 +3071,7 @@ test("creating a login selects it and shows it in the inspector", async () => {
 
   // The new row is selected, so the inspector shows its website. A list row
   // never shows a URL, so this only appears when the item is inspected.
-  expect(app.shows("id:item-inspector")).toBe(true);
+  await app.waitFor("id:item-inspector");
   expect(app.texts()).toContain("https://gitlab.example.com");
 });
 
@@ -3078,7 +3085,7 @@ test("creating a secure note from its tab adds a note", async () => {
   await app.type("id:inspector-form-name", "Recovery codes");
   await app.press("id:inspector-form-submit");
 
-  expect(app.shows("id:inspector-form")).toBe(false);
+  await app.waitFor("id:inspector-form", { state: "gone" });
   expect(app.shows("id:cipher-row-mock-cipher")).toBe(true);
   expect(app.texts()).toContain("Recovery codes");
 });
@@ -3128,7 +3135,7 @@ test("editing a single field in the Inspector updates the item", async () => {
   await app.type("id:inspector-form-username", "new-user");
   await app.press("id:inspector-form-submit");
 
-  expect(app.shows("id:inspector-form")).toBe(false);
+  await app.waitFor("id:inspector-form", { state: "gone" });
   expect(app.texts()).toContain("new-user");
 });
 
@@ -3143,7 +3150,7 @@ test("the edit form opens from the inspector and saves changes", async () => {
   await app.type("id:inspector-form-name", "GitHub Cloud");
   await app.press("id:inspector-form-submit");
 
-  expect(app.shows("id:inspector-form")).toBe(false);
+  await app.waitFor("id:inspector-form", { state: "gone" });
   expect(app.texts()).toContain("GitHub Cloud");
 });
 
@@ -3156,7 +3163,7 @@ test("deleting a cipher asks first, then removes the row", async () => {
   expect(app.texts()).toContain("The item can be restored from the trash.");
 
   await app.press("id:cipher-delete-confirm");
-  expect(app.shows("id:cipher-delete-modal")).toBe(false);
+  await app.waitFor("id:cipher-delete-modal", { state: "gone" });
   expect(app.shows("id:cipher-row-login1")).toBe(false);
 });
 
@@ -3370,7 +3377,7 @@ test("a login can be created without a password", async () => {
   await app.type("id:inspector-form-name", "No Password Yet");
   await app.press("id:inspector-form-submit");
 
-  expect(app.shows("id:inspector-form")).toBe(false);
+  await app.waitFor("id:inspector-form", { state: "gone" });
   expect(app.shows("id:cipher-row-mock-cipher")).toBe(true);
 });
 
@@ -3395,7 +3402,7 @@ test("the form's Generate button opens the generator and fills the password", as
 
   await app.type("id:inspector-form-name", "Generated");
   await app.press("id:inspector-form-submit");
-  expect(app.shows("id:inspector-form")).toBe(false);
+  await app.waitFor("id:inspector-form", { state: "gone" });
   expect(app.shows("id:cipher-row-mock-cipher")).toBe(true);
 });
 
@@ -3468,7 +3475,7 @@ test("Ctrl+S saves the form", async () => {
   await app.type("id:inspector-form-name", "Key Saved");
   await app.keyboard.press("mod+s");
 
-  expect(app.shows("id:inspector-form")).toBe(false);
+  await app.waitFor("id:inspector-form", { state: "gone" });
   expect(app.texts()).toContain("Key Saved");
 });
 
@@ -3535,7 +3542,7 @@ test("Shift+Tab wraps the form's ring onto the save button", async () => {
   await app.keyboard.press("shift+tab");
   await app.keyboard.press("enter");
 
-  expect(app.shows("id:inspector-form")).toBe(false);
+  await app.waitFor("id:inspector-form", { state: "gone" });
   expect(app.texts()).toContain("Wrapped");
 });
 
@@ -3595,7 +3602,7 @@ test("the create form stores every website URL", async () => {
   await app.type("id:inspector-form-uri-1", "https://two.example.com");
   await app.press("id:inspector-form-submit");
 
-  expect(app.shows("id:inspector-form")).toBe(false);
+  await app.waitFor("id:inspector-form", { state: "gone" });
   await app.press("id:cipher-row-mock-cipher");
   expect(app.texts()).toContain("https://one.example.com");
   expect(app.texts()).toContain("https://two.example.com");
@@ -3627,12 +3634,16 @@ test("the edit form only lets the first URL change and keeps the rest", async ()
   await app.type("id:inspector-form-uri-0", "https://renamed.example.com");
   await app.press("id:inspector-form-submit");
 
-  expect(app.texts()).toContain("https://renamed.example.com");
+  await app.waitFor(`text:https://renamed.example.com`);
   expect(app.texts()).toContain("https://two.example.com");
 });
 
 test("editing another field leaves the untouched password alone", async () => {
-  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+  // A manual clock keeps the daemon and TOTP tickers from rebuilding the
+  // inspector between the save and the reveal. On the system clock a tick can
+  // land in that gap and the press is handled against a view replaced
+  // mid-step, which on a slow runner means the reveal never takes.
+  const app = await openMockWithClock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
   await app.press("id:cipher-row-login1");
   await app.press("id:edit-cipher");
@@ -3640,9 +3651,9 @@ test("editing another field leaves the untouched password alone", async () => {
   await app.type("id:inspector-form-name", "GitHub Renamed");
   await app.press("id:inspector-form-submit");
 
-  expect(app.texts()).toContain("GitHub Renamed");
+  await app.waitFor("id:inspector-form", { state: "gone" });
   await app.press("id:reveal-password");
-  expect(app.texts()).toContain("hunter2");
+  await app.waitFor(`text:hunter2`);
 });
 
 test("cards and identities offer no cipher mutation", async () => {
@@ -3998,6 +4009,10 @@ test("the sidebar's preference survives a relaunch", async () => {
   await app.press("id:nav-sidebar-toggle");
   expect(app.shows("id:nav-sidebar")).toBe(false);
 
+  // The choice is written behind the press so the collapse paints first. A
+  // relaunch must not read it before the write lands.
+  await app.waitUntil(() => OmawardenBridge.getUiPrefs().sidebarCollapsed);
+
   // A relaunch reads the same process-wide preferences a real launch reads
   // from `ui.json`; the collapsed choice must come back with it.
   const reloaded = await open("./App.tsx", {
@@ -4006,6 +4021,6 @@ test("the sidebar's preference survives a relaunch", async () => {
     platform: "linux",
     host: { params: { mock: true } },
   });
-  expect(reloaded.shows("id:nav-sidebar")).toBe(false);
+  await reloaded.waitFor("id:nav-sidebar", { state: "gone" });
   expect(reloaded.shows("id:scope-trigger")).toBe(true);
 });

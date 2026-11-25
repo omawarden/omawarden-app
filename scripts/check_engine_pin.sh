@@ -77,6 +77,14 @@ fi
 
 if [ -z "$CHECKOUT" ]; then
   echo "Engine pin: $REV (no checkout available; Cargo fetches the pin)"
+  # Locally this is a missing convenience: run `cargo fetch` if you want the
+  # provider check. In CI it is a hole in the job, because the step exists to
+  # run that check and a warning lets the build pass without it — the exact
+  # shape of failure this script was supposed to stop printing green ticks over.
+  if [ -n "${CI:-}" ]; then
+    echo "::error::could not inspect the pinned engine, so the macOS Keychain provider check did not run. Run \`cargo fetch\` before this script." >&2
+    exit 1
+  fi
   echo "::warning::could not inspect the pinned engine, so the macOS Keychain provider check did not run"
   exit 0
 fi
