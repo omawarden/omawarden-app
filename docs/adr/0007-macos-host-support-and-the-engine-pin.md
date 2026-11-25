@@ -125,6 +125,17 @@ contract that is enforced.**
   about. Filed as
   [icyleaf/omarchy-bitwarden#432](https://github.com/icyleaf/omarchy-bitwarden/issues/432),
   drafted in `docs/upstream/01-macos-ci-job.md`.
+- **The Rust half is surveyed and the defects it hid are fixed.** A pass over
+  all 21 modules found every remaining Linux-only mechanism behind a
+  `Host` gate with a tested macOS arm, so no capability loss was findable by
+  looking for Linux paths — and the two real defects were not paths at all.
+  FIDO2 was offered on macOS and could never work (the engine needs
+  `/dev/hidraw`), so the second factor dead-ended on an install that changes
+  nothing; providers now derive availability from `Host`, and the Diagnose row
+  declares itself unsupported rather than missing. The `~/Downloads` allow-list
+  arm was dead on both hosts because the engine's default keeps its `~`.
+  Whether other keystrokes are reserved is now guarded by opening the app on
+  both platforms in the suite.
 - **The two engine-side Linux-only mechanisms are gone.**
   `attachment::get_attachment` no longer shells out to `xdg-open`; the engine
   hands opening back to the host, which is why both call sites here take its
