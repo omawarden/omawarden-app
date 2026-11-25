@@ -3639,7 +3639,11 @@ test("the edit form only lets the first URL change and keeps the rest", async ()
 });
 
 test("editing another field leaves the untouched password alone", async () => {
-  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+  // A manual clock keeps the daemon and TOTP tickers from rebuilding the
+  // inspector between the save and the reveal. On the system clock a tick can
+  // land in that gap and the press is handled against a view replaced
+  // mid-step, which on a slow runner means the reveal never takes.
+  const app = await openMockWithClock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
   await app.press("id:cipher-row-login1");
   await app.press("id:edit-cipher");
