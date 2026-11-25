@@ -611,7 +611,12 @@ fn sanitize_log_line(message: &str) -> String {
     LOCAL_PATH_RE
         .get_or_init(|| {
             regex::Regex::new(
-                r#"(?:~/[^\s"'`]+|/(?:home|Users|root|tmp|var|run|mnt|media|srv|opt|usr|etc|lib|bin|sbin|proc|dev)/[^\s"'`]*)"#,
+                // `/Users` covers macOS home paths, but macOS's real temporary
+                // directory is `/private/var/folders/…`, and a bundle's own
+                // paths live under `/Applications`, `/Library` and `/Volumes`.
+                // Without them a macOS path reaches the Log Viewer and the
+                // Diagnostic Report intact.
+                r#"(?:~/[^\s"'`]+|/(?:home|Users|private|Library|Applications|Volumes|root|tmp|var|run|mnt|media|srv|opt|usr|etc|lib|bin|sbin|proc|dev)/[^\s"'`]*)"#,
             )
             .unwrap()
         })
@@ -956,6 +961,22 @@ mod tests {
         assert!(line.contains("Bearer <REDACTED>"));
         assert!(line.contains("<REDACTED IP>"));
         assert!(line.contains("<REDACTED PATH>"));
+    }
+
+    /// macOS paths do not start with `/home`, and its temporary directory is
+    /// `/private/var/folders/…`, so a Linux-only prefix list redacts nothing.
+    #[test]
+    fn log_line_redacts_macos_paths() {
+        for path in [
+            "/Users/user/Library/Application Support/omawarden/config.json",
+            "/private/var/folders/x9/abc123/T/omawarden-runtime-501/preview.pdf",
+            "/Applications/Omawarden.app/Contents/MacOS/Omawarden",
+            "/Volumes/External/vault-item.attachment",
+        ] {
+            let line = format_log_line(LogLevel::Error, "app:vault", &format!("failed at {path}"));
+            assert!(!line.contains(path), "{path} survived redaction: {line}");
+            assert!(line.contains("<REDACTED PATH>"), "{line}");
+        }
     }
 
     #[test]
