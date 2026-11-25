@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use crate::diagnostics::{LogLevel, push_log};
 use crate::host::{Host, open_with};
-use crate::{AttachmentOutcomeView, MockState, daemon, load_config, with_mock};
+use crate::{AttachmentOutcomeView, MockState, daemon, expand_home, load_config, with_mock};
 
 /// The attachment capabilities the bridge exposes.
 pub(crate) trait AttachmentsEngine {
@@ -443,7 +443,12 @@ fn mock_save_attachment(
 fn real_open_attachment_path(path: String) -> bool {
     let candidate = Path::new(path.trim());
     let preview_root = engine_preview_root();
-    let download = PathBuf::from(load_config().download_dir);
+    // The engine's default download directory is the literal `~/Downloads`
+    // (`config.rs`'s `DEFAULT_DOWNLOAD_DIR`), so it has to be expanded before
+    // the allow-list sees it: `Path::starts_with` never matches an absolute
+    // candidate against a path whose first component is `~`, which made the
+    // download arm refuse every file on a default install.
+    let download = expand_home(&load_config().download_dir);
     if !candidate.is_file() || !attachment_openable(candidate, &preview_root, &download) {
         return false;
     }
@@ -543,5 +548,33 @@ mod tests {
             &preview_root(),
             Path::new("")
         ));
+    }
+
+    /// The engine's default is the literal `~/Downloads`, and the wiring has to
+    /// expand it before the allow-list sees it.
+    ///
+    /// The old code passed `PathBuf::from(load_config().download_dir)` straight
+    /// through, so on a default install the download root was the *relative*
+    /// path `~/Downloads` and `starts_with` could never match an absolute
+    /// candidate. Every test here fed an already-expanded `/home/user/Downloads`
+    /// and so missed it. This one starts from the string the engine really
+    /// returns.
+    #[test]
+    fn the_engines_tilde_default_is_expanded_before_the_allow_list_sees_it() {
+        let raw = "~/Downloads";
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
+        let candidate = PathBuf::from(&home).join("Downloads").join("report.pdf");
+
+        // Pinned: the unexpanded value refuses the file, which is the defect.
+        assert!(!attachment_openable(
+            &candidate,
+            &preview_root(),
+            Path::new(raw)
+        ));
+
+        // The wiring expands it first, and then the arm works.
+        let expanded = expand_home(raw);
+        assert!(expanded.is_absolute());
+        assert!(attachment_openable(&candidate, &preview_root(), &expanded));
     }
 }
