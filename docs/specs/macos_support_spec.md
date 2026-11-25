@@ -233,7 +233,7 @@ Both surfaces are computed from the host:
 | Surface | Linux | macOS |
 | --- | --- | --- |
 | Required dependency rows | daemon, `secret-tool`, `wl-copy` | daemon |
-| Optional row | `fido2-token` | `fido2-token` |
+| Optional row | `fido2-token` | `fido2-token`, marked unavailable: the engine looks for `/dev/hidraw`, which macOS lacks |
 | Keyring health row | "Secret Service Keyring", names `secret-tool` | "macOS Keychain", names Security.framework |
 | Clipboard health row | "Wayland Clipboard", names `wl-copy` | "Clipboard", names the pasteboard |
 | Install action | offered | refused, so the interface hides it |
@@ -349,7 +349,11 @@ report must say so explicitly rather than implying the macOS path was verified.
 - **Screen-lock auto-lock on macOS.** The engine's lock detection is
   Omarchy/Hyprland-specific.
 - **FIDO2 on macOS.** The engine shells out to `fido2-token`, which is a
-  libfido2 CLI; macOS has no equivalent to shell out to.
+  libfido2 CLI; macOS has no equivalent to shell out to, and device discovery
+  additionally requires `/dev/hidraw`. Making it work needs IOKit's HID manager
+  and is a separate piece of work. What is *not* out of scope is declining to
+  offer it: the provider is marked unavailable on macOS so the second factor
+  never dead-ends on an install that cannot help.
 - **Code signing, notarization, and a macOS release workflow.** Ad-hoc signing
   is the current ceiling; distributing needs a Developer ID and a decision about
   where artifacts live.
