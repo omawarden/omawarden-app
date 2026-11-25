@@ -161,6 +161,7 @@ fn package_status(
         required,
         installed,
         version,
+        unsupported: None,
     }
 }
 
@@ -175,12 +176,16 @@ fn real_dependencies() -> DependencyStatusView {
             required: true,
             installed: daemon_source.resolved_path.is_some(),
             version: daemon_source.resolved_version.clone(),
+            unsupported: None,
         },
         &package_status,
     );
+    // A package no install can provide is not "missing": listing it would put
+    // an unsatisfiable name in front of the installer, and the mock has to
+    // agree with the real path or the two views diverge.
     let missing_packages: Vec<String> = packages
         .iter()
-        .filter(|package| !package.installed)
+        .filter(|package| !package.installed && package.unsupported.is_none())
         .map(|package| package.name.clone())
         .collect();
     let missing_required: Vec<String> = packages
@@ -219,12 +224,25 @@ fn dependency_rows(
         ));
         rows.push(probe("wl-copy", "wl-clipboard", "Wayland clipboard", true));
     }
-    rows.push(probe(
+    let mut fido2 = probe(
         "fido2-token",
         "libfido2",
         "FIDO2 security keys (optional)",
         false,
-    ));
+    );
+    // The engine discovers keys by parsing `fido2-token -L` and requiring the
+    // device node to start with `/dev/hidraw`, and macOS has no such node: a
+    // macOS port would need IOKit's HID manager, not this CLI. So the row stays
+    // — hiding it would leave the Diagnose view quietly incomplete — but it
+    // says why no install can satisfy it, instead of reporting a missing
+    // package whose suggested fix does nothing.
+    if host == Host::MacOs {
+        fido2.unsupported = Some(
+            "The engine discovers security keys through /dev/hidraw, which macOS does not have."
+                .to_string(),
+        );
+    }
+    rows.push(fido2);
     rows
 }
 
@@ -242,6 +260,7 @@ fn mock_dependencies(
         required: true,
         installed: !daemon_missing,
         version: Some("mock".to_string()),
+        unsupported: None,
     };
     let packages = dependency_rows(host, &daemon, &|_binary, name, description, required| {
         PackageStatusView {
@@ -250,11 +269,12 @@ fn mock_dependencies(
             required,
             installed: !missing.iter().any(|entry| entry == name),
             version: Some("mock".to_string()),
+            unsupported: None,
         }
     });
     let missing_packages: Vec<String> = packages
         .iter()
-        .filter(|package| !package.installed)
+        .filter(|package| !package.installed && package.unsupported.is_none())
         .map(|package| package.name.clone())
         .collect();
     let missing_required: Vec<String> = packages
@@ -761,6 +781,7 @@ mod tests {
             required,
             installed: true,
             version: Some(binary.to_string()),
+            unsupported: None,
         }
     }
 
@@ -813,6 +834,33 @@ mod tests {
             let key = rows.iter().find(|row| row.name == "libfido2").unwrap();
             assert!(!key.required, "{host:?} made the optional row required");
         }
+    }
+
+    /// The row stays on macOS, and says why installing it would not help.
+    ///
+    /// Hiding it would make the Diagnose view quietly incomplete, and reporting
+    /// it as merely missing would tell the user to install a package that
+    /// changes nothing: the engine looks for `/dev/hidraw`, which macOS does
+    /// not have.
+    #[test]
+    fn macos_marks_the_security_key_row_unsupported_rather_than_missing() {
+        let rows = dependency_rows(Host::MacOs, &daemon_row(), &all_installed);
+        let key = rows.iter().find(|row| row.name == "libfido2").unwrap();
+        assert!(
+            key.unsupported.is_some(),
+            "macOS left the FIDO2 row looking installable"
+        );
+        assert!(key.unsupported.as_deref().unwrap().contains("/dev/hidraw"));
+    }
+
+    #[test]
+    fn linux_leaves_the_security_key_row_supported() {
+        let rows = dependency_rows(Host::Linux, &daemon_row(), &all_installed);
+        let key = rows.iter().find(|row| row.name == "libfido2").unwrap();
+        assert!(
+            key.unsupported.is_none(),
+            "Linux wrongly marked an installable package unsupported"
+        );
     }
 
     #[test]

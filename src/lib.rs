@@ -785,26 +785,30 @@ fn configure_mock_from_json(state: &mut MockState, value: &Value) {
             .collect();
     }
     if let Some(two_factor) = value.get("twoFactor") {
+        // Providers go through the same constructor the real path uses, so a
+        // host-dependent field cannot be overridden here and derived there.
+        // A test may still name which provider ids the server offered.
         let providers = two_factor
             .get("providers")
             .and_then(|v| v.as_array())
             .map(|array| {
                 array
                     .iter()
-                    .map(|provider| TwoFactorProviderView {
-                        id: json_u32(provider, "id").unwrap_or(0),
-                        name: json_string(provider, "name").unwrap_or_default(),
-                        label: json_string(provider, "label").unwrap_or_default(),
-                        available: json_bool(provider, "available", true),
+                    .map(|provider| {
+                        crate::auth::two_factor_provider_view(
+                            json_u32(provider, "id").unwrap_or(0) as i32,
+                            state.host,
+                        )
                     })
                     .collect()
             })
-            .unwrap_or_else(default_two_factor_providers);
+            .unwrap_or_else(|| default_two_factor_providers_for(state.host));
         state.two_factor = Some(TwoFactorChallengeView {
             email: json_string(two_factor, "email").unwrap_or_else(|| state.email.clone()),
             providers,
             selected_provider: json_u32(two_factor, "selectedProvider").unwrap_or(0),
             fido2_status: json_string(two_factor, "fido2Status"),
+            fido2_unsupported: auth::fido2_unsupported(state.host),
             new_device: json_bool(two_factor, "newDevice", false),
         });
     }
@@ -897,32 +901,20 @@ fn configure_mock_from_json(state: &mut MockState, value: &Value) {
 
 /// The default two-factor provider list.
 fn default_two_factor_providers() -> Vec<TwoFactorProviderView> {
-    vec![
-        TwoFactorProviderView {
-            id: 0,
-            name: "authenticator".to_string(),
-            label: "Authenticator App".to_string(),
-            available: true,
-        },
-        TwoFactorProviderView {
-            id: 1,
-            name: "email".to_string(),
-            label: "Email".to_string(),
-            available: true,
-        },
-        TwoFactorProviderView {
-            id: 3,
-            name: "yubikey".to_string(),
-            label: "YubiKey OTP".to_string(),
-            available: true,
-        },
-        TwoFactorProviderView {
-            id: 7,
-            name: "fido2".to_string(),
-            label: "FIDO2 Security Key".to_string(),
-            available: true,
-        },
-    ]
+    default_two_factor_providers_for(crate::host::Host::current())
+}
+
+/// The provider list for `host`.
+///
+/// One constructor, so a host-dependent field cannot be `true` in one place and
+/// `false` in `auth::two_factor_provider_view`. The two lists drifted once
+/// already, which is how macOS kept offering FIDO2 after the auth path knew
+/// better.
+fn default_two_factor_providers_for(host: crate::host::Host) -> Vec<TwoFactorProviderView> {
+    [0, 1, 3, 7]
+        .into_iter()
+        .map(|id| crate::auth::two_factor_provider_view(id, host))
+        .collect()
 }
 
 /// A simple action outcome.
@@ -1433,6 +1425,7 @@ mod tests {
     use crate::auth::{normalize_optional_code, two_factor_provider_view};
     use crate::cipher_mutation::CipherEngine;
     use crate::format::{MASK, format_card_number, mask_card_number};
+    use crate::host::Host;
     use crate::platform::validate_launch_url;
     use crate::projection::fuzzy_score;
     use serde_json::json;
@@ -1925,19 +1918,35 @@ mod tests {
 
     #[test]
     fn two_factor_providers_are_labelled_in_process() {
-        let fido2 = two_factor_provider_view(7);
+        let fido2 = two_factor_provider_view(7, Host::Linux);
         assert_eq!(fido2.id, 7);
         assert_eq!(fido2.name, "fido2");
         assert_eq!(fido2.label, "FIDO2 Security Key");
         assert!(fido2.available);
 
-        let email = two_factor_provider_view(1);
+        let email = two_factor_provider_view(1, Host::Linux);
         assert_eq!(email.name, "email");
         assert_eq!(email.label, "Email");
 
-        let unknown = two_factor_provider_view(9);
+        let unknown = two_factor_provider_view(9, Host::Linux);
         assert_eq!(unknown.name, "provider-9");
         assert_eq!(unknown.label, "Provider 9");
+    }
+
+    /// FIDO2 is the one provider whose availability depends on the host.
+    ///
+    /// The engine finds keys through `/dev/hidraw`, so on macOS the row exists
+    /// and cannot work. Marking it available there is what made the second
+    /// factor a dead end, offering an install that changes nothing.
+    #[test]
+    fn fido2_is_only_available_where_the_engine_can_find_a_key() {
+        assert!(two_factor_provider_view(7, Host::Linux).available);
+        assert!(!two_factor_provider_view(7, Host::MacOs).available);
+        // Every other provider is host-independent.
+        for id in [0, 1, 3] {
+            assert!(two_factor_provider_view(id, Host::Linux).available);
+            assert!(two_factor_provider_view(id, Host::MacOs).available);
+        }
     }
 
     use std::path::Path;

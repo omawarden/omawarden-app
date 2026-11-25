@@ -108,6 +108,14 @@ pub struct PackageStatusView {
     pub installed: bool,
     /// The installed version, when known.
     pub version: Option<String>,
+    /// Why this host cannot provide the package at all, when it cannot.
+    ///
+    /// Absent when the package is merely missing: that is fixable, and the row
+    /// says so. Present when no install could satisfy it, which is what the
+    /// FIDO2 row is on macOS — the engine discovers keys under `/dev/hidraw`
+    /// and macOS has no such node, so telling the user to install `libfido2`
+    /// there would be advice that cannot work.
+    pub unsupported: Option<String>,
 }
 
 /// The dependency check result.
@@ -152,6 +160,13 @@ pub struct TwoFactorChallengeView {
     pub selected_provider: u32,
     /// The FIDO2 status or error text.
     pub fido2_status: Option<String>,
+    /// Why security keys cannot work on this host, when they cannot.
+    ///
+    /// `fido2_status` says `tool_not_found` both for "macOS, where no tool can
+    /// help" and for "Linux without libfido2 installed", which are opposite
+    /// situations with opposite advice. This field separates them without
+    /// overloading the status string, and it is derived from `Host`.
+    pub fido2_unsupported: Option<String>,
     /// Whether this is the new-device verification flow.
     pub new_device: bool,
 }

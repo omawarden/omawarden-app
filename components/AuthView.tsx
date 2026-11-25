@@ -523,10 +523,15 @@ function SecondFactorForm() {
   const challenge = () => store.snapshot().twoFactor;
   const fido2 = () => store.selectedProvider() === 7;
   const fidoStatus = () => store.fido2Status() ?? challenge()?.fido2Status ?? null;
+  // `tool_not_found` means two different things; on macOS no install helps.
+  const fidoUnsupported = () => challenge()?.fido2Unsupported ?? null;
 
   const primaryLabel = () => {
     if (!fido2()) {
       return submitting() ? "Verifying…" : "Verify";
+    }
+    if (fidoUnsupported()) {
+      return "Security Keys Unavailable";
     }
     if (fidoStatus() === "tool_not_found") {
       return "Install libfido2";
@@ -536,8 +541,14 @@ function SecondFactorForm() {
     }
     return submitting() ? "Waiting for key touch…" : "Verify with Security Key";
   };
-  const primaryDisabled = () => submitting() || (fido2() && fidoStatus() === "no_device");
+  const primaryDisabled = () =>
+    submitting() ||
+    (fido2() && (fidoStatus() === "no_device" || fidoUnsupported() !== null));
   const primaryPress = () => {
+    if (fido2() && fidoUnsupported()) {
+      // Nothing to install and nothing to press: the card explains why.
+      return;
+    }
     if (fido2() && fidoStatus() === "tool_not_found") {
       store.installFido2();
       return;
@@ -751,14 +762,25 @@ function TwoFactorSection() {
 function Fido2Card() {
   const palette = store.palette;
   const status = () => store.fido2Status() ?? store.snapshot().twoFactor?.fido2Status ?? null;
-  const missingTool = () => status() === "tool_not_found";
+  // On macOS `tool_not_found` is permanent: the engine looks for `/dev/hidraw`,
+  // and no package provides one. Showing the install command there would hand
+  // the user a fix that cannot work, so the platform decides which of the two
+  // readings of the same status this is.
+  const unsupported = () => store.snapshot().twoFactor?.fido2Unsupported ?? null;
+  const missingTool = () => status() === "tool_not_found" && !unsupported();
   const title = () => {
+    if (unsupported()) {
+      return "Security Keys Unavailable";
+    }
     if (missingTool()) {
       return "libfido2 not installed";
     }
     return status() === "no_device" ? "No Security Key Detected" : "Security Key Detected";
   };
   const description = () => {
+    if (unsupported()) {
+      return unsupported()!;
+    }
     if (missingTool()) {
       return "Install 'libfido2' to use security keys, or select another method:";
     }

@@ -7,6 +7,7 @@
 use serde_json::json;
 
 use crate::diagnostics::{LogLevel, push_log};
+use crate::host::Host;
 use crate::{
     ActionOutcomeView, AppPhase, AuthActionInput, AuthKind, MockState, TwoFactorChallengeView,
     TwoFactorProviderView, VaultFilterInput, VaultSnapshotView, config_manager, daemon,
@@ -119,8 +120,32 @@ fn apply_remember_email(input: &AuthActionInput) {
     let _ = manager.save(&config);
 }
 
-/// Builds the provider list the two-factor screen shows.
-pub(crate) fn two_factor_provider_view(id: i32) -> TwoFactorProviderView {
+/// Why security keys cannot work on `host`, when they cannot.
+///
+/// The engine discovers a key by parsing `fido2-token -L` and requiring the
+/// device node to start with `/dev/hidraw`. macOS has no such node and would
+/// need IOKit's HID manager instead, so on macOS `fido2_status` can never leave
+/// `tool_not_found` no matter what the user installs. Linux reaches the same
+/// status by simply not having libfido2, where installing it does help — which
+/// is why the two need saying apart.
+pub(crate) fn fido2_unsupported(host: Host) -> Option<String> {
+    match host {
+        Host::Linux => None,
+        Host::MacOs => Some(
+            "Security keys need /dev/hidraw, which macOS does not have. Use another method."
+                .to_string(),
+        ),
+    }
+}
+
+/// Builds one provider row for the two-factor screen.
+///
+/// `available` says whether *this host* can complete the provider, not whether
+/// the server offers it. FIDO2 is the only one that varies: the engine's device
+/// discovery is `/dev/hidraw`-based, so on macOS the row exists but cannot be
+/// used, and marking it available there put a dead end in front of the second
+/// factor.
+pub(crate) fn two_factor_provider_view(id: i32, host: Host) -> TwoFactorProviderView {
     TwoFactorProviderView {
         id: id.max(0) as u32,
         name: match id {
@@ -137,7 +162,7 @@ pub(crate) fn two_factor_provider_view(id: i32) -> TwoFactorProviderView {
             7 => "FIDO2 Security Key".to_string(),
             other => format!("Provider {other}"),
         },
-        available: true,
+        available: !(id == 7 && fido2_unsupported(host).is_some()),
     }
 }
 
@@ -168,10 +193,11 @@ fn snapshot_from_auth_result(
             },
             providers: providers
                 .into_iter()
-                .map(two_factor_provider_view)
+                .map(|id| two_factor_provider_view(id, Host::current()))
                 .collect(),
             selected_provider: selected_provider.unwrap_or(0),
             fido2_status: result.fido2_status.clone(),
+            fido2_unsupported: fido2_unsupported(Host::current()),
             new_device,
         });
     } else if result.ok {
@@ -301,6 +327,7 @@ fn mock_authenticate(state: &mut MockState, input: AuthActionInput) -> VaultSnap
                         providers: default_two_factor_providers(),
                         selected_provider: 0,
                         fido2_status: None,
+                        fido2_unsupported: fido2_unsupported(Host::current()),
                         new_device: false,
                     });
                 }

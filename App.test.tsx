@@ -653,6 +653,47 @@ test("two-factor selects the server's default FIDO2 provider", async () => {
   expect(app.texts()).toContain("Click 'Verify with Security Key' and touch your key.");
 });
 
+test("FIDO2 is offered on Linux but not on macOS", async () => {
+  // The engine finds a key through /dev/hidraw, so on macOS the same status
+  // string ("tool_not_found") means "no fix exists" rather than "install the
+  // tool". The tab has to be unavailable there, or the second factor becomes a
+  // dead end with an install command that changes nothing.
+  const settle = async (host: "linux" | "macos") => {
+    const app = await openMock({
+      host,
+      phase: "login",
+      email: "user@example.com",
+      twoFactorRequired: true,
+      twoFactor: {
+        email: "user@example.com",
+        providers: [
+          { id: 0, name: "authenticator", label: "Authenticator App" },
+          { id: 7, name: "fido2", label: "FIDO2 Security Key" },
+        ],
+        selectedProvider: 0,
+        fido2Status: "tool_not_found",
+      },
+    });
+    await app.type("id:login-email", "user@example.com");
+    await app.type("id:login-password", "master-password");
+    await app.press("id:login-submit");
+    expect(app.shows("id:auth-view-twoFactor")).toBe(true);
+    return app;
+  };
+
+  const linux = await settle("linux");
+  // Linux: the tool really is missing, and installing it is the answer.
+  expect(linux.enabled("id:twofactor-provider-7")).toBe(true);
+  await linux.press("id:twofactor-provider-7");
+  expect(linux.texts()).toContain("Install 'libfido2' to use security keys, or select another method:");
+
+  const macos = await settle("macos");
+  // macOS: the tab cannot be chosen, so no pacman command is dangled in front
+  // of the user and the second factor does not become a dead end.
+  expect(macos.enabled("id:twofactor-provider-7")).toBe(false);
+  expect(macos.texts()).not.toContain("sudo pacman -S libfido2");
+});
+
 test("FIDO2 retry performs the security key assertion and unlocks", async () => {
   const app = await openMock({
     phase: "login",

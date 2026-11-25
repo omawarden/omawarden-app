@@ -35,10 +35,20 @@ export function DependencyCheckView() {
     return `Daemon Source: ${mode} → ${source.resolvedPath}${suffix}${match}${note}`;
   };
 
-  // A package is green once it is there and red while it is missing; an
-  // optional one that is absent is a warning rather than a blocker.
-  const stateColor = (installed: boolean, required: boolean) =>
-    installed ? palette().success : required ? palette().danger : palette().warning;
+  // A package no install can provide is neither ready nor missing: it is
+  // unavailable on this host, and the row says why rather than suggesting an
+  // install that cannot help.
+  const stateColor = (installed: boolean, required: boolean, unsupported?: string | null) =>
+    unsupported
+      ? palette().muted
+      : installed
+        ? palette().success
+        : required
+          ? palette().danger
+          : palette().warning;
+
+  const stateLabel = (installed: boolean, unsupported?: string | null) =>
+    unsupported ? "— Unavailable" : installed ? "✓ Ready" : "✗ Missing";
 
   const installLabel = () => {
     const names = missing();
@@ -74,8 +84,8 @@ export function DependencyCheckView() {
             <Chip label="Prerequisite Setup" color={palette().menu.selectedText} />
           </View>
           <Text style={{ color: palette().muted, fontSize: store.type().md }}>
-            Omawarden needs native Arch / AUR packages for background encryption, system keyring
-            session caching, and Wayland clipboard management.
+            Omawarden needs native packages for background encryption, system keyring session
+            caching, and clipboard management.
           </Text>
         </View>
 
@@ -86,12 +96,12 @@ export function DependencyCheckView() {
                 testID={`dependency-${pkg().name}`}
                 style={{
                   backgroundColor: tint(
-                    stateColor(pkg().installed, pkg().required),
+                    stateColor(pkg().installed, pkg().required, pkg().unsupported),
                     palette().menu.background,
                     0.12,
                   ),
                   borderColor: tint(
-                    stateColor(pkg().installed, pkg().required),
+                    stateColor(pkg().installed, pkg().required, pkg().unsupported),
                     palette().menu.background,
                     0.4,
                   ),
@@ -106,7 +116,7 @@ export function DependencyCheckView() {
                       width: 10,
                       height: 10,
                       borderRadius: 5,
-                      backgroundColor: stateColor(pkg().installed, pkg().required),
+                      backgroundColor: stateColor(pkg().installed, pkg().required, pkg().unsupported),
                     }}
                   />
                   <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
@@ -139,6 +149,14 @@ export function DependencyCheckView() {
                     <Text style={{ color: palette().muted, fontSize: store.type().base }}>
                       {pkg().description}
                     </Text>
+                    {pkg().unsupported ? (
+                      <Text
+                        testID={`dependency-unsupported-${pkg().name}`}
+                        style={{ color: palette().muted, fontSize: store.type().sm }}
+                      >
+                        {pkg().unsupported}
+                      </Text>
+                    ) : null}
                     {pkg().name === "omawarden" && status()?.daemonSource ? (
                       <Text
                         testID="dependency-daemon-source"
@@ -151,11 +169,11 @@ export function DependencyCheckView() {
                   <View
                     style={{
                       backgroundColor: tint(
-                        stateColor(pkg().installed, pkg().required),
+                        stateColor(pkg().installed, pkg().required, pkg().unsupported),
                         palette().menu.background,
                         0.18,
                       ),
-                      borderColor: stateColor(pkg().installed, pkg().required),
+                      borderColor: stateColor(pkg().installed, pkg().required, pkg().unsupported),
                       borderWidth: 1,
                       borderRadius: 999,
                       paddingHorizontal: 10,
@@ -164,12 +182,12 @@ export function DependencyCheckView() {
                   >
                     <Text
                       style={{
-                        color: stateColor(pkg().installed, pkg().required),
+                        color: stateColor(pkg().installed, pkg().required, pkg().unsupported),
                         fontSize: store.type().sm,
                         fontWeight: "bold",
                       }}
                     >
-                      {pkg().installed ? "✓ Ready" : "✗ Missing"}
+                      {stateLabel(pkg().installed, pkg().unsupported)}
                     </Text>
                   </View>
                 </View>
