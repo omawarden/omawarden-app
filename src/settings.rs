@@ -243,7 +243,7 @@ fn mock_snapshot(state: &MockState) -> SettingsSnapshotView {
     };
     SettingsSnapshotView {
         config,
-        health: crate::diagnostics::mock_health(&settings.server_url),
+        health: crate::diagnostics::mock_health(state.host, &settings.server_url),
         diagnostics: DiagnosticsView {
             server_url_sanitized: sanitize_server_url(&settings.server_url),
             logs: state.logs.clone(),

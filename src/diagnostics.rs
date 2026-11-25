@@ -88,15 +88,21 @@ pub(crate) struct Mock;
 
 impl DiagnosticsEngine for Mock {
     fn dependencies(&self) -> DependencyStatusView {
-        with_mock(|state| mock_dependencies(&state.dependencies_missing, &state.daemon_source))
+        with_mock(|state| {
+            mock_dependencies(
+                state.host,
+                &state.dependencies_missing,
+                &state.daemon_source,
+            )
+        })
     }
 
     fn install_missing(&self, packages: Vec<String>) -> bool {
-        install_offered(Host::current()) && !sanitize_packages(packages).is_empty()
+        with_mock(|state| install_offered(state.host) && !sanitize_packages(packages).is_empty())
     }
 
     fn health(&self) -> HealthSnapshotView {
-        with_mock(|state| mock_health(&state.settings.server_url))
+        with_mock(|state| mock_health(state.host, &state.settings.server_url))
     }
 
     fn updates(&self, _force: bool) -> UpdateStatusView {
@@ -224,6 +230,7 @@ fn dependency_rows(
 
 /// The mock dependency check.
 fn mock_dependencies(
+    host: Host,
     missing: &[String],
     stored: &crate::daemon_source::DaemonSource,
 ) -> DependencyStatusView {
@@ -236,17 +243,15 @@ fn mock_dependencies(
         installed: !daemon_missing,
         version: Some("mock".to_string()),
     };
-    let packages = dependency_rows(
-        Host::current(),
-        &daemon,
-        &|_binary, name, description, required| PackageStatusView {
+    let packages = dependency_rows(host, &daemon, &|_binary, name, description, required| {
+        PackageStatusView {
             name: name.to_string(),
             description: description.to_string(),
             required,
             installed: !missing.iter().any(|entry| entry == name),
             version: Some("mock".to_string()),
-        },
-    );
+        }
+    });
     let missing_packages: Vec<String> = packages
         .iter()
         .filter(|package| !package.installed)
@@ -259,7 +264,7 @@ fn mock_dependencies(
         .collect();
     DependencyStatusView {
         all_required_installed: missing_required.is_empty(),
-        install_available: install_offered(Host::current()),
+        install_available: install_offered(host),
         packages,
         missing_packages,
         missing_required,
@@ -374,7 +379,7 @@ fn provider_rows(
 }
 
 /// The mock health snapshot.
-pub(crate) fn mock_health(server_url: &str) -> HealthSnapshotView {
+pub(crate) fn mock_health(host: Host, server_url: &str) -> HealthSnapshotView {
     let mut checks = vec![
         HealthCheckView {
             name: "Engine Installed".to_string(),
@@ -387,7 +392,7 @@ pub(crate) fn mock_health(server_url: &str) -> HealthSnapshotView {
             detail: sanitize_server_url(server_url),
         },
     ];
-    checks.extend(provider_rows(Host::current(), true, true));
+    checks.extend(provider_rows(host, true, true));
     checks.push(HealthCheckView {
         name: "Memory Locked".to_string(),
         ok: true,

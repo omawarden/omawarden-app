@@ -287,6 +287,14 @@ pub(crate) struct MockState {
     ui_prefs: UiPrefsView,
     /// The daemon source the mock reports, and the candidates it lists.
     daemon_source: crate::daemon_source::DaemonSource,
+    /// The host the mock pretends to run on.
+    ///
+    /// Defaults to the host this binary was compiled for, so a mock view is the
+    /// real view unless a test says otherwise. Pinning it lets the UI suite
+    /// assert one platform's rows on any machine: without it, the dependency
+    /// tests described the host they happened to run on, and a macOS build ran
+    /// the Linux expectations against macOS rows.
+    host: crate::host::Host,
     daemon_candidates: Vec<DaemonCandidateView>,
     update_available: bool,
     last_sync: Option<String>,
@@ -368,6 +376,7 @@ impl Default for MockState {
             settings: MockSettings::default(),
             ui_prefs: UiPrefsView::default(),
             daemon_source: crate::daemon_source::DaemonSource::default(),
+            host: crate::host::Host::current(),
             daemon_candidates: Vec::new(),
             update_available: false,
             last_sync: None,
@@ -761,6 +770,13 @@ fn configure_mock_from_json(state: &mut MockState, value: &Value) {
             .iter()
             .filter_map(|entry| entry.as_str().map(str::to_string))
             .collect();
+    }
+    if let Some(host) = json_string(value, "host") {
+        state.host = match host.as_str() {
+            "macos" => crate::host::Host::MacOs,
+            "linux" => crate::host::Host::Linux,
+            other => panic!("mock host must be \"linux\" or \"macos\", not {other:?}"),
+        };
     }
     if let Some(missing) = value.get("dependenciesMissing").and_then(|v| v.as_array()) {
         state.dependencies_missing = missing
@@ -1742,6 +1758,7 @@ mod tests {
         let _guard = crate::test_state::lock();
         OmawardenBridge::configure_mock_state(mock_state_json(json!({
             "phase": "dependencyCheck",
+            "host": "linux",
             "dependenciesMissing": ["libsecret", "libfido2"]
         })));
         let dependencies = OmawardenBridge::check_dependencies();

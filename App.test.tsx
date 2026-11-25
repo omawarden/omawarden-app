@@ -9,9 +9,19 @@ type MockState = Record<string, unknown>;
 // the layout the app has always had. The expanded layout has its own cases.
 const COLLAPSED = { sidebarCollapsed: true };
 
+/**
+ * The host every mock view pretends to run on.
+ *
+ * `open()` already asks for the Linux NSH platform, so the Rust-side mock is
+ * told the same thing. Without it the dependency and Diagnose views follow
+ * whichever OS compiled the test binary, and the suite asserted Linux rows on a
+ * Mac while the app correctly rendered macOS ones.
+ */
+const MOCK_HOST = "linux";
+
 function withCollapsed(mockState: MockState): MockState {
   const prefs = (mockState.uiPrefs ?? {}) as Record<string, unknown>;
-  return { ...mockState, uiPrefs: { ...COLLAPSED, ...prefs } };
+  return { ...mockState, host: mockState.host ?? MOCK_HOST, uiPrefs: { ...COLLAPSED, ...prefs } };
 }
 
 function openMock(mockState: MockState, params: Record<string, unknown> = {}) {
