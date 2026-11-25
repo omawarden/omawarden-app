@@ -170,19 +170,28 @@ fn real_open_attachment(
                 .map(str::to_string)
         })
         .unwrap_or_else(|| "attachment".to_string());
+    // `"open"` and `"preview"` both land in the engine's preview root; only the
+    // second shows it inline. The engine stopped spawning an opener in its #437,
+    // so opening is this app's step now, below, through the same allow-list
+    // `open_path` uses.
+    let is_preview = mode == "preview";
     let response = omawarden::attachment::get_attachment(
         &cipher_id,
         &attachment_id,
         &filename,
         Some(&config.download_dir),
-        mode == "open",
-        mode == "preview",
+        is_preview || mode == "open",
         None,
         None,
-        false,
     );
+    if mode == "open"
+        && response.ok
+        && let Some(path) = response.path.clone()
+    {
+        real_open_attachment_path(path);
+    }
     let is_image = response.is_image.unwrap_or(false);
-    let preview_data_url = if mode == "preview" && is_image {
+    let preview_data_url = if is_preview && is_image {
         attachment_image_data_url(response.path.as_deref(), response.filename.as_deref())
     } else {
         None
@@ -340,10 +349,8 @@ fn real_save_attachment(
         &filename,
         directory.to_str(),
         false,
-        false,
         None,
         None,
-        false,
     );
     if !response.ok {
         return AttachmentOutcomeView {

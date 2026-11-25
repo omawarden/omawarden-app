@@ -23,7 +23,12 @@ nsh-base = "0.6.1"
 # `secret-tool`, which macOS does not have, so a macOS session would not
 # persist. The revision is the engine's `develop` line, which is what the
 # sibling checkout builds locally.
-omawarden = { git = "https://github.com/icyleaf/omarchy-bitwarden.git", rev = "d36deae9a1ce8ec48b310f3dcba26d69131a3249" }
+#
+# `#437` took `open_file` and `notify` out of `get_attachment` and deleted the
+# `notify-send`/`xdg-open` pair behind them: the engine writes the file and the
+# host opens it. `#435` made the SSH approval card identify its requester off
+# Linux. Neither changes anything else this app calls.
+omawarden = { git = "https://github.com/icyleaf/omarchy-bitwarden.git", rev = "457195fc52f89f9b60abf23d3c0218562926a21c" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 base64 = "0.22"
