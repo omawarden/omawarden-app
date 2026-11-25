@@ -131,12 +131,13 @@ Two of the misses are behavioural, not cosmetic:
 
 - **`set_auto_lock` is never sent.** `src/settings.rs` writes `auto_lock_minutes` to
   `config.json` and stops there. The running daemon takes its duration once, at
-  startup (`main.rs:1477-1497`). The engine's own CLI sends
-  `{"action":"set_auto_lock","auto_lock_minutes":n}` after a config write
-  (`main.rs:1687`). So changing auto-lock in Settings has no effect until restart.
+  startup (`main.rs:1478`, `DaemonState::new(storage_mgr, auto_lock_mins)`). The
+  engine's own CLI sends `{"action":"set_auto_lock","auto_lock_minutes":n}` right
+  after a config write (`main.rs:1670`). So changing auto-lock in Settings has no
+  effect until restart.
 - **`ssh_agent_apply` is never sent.** Same shape: `ssh_agent_enabled` and
   `ssh_agent_confirm` are persisted, and the running daemon is never told
-  (`main.rs:1683` is what the CLI does). Toggling the SSH agent changes nothing until
+  (`main.rs:1666` is what the CLI does). Toggling the SSH agent changes nothing until
   restart.
 
 ---
@@ -541,19 +542,35 @@ section 2, and it does not change any UI-visible behaviour on its own.
 
 ## 7. Engine work in progress — not shipped
 
-The engine checkout on this machine is on `feat/452-org-permissions-partial-writes`
-with a dirty tree. It is **not** on any revision this app can pin, and none of the
-following is in `57f8679` or `ac88555`:
+The `org_write` slice is **committed but unreleased**: `f07725c` on
+`feat/452-org-permissions-partial-writes` (pushed to origin), whose parent is
+`ac88555`. `develop` is still `ac88555`, and no tag contains `ac88555` or `f07725c`,
+so it is not a revision this app can pin — and pinning a feature branch is exactly
+what `scripts/check_engine_pin.sh` exists to prevent. None of the following is in
+`57f8679` or `ac88555`:
 
-- ADR 0038 (organization/collection write boundary) as an untracked file.
-- An `org_list` action and its handler arm.
+- ADR 0038 (organization/collection write boundary and permission policy).
+- An `org_list` action, its handler arm (`handlers.rs:450`), and its
+  `should_touch_activity` / `reads_plaintext` entries.
 - `CAPABILITY_ORG_WRITE` (`"org_write"`) as a fifth `DAEMON_CAPABILITIES` entry.
-- `is_partial_only` and a `PUT /ciphers/{id}/partial` path that lets an organization
-  cipher change only `favorite` and `folder`, plus the `edit` / `viewPassword` /
-  `delete` / `restore` permission flags on items.
+- Item permission flags on the parsed item: `edit`, `view_password`, `can_delete`,
+  `can_restore`, read fail-closed (absent permissions → no edit, no view, no delete,
+  no restore), plus cached collection defaults.
+- `is_partial_only` and a `PUT /ciphers/{id}/partial` route, so a readable
+  organization cipher can change `favorite` and `folder` and nothing else
+  (`cipher_write.rs:484`, `:525`, `:597`).
 
 At both surveyed revisions the rule is absolute and unconditional: any organization
 cipher write is refused with `"Organization ciphers are read-only."` There is no
-partial path and no per-item permission flag. Treat all of the above as unshipped:
-it is advertised in a branch's constants ahead of the writes that would honour it, so
-a client reading `org_write` today would over-estimate the feature.
+partial path and no per-item permission flag.
+
+Two cautions about `f07725c` even once it lands on `develop`:
+
+- `org_write` is advertised ahead of the writes it names. `org_list` and the
+  favorite/folder partial route exist; create, edit, delete, restore, share,
+  collection assignment and attachment upload are split across upstream #453–#457 and
+  are still open. A client that reads `org_write` and assumes those work would
+  over-estimate the feature.
+- The daemon still does not enforce capabilities — `ping_has_capability` appears in
+  `main.rs` only (`:3726`, `:3776` for `CAPABILITY_ORG_WRITE`, `:5629` for
+  `vault_get`). Section 3 applies unchanged.
