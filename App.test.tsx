@@ -1422,7 +1422,13 @@ test("vault rows fall back to category icons when website icons are off", async 
 // ---------------------------------------------------------------------------
 
 test("login inspector reveals, copies TOTP, and shows history", async () => {
-  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+  // A manual clock keeps the daemon and TOTP tickers from firing between two
+  // presses. On the system clock they tick while the test is asserting, and the
+  // inspector they rebuild can land between `copy-field-0` and the toast this
+  // test reads: the press is then handled against a view replaced mid-step and
+  // the toast stays the previous one. The steps here are about what each press
+  // reports, not about what a second of elapsed time changes.
+  const app = await openMockWithClock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
   await app.press("id:cipher-row-login1");
   expect(app.shows("id:item-inspector")).toBe(true);
