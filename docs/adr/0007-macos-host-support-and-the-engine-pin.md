@@ -113,16 +113,33 @@ contract that is enforced.**
   CI does not pass `--locked`. Reproducibility comes from the immutable
   revision, so a `--locked` check would force a choice that cannot be made.
 
+## What has been settled since
+
+- **The engine's macOS code is compiled and tested by CI.** The engine's
+  workflow gained a blocking `backend-macos` job on `macos-latest` that runs
+  clippy and the whole test suite after provisioning an ephemeral unlocked
+  Keychain. It has run green on the engine's `develop` at the revision this
+  repository pins (`57f8679`: 394 tests plus every integration suite), so the
+  `#[cfg(target_os = "macos")]` blocks — including the Security.framework FFI
+  this work depends on — are exercised on a real target rather than argued
+  about. Filed as
+  [icyleaf/omarchy-bitwarden#432](https://github.com/icyleaf/omarchy-bitwarden/issues/432),
+  drafted in `docs/upstream/01-macos-ci-job.md`.
+- **The two engine-side Linux-only mechanisms are gone.**
+  `attachment::get_attachment` no longer shells out to `xdg-open`; the engine
+  hands opening back to the host, which is why both call sites here take its
+  new seven-argument shape. And SSH peer introspection identifies the requester
+  off Linux, so the approval card names a real command and the `first-use`
+  policy can remember an approval. Filed as
+  [#434](https://github.com/icyleaf/omarchy-bitwarden/issues/434) and
+  [#435](https://github.com/icyleaf/omarchy-bitwarden/issues/435), both closed
+  and merged into the engine's `develop`.
+
 ## What remains unverified
 
-- **The engine's macOS code has never been compiled by CI.** The engine's
-  workflow runs `ubuntu-latest` only, so every `#[cfg(target_os = "macos")]`
-  block — including the Security.framework FFI this work depends on — is
-  unverified. Cross-compiling from Linux is not an option without a macOS SDK
-  and a cross toolchain. A `macos-latest` job in the engine repository is the
-  only way to make the claim real; filed as
-  [icyleaf/omarchy-bitwarden#432](https://github.com/icyleaf/omarchy-bitwarden/issues/432),
-  and drafted in `docs/upstream/01-macos-ci-job.md`.
+- **This repository has no macOS job of its own.** The engine's job covers the
+  engine; nothing in this repository's CI compiles its Rust or runs its `nsh`
+  suite on macOS. Every macOS result below was obtained by hand on one machine.
 - **Keychain access control under ad-hoc signing.** An ad-hoc signature's
   designated requirement is its code hash, so it changes on every rebuild; the
   default Keychain ACL trusts only the process that wrote the item; and both the
@@ -135,30 +152,21 @@ contract that is enforced.**
 - **The acceptance flow must be run by hand on a Mac.** Fresh clone →
   `nsh run --target macos` → sign in → quit → relaunch (the app must be
   *locked*) → unlock → log out → the Keychain item is gone, and inspecting it
-  shows no plaintext secret. It has not been run. Nothing in this repository's
-  CI can run it, and this record says so rather than implying it passed.
-- **Two engine-side Linux mechanisms are still Linux-only, at the engine's own
-  entry points rather than in this app's flows.** The app opens every path it
-  hands to the desktop through its own host-aware launcher, and both of its
-  `get_attachment` calls pass `open_file = false` and `notify = false`, so the
-  attachment path is correct from the app today. What remains is the engine's
-  duplicate copy of the mechanism: `attachment::get_attachment` still shells out
-  to `xdg-open` for an open it performs itself (reachable through
-  `omawarden attachment download --open`), and the SSH agent's `Peer::of`
-  returns an empty peer off Linux, so the approval card falls back to the
-  literal `A program` with no command and the `first-use` policy cannot
-  remember an approval, re-prompting every time.
-  Filed as [#434](https://github.com/icyleaf/omarchy-bitwarden/issues/434) and
-  [#435](https://github.com/icyleaf/omarchy-bitwarden/issues/435).
+  shows no plaintext secret. It has not been run. What has been run on a Mac is
+  the automated half — `cargo check --all-targets`, `nsh check` and the full
+  `nsh test` suite, green and repeatedly — which says nothing about a real
+  sign-in against a real server or about the Keychain surviving a relaunch.
+  Nothing in this repository's CI can run the manual flow, and this record says
+  so rather than implying it passed.
 
 ## See also
 
 - `docs/specs/macos_support_spec.md` — the specification this ADR records
-- `docs/upstream/` — the four engine-side requests this repository cannot make
-  itself, each filed against `icyleaf/omarchy-bitwarden` and mirrored here with
-  the details: a macOS CI job (#432), Keychain items that survive a re-signed
-  binary (#433), a host-aware opener (#434), and SSH peer introspection off
-  Linux (#435)
+- `docs/upstream/` — the four engine-side requests this repository filed
+  against `icyleaf/omarchy-bitwarden`, mirrored here with the details. Three are
+  closed: a macOS CI job (#432), a host-aware opener (#434), and SSH peer
+  introspection off Linux (#435). Keychain items that survive a re-signed
+  binary (#433) is still open.
 - [0003](0003-daemon-source-bundling-and-trust.md) — the bundled daemon, whose
   "Linux-only" sentence this supersedes in part
 - [0001](0001-logging-diagnostics-boundary.md) — the diagnostics boundary the

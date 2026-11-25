@@ -131,6 +131,29 @@ how process memory is read) is a parameter on a pure function. That keeps both
 branches typechecked on every build and lets the tests ask what macOS would
 report without being on macOS.
 
+## Reserved Keystroke
+
+A keystroke the platform's window manager or session keeps for itself, so an
+application cannot receive it: macOS keeps `Cmd+Q`, `Cmd+H`, `Cmd+Opt+H`,
+`Cmd+M` and `Ctrl+Cmd+F`; Linux keeps `Ctrl+Q`, `Alt+F4` and bare `F11`. The set
+is a property of the host, like `Host` and for the same reason.
+
+Binding one is worse than it sounds. `keymap.bind` validates **every** keystroke
+in the object it is given before making any of them, and returns an error on the
+first reserved one, so the whole object is discarded — the failure is not "this
+one shortcut does nothing" but "every shortcut bound beside it went dark". A
+single `mod+h` in the app's binding table cost the command palette, search, lock
+and the arrow keys on macOS.
+
+Two consequences worth keeping. Keystrokes are chosen by whether they are
+reserved on *either* host, not on the one being developed on, which is why
+password history is `mod+shift+h`: Shift is outside every reserved arm, so one
+keystroke serves both. And the check is per host, so a test that opens the app
+as Linux proves nothing about macOS — `Keymap.test.tsx` opens both.
+
+Displaying a reserved keystroke is fine; binding it is not. Labels go through
+`keymap.label()`, which follows the running platform.
+
 ## Clipboard Provider
 
 The engine's platform adapter for the clipboard: Wayland (`wl-copy`), X11
