@@ -860,6 +860,21 @@ mod tests {
             std::fs::write(&path, b"#!/bin/sh\n").unwrap();
             path
         }
+
+        /// The directory holding the app binary, with nothing in it.
+        ///
+        /// The tests only need somewhere for `app_dir` to point. They used to
+        /// put a stand-in binary named after the bundle (`app/Omawarden`), which
+        /// collides with the daemon the resolver looks for beside it
+        /// (`app/omawarden`) on a case-insensitive filesystem: macOS and the
+        /// default Windows volume both treat the two names as one file. A test
+        /// that meant "the bundled daemon is missing" then found one, so the
+        /// cases below disagreed with themselves depending on the host.
+        fn app_dir(&self) -> PathBuf {
+            let path = self.dir().join("app");
+            std::fs::create_dir_all(&path).unwrap();
+            path
+        }
     }
 
     fn bundled_source() -> DaemonSource {
@@ -878,9 +893,9 @@ mod tests {
     #[test]
     fn the_bundled_binary_beside_the_app_wins() {
         let tree = Tree::new();
-        let app = tree.file("app/Omawarden");
+        let app = tree.app_dir();
         let bundled = tree.file("app/omawarden");
-        let mut inputs = inputs(app.parent().unwrap());
+        let mut inputs = inputs(&app);
         inputs.path_lookup = Some(tree.file("bin/omawarden"));
 
         let resolution = resolve(&bundled_source(), &inputs).unwrap();
@@ -891,10 +906,10 @@ mod tests {
     #[test]
     fn the_environment_variable_beats_every_source() {
         let tree = Tree::new();
-        let app = tree.file("app/Omawarden");
+        let app = tree.app_dir();
         let env = tree.file("env/omawarden");
         tree.file("app/omawarden");
-        let mut inputs = inputs(app.parent().unwrap());
+        let mut inputs = inputs(&app);
         inputs.env_bin = Some(env.clone());
 
         let resolution = resolve(&bundled_source(), &inputs).unwrap();
@@ -905,10 +920,10 @@ mod tests {
     #[test]
     fn a_missing_environment_variable_is_a_hard_error() {
         let tree = Tree::new();
-        let app = tree.file("app/Omawarden");
+        let app = tree.app_dir();
         tree.file("app/omawarden");
         let missing = tree.dir().join("gone/omawarden");
-        let mut inputs = inputs(app.parent().unwrap());
+        let mut inputs = inputs(&app);
         inputs.env_bin = Some(missing.clone());
 
         assert_eq!(
@@ -920,9 +935,9 @@ mod tests {
     #[test]
     fn a_bundled_miss_falls_through_to_the_development_checkout_then_path() {
         let tree = Tree::new();
-        let app = tree.file("app/Omawarden");
+        let app = tree.app_dir();
         let sibling = tree.dir().join("omarchy-bitwarden");
-        let mut inputs = inputs(app.parent().unwrap());
+        let mut inputs = inputs(&app);
         inputs.dev_root = Some(sibling.clone());
         inputs.path_lookup = Some(tree.file("bin/omawarden"));
 
@@ -942,8 +957,8 @@ mod tests {
     #[test]
     fn an_exhausted_chain_reports_every_probed_path() {
         let tree = Tree::new();
-        let app = tree.file("app/Omawarden");
-        let inputs = inputs(app.parent().unwrap());
+        let app = tree.app_dir();
+        let inputs = inputs(&app);
 
         let error = resolve(&bundled_source(), &inputs).unwrap_err();
         let message = error.message();
@@ -955,14 +970,14 @@ mod tests {
     #[test]
     fn a_system_source_that_is_gone_does_not_fall_back() {
         let tree = Tree::new();
-        let app = tree.file("app/Omawarden");
+        let app = tree.app_dir();
         tree.file("app/omawarden");
         let gone = tree.dir().join("usr/bin/omawarden");
         let source = DaemonSource {
             mode: DaemonSourceMode::System,
             path: Some(gone.display().to_string()),
         };
-        let mut inputs = inputs(app.parent().unwrap());
+        let mut inputs = inputs(&app);
         inputs.path_lookup = Some(tree.file("bin/omawarden"));
 
         assert_eq!(
@@ -977,26 +992,26 @@ mod tests {
     #[test]
     fn a_system_source_without_a_path_is_rejected() {
         let tree = Tree::new();
-        let app = tree.file("app/Omawarden");
+        let app = tree.app_dir();
         let source = DaemonSource {
             mode: DaemonSourceMode::System,
             path: None,
         };
-        let error = resolve(&source, &inputs(app.parent().unwrap())).unwrap_err();
+        let error = resolve(&source, &inputs(&app)).unwrap_err();
         assert!(matches!(error, ResolveError::NotConfigured(_)));
     }
 
     #[test]
     fn a_custom_path_is_launched_as_given() {
         let tree = Tree::new();
-        let app = tree.file("app/Omawarden");
+        let app = tree.app_dir();
         let custom = tree.file("opt/omawarden/omawarden");
         let source = DaemonSource {
             mode: DaemonSourceMode::Custom,
             path: Some(custom.display().to_string()),
         };
 
-        let resolution = resolve(&source, &inputs(app.parent().unwrap())).unwrap();
+        let resolution = resolve(&source, &inputs(&app)).unwrap();
         assert_eq!(resolution.path, custom);
         assert_eq!(resolution.note, None);
     }
