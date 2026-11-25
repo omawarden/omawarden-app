@@ -257,7 +257,10 @@ keymap.bind({
       store.openFirstUrl();
     }
   },
-  "mod+h": () => {
+  // Not `mod+h`: macOS keeps Command+H for hiding the app, and `keymap.bind`
+  // refuses a reserved keystroke by discarding the whole object it appears in.
+  // Shift is outside every reserved arm, so one keystroke works on both hosts.
+  "mod+shift+h": () => {
     if (canUseVaultShortcuts()) {
       store.openPasswordHistory();
     }
@@ -318,7 +321,10 @@ keymap.bind({
   // is open — unlike the vault shortcuts — because it changes nothing about the
   // draft, and a user who collapsed the sidebar needs it to come back. It is
   // still not for the login screens, where there is no workspace to navigate.
-  "ctrl+\\": whenWindowTallEnough(() => {
+  // `mod`, not `ctrl`: on Linux a `mod` keystroke parses to Control, so the
+  // behaviour there is unchanged, while macOS gets the platform's own
+  // Command+\ instead of a Control combination it has no convention for.
+  "mod+\\": whenWindowTallEnough(() => {
     if (store.phase() === "unlocked" && !hasOpenModal()) {
       store.toggleSidebar();
     }

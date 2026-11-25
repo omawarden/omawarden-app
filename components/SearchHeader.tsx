@@ -1,4 +1,4 @@
-import { effect, Text, View } from "nsh";
+import { effect, keymap, Text, View } from "nsh";
 import { Button, Input } from "nsh/base";
 import * as store from "../store/appStore";
 import { blurSearch, focusSearch, setSearchField } from "../store/searchFocus";
@@ -30,7 +30,9 @@ function SidebarToggle() {
       accessibilityLabel={blocked() ? "Widen the window to show the sidebar" : "Toggle the sidebar"}
       tooltip={
         <Text style={{ color: palette().popups.text }}>
-          {blocked() ? "Widen the window to show the sidebar" : "Toggle the sidebar (Ctrl+\\)"}
+          {blocked()
+            ? "Widen the window to show the sidebar"
+            : `Toggle the sidebar (${keymap.label("mod+\\")})`}
         </Text>
       }
       disabled={blocked()}

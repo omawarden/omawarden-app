@@ -81,8 +81,8 @@ export function contextActions(): PaletteAction[] {
         label: "View Password History",
         hint: "Browse previous passwords",
         icon: "history",
-        shortcut: "Ctrl+H",
-        keystroke: "mod+h",
+        shortcut: keymap.label("mod+shift+h"),
+        keystroke: "mod+shift+h",
         run: store.openPasswordHistory,
       });
     }

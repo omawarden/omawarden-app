@@ -1691,6 +1691,40 @@ test("timestamps read on the reader's clock", async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Keystrokes
+// ---------------------------------------------------------------------------
+
+/**
+ * Password history is `mod+shift+h`, and the whole chain has to agree on that.
+ *
+ * Three places carry the keystroke: the app's binding, the palette modal's
+ * mirror of it, and the palette entry's `keystroke` that `runShortcut` matches
+ * on. A test that pressed the toolbar button would pass with any of the three
+ * wrong, because the existing password-history cases all do exactly that.
+ */
+test("mod+shift+h opens password history from the keyboard", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:cipher-row-login1");
+  await app.keyboard.press("mod+shift+h");
+  expect(app.shows("id:password-history-modal")).toBe(true);
+  expect(app.texts()).toContain("old-password");
+});
+
+test("the palette lists the password-history keystroke the app binds", async () => {
+  const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
+
+  await app.press("id:cipher-row-login1");
+  await app.keyboard.press("mod+k");
+  expect(app.shows("id:action-password-history")).toBe(true);
+  // The palette finds the action by the keystroke it was given, so the modal's
+  // binding and the entry's `keystroke` are the same string or nothing runs.
+  await app.keyboard.press("mod+shift+h");
+  expect(app.shows("id:password-history-modal")).toBe(true);
+  expect(app.shows("id:action-palette-modal")).toBe(false);
+});
+
+// ---------------------------------------------------------------------------
 // Password generator
 // ---------------------------------------------------------------------------
 
