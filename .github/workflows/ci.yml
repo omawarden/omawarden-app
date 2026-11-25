@@ -172,6 +172,16 @@ jobs:
         with:
           key: ci-macos
 
+      - name: Verify version consistency
+        run: |
+          CARGO_VER=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)
+          NSH_VER=$(grep '"version":' nsh.json | head -1 | cut -d'"' -f4)
+          echo "Cargo.toml version: $CARGO_VER, nsh.json version: $NSH_VER"
+          if [ "$CARGO_VER" != "$NSH_VER" ]; then
+            echo "::error::Cargo.toml ($CARGO_VER) and nsh.json ($NSH_VER) version mismatch!"
+            exit 1
+          fi
+
       - name: Check the engine pin
         run: bash scripts/check_engine_pin.sh
 
