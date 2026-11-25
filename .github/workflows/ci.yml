@@ -100,3 +100,92 @@ jobs:
 
       - name: Headless tests
         run: nsh test
+
+  macos:
+    name: Test & Verify (macos-arm64)
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    # What this job does *not* claim, because a green check beside "macOS" is
+    # easy to over-read:
+    #
+    #   * No real Keychain round trip. `nsh test` runs headless, so the host the
+    #     app is compiled into never starts; credential storage is asserted
+    #     through the mock, not against Security.framework.
+    #   * No signed bundle and no packaged artifact. `nsh package` is never
+    #     exercised, so the bundle layout, the Info.plist and ad-hoc signing are
+    #     as unverified after this job as before it.
+    #   * No `--target macos`. That drives the real development host with real
+    #     windows and real input, which a runner has no session for. The platform
+    #     differences are covered by `open({ platform: "macos" })` instead, which
+    #     is a different and weaker claim: it says the macOS branch computes what
+    #     it should, not that a macOS window behaves.
+    #
+    # What it does claim: this app's Rust compiles for a real macOS target, its
+    # TypeScript type-checks, and the whole `nsh` suite passes in a process whose
+    # `cfg!(target_os)` is macOS — which is the one thing no Linux run can do.
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      # Same reason as the Linux job: .cargo/config.toml patches the engine to a
+      # sibling checkout that does not exist here.
+      - name: Use the git dependency in CI
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path(".cargo/config.toml")
+          lines = path.read_text().splitlines()
+          output = []
+          skipping = False
+          for line in lines:
+              if line.startswith("[patch."):
+                  skipping = True
+                  continue
+              if skipping and line.startswith("[") and not line.startswith("[patch."):
+                  skipping = False
+              if not skipping:
+                  output.append(line)
+          path.write_text("\n".join(output).rstrip() + "\n")
+          PY
+
+      - name: Install Rust toolchain
+        run: |
+          TOOLCHAIN=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$TOOLCHAIN" --profile minimal --component rustfmt
+          rustup default "$TOOLCHAIN"
+          cargo fmt --version
+
+      # The install script has a `macos-arm64` asset, and `macos-latest` is
+      # arm64; it puts the runtimes beside `bin/nsh` under ~/.nsh, which the CLI
+      # needs to run apps.
+      - name: Install nsh CLI (v0.6.1)
+        run: |
+          curl -fsSL https://github.com/longbridge/nsh/releases/download/v0.6.1/install.sh | NSH_VERSION=v0.6.1 sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
+          nsh --version
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ci-macos
+
+      - name: Check the engine pin
+        run: bash scripts/check_engine_pin.sh
+
+      - name: Reject private details
+        run: python3 scripts/check_privacy.py
+
+      - name: Check Rust formatting
+        run: cargo fmt --all --check
+
+      - name: TypeScript type-check
+        run: nsh check
+
+      # `nsh test` runs headless by default and takes no `--target`, so no
+      # window session is needed. It covers `cargo test` too (nsh.json's
+      # "rust": "."), which is why there is no separate step for it.
+      - name: Headless tests
+        run: nsh test

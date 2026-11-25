@@ -58,33 +58,60 @@ if [ -d "$CANDIDATE" ]; then
 fi
 
 if [ -z "$CHECKOUT" ]; then
-  echo "Engine pin: $REV (no sibling checkout; Cargo fetches the pin)"
+  # CI has no sibling checkout, but Cargo still fetches the pinned revision into
+  # its own checkout directory. Look there before giving up: the macOS Keychain
+  # check below is the whole point of this script for a macOS build, and the
+  # "no sibling" path used to return success without ever running it — a green
+  # tick over a check that never happened.
+  for candidate in "${CARGO_HOME:-$HOME/.cargo}"/git/checkouts/omarchy-bitwarden-*/"$(printf '%s' "$REV" | cut -c1-7)"; do
+    # `CHECKOUT` means the crate directory, as it does for the sibling branch
+    # below, and the checkout is the repository root with the crate one level
+    # down.
+    if [ -d "$candidate/omawarden/src" ]; then
+      CHECKOUT=$candidate/omawarden
+      FROM_CARGO_CHECKOUT=1
+      break
+    fi
+  done
+fi
+
+if [ -z "$CHECKOUT" ]; then
+  echo "Engine pin: $REV (no checkout available; Cargo fetches the pin)"
+  echo "::warning::could not inspect the pinned engine, so the macOS Keychain provider check did not run"
   exit 0
 fi
 
-REPO=$(cd "$CHECKOUT" && git rev-parse --show-toplevel 2>/dev/null || true)
-if [ -z "$REPO" ]; then
-  echo "Engine pin: $REV (sibling checkout is not a git work tree; nothing to compare)"
-  exit 0
-fi
+# The sibling branch compares against the working tree; a Cargo checkout is
+# named after the revision it holds, so there is nothing to compare there.
+if [ "${FROM_CARGO_CHECKOUT:-0}" != "1" ]; then
+  REPO=$(cd "$CHECKOUT" && git rev-parse --show-toplevel 2>/dev/null || true)
+  if [ -z "$REPO" ]; then
+    echo "Engine pin: $REV (sibling checkout is not a git work tree; nothing to compare)"
+    exit 0
+  fi
 
-HEAD_REV=$(git -C "$REPO" rev-parse HEAD)
+  HEAD_REV=$(git -C "$REPO" rev-parse HEAD)
 
-if [ "$HEAD_REV" != "$REV" ]; then
-  echo "::error::the engine pin has drifted from the sibling checkout" >&2
-  echo "  pinned in Cargo.toml: $REV" >&2
-  echo "  sibling HEAD:         $HEAD_REV  ($REPO)" >&2
-  echo "  Local builds compile the sibling HEAD, because .cargo/config.toml patches the dependency, while the release compiles the pin. Move the pin, or check the sibling out at it, before relying on either build." >&2
-  exit 1
+  if [ "$HEAD_REV" != "$REV" ]; then
+    echo "::error::the engine pin has drifted from the sibling checkout" >&2
+    echo "  pinned in Cargo.toml: $REV" >&2
+    echo "  sibling HEAD:         $HEAD_REV  ($REPO)" >&2
+    echo "  Local builds compile the sibling HEAD, because .cargo/config.toml patches the dependency, while the release compiles the pin. Move the pin, or check the sibling out at it, before relying on either build." >&2
+    exit 1
+  fi
 fi
 
 # A Linux-only engine builds fine, stores nothing on macOS, and falls back to
 # the Secret Service provider, so it must not pass as a cross-platform one.
 if ! grep -rqs 'MacOsKeychainProvider' "$CHECKOUT/src/keyring.rs" "$CHECKOUT/src/keyring"; then
   echo "::error::the pinned engine has no macOS Keychain provider" >&2
-  echo "  checkout: $REPO at $HEAD_REV" >&2
+  echo "  checkout: $CHECKOUT" >&2
   echo "  Expected MacOsKeychainProvider (the pluggable Keyring Provider architecture). Without it, a macOS build compiles, silently stores no credentials, and falls back to the Secret Service provider, which macOS does not have: signing in appears to work and nothing survives the process. Move the pin to a revision that has it." >&2
   exit 1
 fi
 
-echo "Engine pin: $REV (sibling HEAD matches; macOS Keychain provider present)"
+if [ "${FROM_CARGO_CHECKOUT:-0}" = "1" ]; then
+  echo "Engine pin: $REV (macOS Keychain provider present, inspected in Cargo's checkout)"
+else
+  echo "Engine pin: $REV (sibling HEAD matches; macOS Keychain provider present)"
+fi
