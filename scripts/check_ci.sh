@@ -27,7 +27,9 @@ if [ "$cargo_version" != "$nsh_version" ]; then
 fi
 
 step "Check the engine pin"
-bash scripts/check_engine_pin.sh
+# Exact, like a push and CI: this script stands in for the CI run, and the CI
+# run builds the pin, not whatever the sibling happens to hold.
+ENGINE_PIN_STRICT=1 bash scripts/check_engine_pin.sh
 
 step "Reject private details"
 python3 scripts/check_privacy.py

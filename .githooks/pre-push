@@ -2,8 +2,10 @@
 # Pre-push: the engine pin must still be a contract.
 #
 # Local builds patch `omawarden` to the sibling checkout while CI fetches the
-# pinned revision, so a push is the moment the two can silently disagree. This
-# runs the fast pin check only; `scripts/check_ci.sh` has the rest.
+# pinned revision, so a push is the moment the two can silently disagree. That
+# is why this runs the pin check in *strict* mode: a local build may sit ahead
+# of the pin (ADR 0007), but a push must be reproducible from the pin alone,
+# so the sibling has to be checked out at it. `scripts/check_ci.sh` has the rest.
 #
 # Installed by `scripts/install_hooks.sh` (`mise run hooks`). Kept in the tree
 # rather than in `.git/hooks` so it is reviewed and versioned.
@@ -11,4 +13,4 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
-bash "$ROOT/scripts/check_engine_pin.sh"
+ENGINE_PIN_STRICT=1 bash "$ROOT/scripts/check_engine_pin.sh"

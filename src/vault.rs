@@ -780,6 +780,14 @@ mod tests {
             organization_id: None,
             organization_name: None,
             collection_ids: None,
+            // Permission flags the engine added with organization write
+            // support. Nothing in this app reads them yet (app #73 decided a
+            // capability is read and not required), so they are a personal
+            // cipher's permissive values rather than a fixture for a rule.
+            edit: true,
+            view_password: true,
+            can_delete: true,
+            can_restore: false,
             login: Some(json!({
                 "username": "alice",
                 "password": "hunter2",
