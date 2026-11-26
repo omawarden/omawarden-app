@@ -144,17 +144,6 @@ export function contextActions(): PaletteAction[] {
   }
   if (current.category === "login" || current.category === "secureNote") {
     actions.push({
-      id: "toggle-favorite",
-      label: current.favorite ? "Unfavorite" : "Favorite",
-      hint: current.favorite
-        ? "Remove from the favorites"
-        : "Add to the favorites",
-      icon: "star",
-      shortcut: "Ctrl+B",
-      keystroke: "mod+b",
-      run: store.toggleFavorite,
-    });
-    actions.push({
       id: "edit-cipher",
       label: "Edit Item",
       hint: "Change the selected item's fields",
@@ -163,16 +152,27 @@ export function contextActions(): PaletteAction[] {
       keystroke: "mod+e",
       run: store.openCipherEdit,
     });
-    actions.push({
-      id: "delete-cipher",
-      label: "Delete Item",
-      hint: "Move the selected item to the trash",
-      icon: "trash",
-      shortcut: "Ctrl+D",
-      keystroke: "mod+d",
-      run: () => store.openCipherDelete(false),
-    });
   }
+  // Favourite and delete apply to every type, so they are pushed outside the
+  // authoring check: only Edit depends on the item's category.
+  actions.push({
+    id: "toggle-favorite",
+    label: current.favorite ? "Unfavorite" : "Favorite",
+    hint: current.favorite ? "Remove from the favorites" : "Add to the favorites",
+    icon: "star",
+    shortcut: "Ctrl+B",
+    keystroke: "mod+b",
+    run: store.toggleFavorite,
+  });
+  actions.push({
+    id: "delete-cipher",
+    label: "Delete Item",
+    hint: "Move the selected item to the trash",
+    icon: "trash",
+    shortcut: "Ctrl+D",
+    keystroke: "mod+d",
+    run: () => store.openCipherDelete(false),
+  });
   return actions;
 }
 

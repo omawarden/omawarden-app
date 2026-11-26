@@ -48,6 +48,12 @@ The reversible delete. Deleting an item from the active vault stamps
 restorable and the write syncs like any other mutation. Soft delete is the
 only delete the active vault offers.
 
+It applies to every cipher type. The daemon's `cipher_delete` takes no type at
+all, so a Card, an Identity or an SSH key is Trash-able exactly like a Login.
+This is deliberately unlike authoring, which is Login-and-Secure-Note only: the
+two used to share one predicate, and that made three of the five types
+undeletable in the GUI while the daemon would have accepted them.
+
 ## Permanent Delete
 
 The irreversible delete: the cipher leaves the Trash and the server. It is not
@@ -62,6 +68,22 @@ active vault sees the cipher again. In the GUI it is one press from the Trash
 inspector, with no confirmation, and it leaves the user in the Trash. A failed
 restore reports the daemon's error and changes nothing. Restore is the inverse
 of a Soft Delete, not a third kind of delete; the active vault never offers it.
+
+## Favorite
+
+The per-item star, toggled with `Ctrl+B`. Like Soft Delete it applies to every
+cipher type, because the daemon sets `favorite` before any type guard on an
+update. It is therefore governed by the mutable rule, not the authoring rule:
+an SSH key can be favorited even though it cannot be authored in the form.
+
+## Mutable vs Authorable
+
+Two different questions the GUI must not answer with one predicate. *Authorable*
+means the Inspector Form can write the item's fields, which is Login and Secure
+Note only. *Mutable* means the daemon will accept a favorite or a soft delete,
+which is every type. `editableCipher()` answers the first and `mutableCipher()`
+the second. Collapsing them is what once kept Cards, Identities and SSH keys
+out of the Trash and off the favorites list.
 
 ## Inspector Form
 

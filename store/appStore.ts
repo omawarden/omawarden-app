@@ -1818,9 +1818,28 @@ export function openUrl(rawUrl: string): void {
   }
 }
 
+/** The daemon's name for a category, as the mutation payload spells it. */
+function mutationTypeFor(category: ItemCategory): string {
+  switch (category) {
+    case "secureNote":
+      return "note";
+    case "card":
+      return "card";
+    case "identity":
+      return "identity";
+    case "sshKey":
+      return "ssh";
+    case "login":
+      return "login";
+    default:
+      // "all" is a filter, not a cipher, so it never reaches a mutation.
+      return "login";
+  }
+}
+
 /** Toggles the selected item's favorite flag, then refreshes the row. */
 export function toggleFavorite(): void {
-  const cipher = editableCipher();
+  const cipher = mutableCipher();
   if (!cipher) {
     return;
   }
@@ -1834,7 +1853,7 @@ export function toggleFavorite(): void {
   keepSelectionOn(cipher.id);
 
   const next: CipherMutationInput = {
-    cipherType: cipher.category === "secureNote" ? "note" : "login",
+    cipherType: mutationTypeFor(cipher.category),
     name: cipher.title,
     favorite: nextFavorite,
   };
@@ -2450,7 +2469,14 @@ export function openCipherForm(cipherType: "login" | "note" = "login"): void {
   );
 }
 
-/** The selected cipher when it is a login or a secure note, else null. */
+/**
+ * The selected cipher when it can be authored in the Inspector Form, else null.
+ *
+ * Authoring is type-specific: the form only writes Login and Secure Note
+ * fields. Favouriting and deleting are **not** — the daemon applies both to
+ * every type — so they use [`mutableCipher`] instead. Sharing this predicate
+ * between the three jobs is what once made Cards impossible to delete.
+ */
 function editableCipher(): CipherRowView | null {
   if (trashBlocksItemActions()) {
     return null;
@@ -2462,6 +2488,35 @@ function editableCipher(): CipherRowView | null {
   }
   if (cipher.category !== "login" && cipher.category !== "secureNote") {
     notify("Only logins and secure notes can be changed.", "error");
+    return null;
+  }
+  return cipher;
+}
+
+/**
+ * Tells the user that only logins and secure notes can be authored.
+ *
+ * Reached from a shortcut that cannot open the form for the selected item, so
+ * the reason is stated instead of the press doing nothing.
+ */
+export function notifyEditableOnly(): void {
+  notify("Only logins and secure notes can be changed.", "error");
+}
+
+/**
+ * The selected cipher when it can be favorited or moved to the Trash, else null.
+ *
+ * Every category qualifies: the daemon's `cipher_delete` takes no type at all,
+ * and `favorite` is applied before any type guard on an update. The check here
+ * is therefore about *where the user is*, not what the item is.
+ */
+function mutableCipher(): CipherRowView | null {
+  if (trashBlocksItemActions()) {
+    return null;
+  }
+  const cipher = selectedCipher();
+  if (!cipher) {
+    notify("Select an item first.", "error");
     return null;
   }
   return cipher;
@@ -2752,7 +2807,7 @@ export function confirmDeleteCipher(permanent: boolean): void {
   if (isDeleting()) {
     return;
   }
-  const cipher = editableCipher();
+  const cipher = mutableCipher();
   if (!cipher) {
     return;
   }
@@ -2836,7 +2891,7 @@ export function openCipherDelete(permanent: boolean): void {
     // The active vault's delete is always soft.
     return;
   }
-  if (!editableCipher()) {
+  if (!mutableCipher()) {
     return;
   }
   cipherDeletePermanent.set(false);

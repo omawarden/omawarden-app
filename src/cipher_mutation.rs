@@ -104,7 +104,11 @@ fn build_mutation_payload(input: &CipherMutationInput, id: Option<&str>) -> Resu
     let is_login = cipher_type == "login";
     let is_note =
         cipher_type == "note" || cipher_type == "secure_note" || cipher_type == "securenote";
-    if !is_login && !is_note {
+    // A create must name a type the form can author. An update carries no type
+    // at all: the daemon resolves it from what is already stored, so a
+    // favorite-only or folder-only change is legal for every type. Rejecting
+    // those here is what kept Card, Identity and SSH-key items unfavoritable.
+    if id.is_none() && !is_login && !is_note {
         return Err(
             "Unsupported cipher type. Only login and secure note ciphers are supported."
                 .to_string(),
@@ -906,6 +910,36 @@ mod tests {
         let mut input = login_input();
         input.cipher_type = "card".to_string();
         assert!(build_mutation_payload(&input, None).is_err());
+    }
+
+    /// A favorite-only update must reach the daemon for every type.
+    ///
+    /// The daemon sets `favorite` before any type guard, so a card, identity or
+    /// SSH key can be favorited; only the app's payload builder refused. The
+    /// create arm still rejects these types, which
+    /// `unsupported_type_is_rejected` keeps asserting.
+    #[test]
+    fn favorite_only_update_reaches_every_type() {
+        for cipher_type in ["card", "identity", "ssh", "secureNote"] {
+            let input = CipherMutationInput {
+                cipher_type: cipher_type.to_string(),
+                name: Some("Travel Card".to_string()),
+                username: None,
+                password: None,
+                notes: None,
+                uris: None,
+                folder_id: None,
+                favorite: Some(true),
+            };
+            let payload = build_mutation_payload(&input, Some("id-1"))
+                .unwrap_or_else(|error| panic!("{cipher_type} must accept a favorite: {error}"));
+            assert_eq!(payload["action"], "cipher_update");
+            assert_eq!(payload["favorite"], true);
+            assert!(
+                payload.get("cipher_type").is_none(),
+                "an update must not declare a type: the daemon reads the stored one"
+            );
+        }
     }
 
     #[test]

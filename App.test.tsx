@@ -3220,6 +3220,49 @@ test("Ctrl+V stays paste in the search and does not toggle the favorite", async 
   expect(app.shows("id:cipher-favorite-login1")).toBe(true);
 });
 
+test("a Card, an Identity and an SSH key can all be favorited", async () => {
+  for (const [id, category] of [
+    ["card1", "card"],
+    ["identity1", "identity"],
+    ["ssh1", "sshKey"],
+  ] as const) {
+    const app = await openMock({ phase: "unlocked", items: [CARD_ITEM, IDENTITY_ITEM, SSH_ITEM] });
+
+    await app.press(`id:cipher-row-${id}`);
+    expect(app.shows(`id:cipher-favorite-${id}`)).toBe(false);
+
+    await app.keyboard.press("mod+b");
+    // The star appears, and nothing blames the item's type: the mutation
+    // succeeded, so the authoring message must never be shown.
+    expect(app.shows(`id:cipher-favorite-${id}`)).toBe(true);
+    expect(app.texts()).not.toContain("Only logins and secure notes can be changed.");
+
+    await app.keyboard.press("mod+b");
+    expect(app.shows(`id:cipher-favorite-${id}`)).toBe(false);
+    expect(app.texts()).not.toContain("Only logins and secure notes can be changed.");
+    expect(category).toBeTruthy();
+  }
+});
+
+test("a Card, an Identity and an SSH key can all be moved to the Trash", async () => {
+  for (const id of ["card1", "identity1", "ssh1"] as const) {
+    const app = await openMock({ phase: "unlocked", items: [CARD_ITEM, IDENTITY_ITEM, SSH_ITEM] });
+
+    await app.press(`id:cipher-row-${id}`);
+    // The inspector offers the delete affordance, not only edit.
+    expect(app.shows("id:delete-cipher")).toBe(true);
+
+    await app.keyboard.press("mod+d");
+    expect(app.shows("id:cipher-delete-modal")).toBe(true);
+    expect(app.texts()).not.toContain("Only logins and secure notes can be changed.");
+
+    await app.press("id:cipher-delete-confirm");
+    await app.waitFor("id:cipher-delete-modal", { state: "gone" });
+    // The row leaves the active vault, which is what a soft delete does.
+    expect(app.shows(`id:cipher-row-${id}`)).toBe(false);
+  }
+});
+
 test("the favorite star toggles from both of its states", async () => {
   const app = await openMock({ phase: "unlocked", items: [LOGIN_ITEM] });
 
@@ -3656,16 +3699,27 @@ test("editing another field leaves the untouched password alone", async () => {
   await app.waitFor(`text:hunter2`);
 });
 
-test("cards and identities offer no cipher mutation", async () => {
+test("cards and identities offer delete but no edit", async () => {
   const app = await openMock({ phase: "unlocked", items: [CARD_ITEM, IDENTITY_ITEM] });
 
   await app.press("id:cipher-row-card1");
+  // Authoring is login-and-note only, so no edit affordance.
   expect(app.shows("id:edit-cipher")).toBe(false);
-  expect(app.shows("id:delete-cipher")).toBe(false);
+  // Deleting is type-agnostic on the daemon, so the affordance is there.
+  expect(app.shows("id:delete-cipher")).toBe(true);
 
-  await app.keyboard.press("mod+d");
+  await app.keyboard.press("mod+e");
   expect(app.texts().join(" ")).toContain("Only logins and secure notes can be changed.");
-  expect(app.shows("id:cipher-delete-modal")).toBe(false);
+  expect(app.shows("id:inspector-form")).toBe(false);
+
+  // The delete press opens the modal and completes: the authoring message may
+  // still be on screen from the Ctrl+E press above, so what is asserted is the
+  // outcome, not the absence of a string a previous step produced.
+  await app.keyboard.press("mod+d");
+  expect(app.shows("id:cipher-delete-modal")).toBe(true);
+  await app.press("id:cipher-delete-confirm");
+  await app.waitFor("id:cipher-delete-modal", { state: "gone" });
+  expect(app.shows("id:cipher-row-card1")).toBe(false);
 });
 
 // ---------------------------------------------------------------------------
