@@ -274,6 +274,11 @@ keymap.bind({
       store.openSshKey("export");
     } else if (category === "login" || category === "secureNote") {
       store.openCipherEdit();
+    } else if (category) {
+      // Authoring is login-and-note only. Say so rather than swallowing the
+      // key: a silent Ctrl+E on a card reads as a broken shortcut, not as a
+      // deliberate limit.
+      store.notifyEditableOnly();
     }
   },
   "mod+p": () => {

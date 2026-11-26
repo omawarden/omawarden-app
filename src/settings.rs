@@ -182,6 +182,11 @@ fn real_settings() -> SettingsSnapshotView {
 
 /// Applies `input` to the real config and returns the refreshed snapshot.
 fn real_update(input: SettingsUpdateInput) -> SettingsSnapshotView {
+    // Captured before `input` is moved into `ConfigUpdateOptions`: the daemon
+    // has to be told about these two, and the CLI's dispatch is the only place
+    // that does it. Reading them here keeps the value available after the move.
+    let auto_lock_minutes = input.auto_lock_minutes;
+    let ssh_agent_changed = input.ssh_agent_enabled.is_some() || input.ssh_agent_confirm.is_some();
     let options = ConfigUpdateOptions {
         server_url: input.server_url,
         identity_url: input.identity_url,
@@ -211,11 +216,53 @@ fn real_update(input: SettingsUpdateInput) -> SettingsSnapshotView {
         &KeyringManager::default(),
     );
     match result {
-        Ok(_) => real_settings(),
+        Ok(_) => {
+            apply_daemon_side_effects(auto_lock_minutes, ssh_agent_changed);
+            real_settings()
+        }
         Err(error) => {
             let mut snapshot = real_settings();
             snapshot.error = Some(error.to_string());
             snapshot
+        }
+    }
+}
+
+/// Tells the running daemon about the settings it caches.
+///
+/// `ConfigManager::update_config` writes `config.json` and sends nothing, so a
+/// saved auto-lock timeout or SSH-agent toggle would not take effect until the
+/// next daemon restart. The engine's own CLI dispatches exactly these two after
+/// `config set` (`omawarden/src/main.rs:1683,1687`), and this sends the same
+/// action shapes it does: `auto_lock_minutes`, the unit the setting is stored
+/// in, rather than the seconds it could also accept.
+///
+/// A dispatch failure is logged rather than surfaced: the config file already
+/// holds the new value, so the user's intent is recorded and the daemon picks
+/// it up on its next start. Reporting success for a policy the daemon is not
+/// yet running would be worse, hence the log.
+fn apply_daemon_side_effects(auto_lock_minutes: Option<i64>, ssh_agent_changed: bool) {
+    if let Some(minutes) = auto_lock_minutes {
+        let action = serde_json::json!({
+            "action": "set_auto_lock",
+            "auto_lock_minutes": minutes,
+        });
+        if crate::daemon::daemon(action).is_none() {
+            crate::diagnostics::push_log(
+                crate::diagnostics::LogLevel::Warn,
+                "app:settings",
+                "The auto-lock timeout was saved but the daemon did not take it; it will apply on the next daemon start.",
+            );
+        }
+    }
+    if ssh_agent_changed {
+        let action = serde_json::json!({ "action": "ssh_agent_apply" });
+        if crate::daemon::daemon(action).is_none() {
+            crate::diagnostics::push_log(
+                crate::diagnostics::LogLevel::Warn,
+                "app:settings",
+                "The SSH-agent setting was saved but the daemon did not take it; it will apply on the next daemon start.",
+            );
         }
     }
 }
@@ -330,4 +377,162 @@ fn mock_update(state: &mut MockState, input: SettingsUpdateInput) -> SettingsSna
     let mut snapshot = mock_snapshot(state);
     snapshot.error = error;
     snapshot
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    /// A config directory of its own, restored on drop.
+    ///
+    /// `settings::InProcess::update` writes the real config file, so a test that
+    /// calls it must not touch the developer's own configuration.
+    struct ConfigHome {
+        xdg: Option<std::ffi::OsString>,
+        config_dir: Option<std::ffi::OsString>,
+        _guard: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl ConfigHome {
+        fn new(path: &std::path::Path) -> Self {
+            let _guard = crate::test_state::lock();
+            let xdg = std::env::var_os("XDG_CONFIG_HOME");
+            let config_dir = std::env::var_os("OMAWARDEN_CONFIG_DIR");
+            // SAFETY: `test_state::lock()` keeps every test that touches these
+            // variables from running at the same time.
+            unsafe {
+                std::env::set_var("XDG_CONFIG_HOME", path);
+                std::env::remove_var("OMAWARDEN_CONFIG_DIR");
+            }
+            Self {
+                xdg,
+                config_dir,
+                _guard,
+            }
+        }
+    }
+
+    impl Drop for ConfigHome {
+        fn drop(&mut self) {
+            // SAFETY: see `ConfigHome::new`.
+            unsafe {
+                match &self.xdg {
+                    Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
+                    None => std::env::remove_var("XDG_CONFIG_HOME"),
+                }
+                match &self.config_dir {
+                    Some(value) => std::env::set_var("OMAWARDEN_CONFIG_DIR", value),
+                    None => std::env::remove_var("OMAWARDEN_CONFIG_DIR"),
+                }
+            }
+        }
+    }
+
+    fn base_input() -> SettingsUpdateInput {
+        SettingsUpdateInput {
+            server_url: None,
+            identity_url: None,
+            download_dir: None,
+            auto_lock_minutes: None,
+            clipboard_clear_seconds: None,
+            email: None,
+            remember_email: None,
+            check_updates: None,
+            show_website_icons: None,
+            remember_last_search: None,
+            max_attachment_size_mb: None,
+            ssh_agent_enabled: None,
+            ssh_agent_confirm: None,
+            quick_unlock: None,
+            client_cert_path: None,
+            client_key_path: None,
+        }
+    }
+
+    /// The daemon must be told, not just the config file written.
+    ///
+    /// `ConfigManager::update_config` persists `config.json` and sends nothing;
+    /// the engine's own CLI dispatches `set_auto_lock` and `ssh_agent_apply`
+    /// afterwards. Without those the setting appears to save and the running
+    /// daemon keeps the old policy until it restarts.
+    #[test]
+    fn saving_the_auto_lock_notifies_the_daemon() {
+        let home = tempfile::tempdir().unwrap();
+        let _config = ConfigHome::new(home.path());
+
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::<Value>::new()));
+        let recorder = seen.clone();
+        let _seam = crate::daemon::test_seam::set(move |action: Value| {
+            recorder.borrow_mut().push(action.clone());
+            Some(json!({ "ok": true }))
+        });
+
+        let mut input = base_input();
+        input.auto_lock_minutes = Some(30);
+        let snapshot = InProcess.update(input);
+        assert!(snapshot.error.is_none(), "the config write must succeed");
+
+        let sent = seen.borrow();
+        let auto_lock = sent
+            .iter()
+            .find(|action| action["action"] == "set_auto_lock")
+            .expect("set_auto_lock must be sent after the config write");
+        assert_eq!(
+            auto_lock["auto_lock_minutes"], 30,
+            "the daemon is sent the setting in the unit the config stores it in"
+        );
+    }
+
+    /// Enabling or disabling the SSH agent must reach the agent, too.
+    #[test]
+    fn saving_the_ssh_agent_notifies_the_daemon() {
+        let home = tempfile::tempdir().unwrap();
+        let _config = ConfigHome::new(home.path());
+
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::<Value>::new()));
+        let recorder = seen.clone();
+        let _seam = crate::daemon::test_seam::set(move |action: Value| {
+            recorder.borrow_mut().push(action.clone());
+            Some(json!({ "ok": true }))
+        });
+
+        let mut input = base_input();
+        input.ssh_agent_enabled = Some(true);
+        let snapshot = InProcess.update(input);
+        assert!(snapshot.error.is_none());
+
+        assert!(
+            seen.borrow()
+                .iter()
+                .any(|action| action["action"] == "ssh_agent_apply"),
+            "ssh_agent_apply must be sent when the agent toggle changes"
+        );
+    }
+
+    /// A setting the daemon does not police must not wake it.
+    #[test]
+    fn saving_an_unrelated_setting_sends_nothing() {
+        let home = tempfile::tempdir().unwrap();
+        let _config = ConfigHome::new(home.path());
+
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::<Value>::new()));
+        let recorder = seen.clone();
+        let _seam = crate::daemon::test_seam::set(move |action: Value| {
+            recorder.borrow_mut().push(action.clone());
+            Some(json!({ "ok": true }))
+        });
+
+        let mut input = base_input();
+        input.clipboard_clear_seconds = Some(45);
+        let snapshot = InProcess.update(input);
+        assert!(snapshot.error.is_none());
+
+        let sent = seen.borrow();
+        assert!(
+            sent.iter().all(|action| action["action"] != "set_auto_lock"
+                && action["action"] != "ssh_agent_apply"),
+            "clipboard_clear_seconds needs no daemon action, got {sent:?}"
+        );
+    }
 }

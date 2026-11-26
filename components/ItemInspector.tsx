@@ -300,12 +300,9 @@ function InspectorHeader(props: { item: () => InspectorView; readOnly?: boolean 
   const palette = store.palette;
   const iconUrl = () => inspectorIcon(props.item);
   const box = () => scaleLength(24, store.totalScale());
-  // The daemon's favorite write covers logins and secure notes only, so the
-  // star is a toggle for those and a plain state indicator for the rest. In a
-  // read-only inspector it is only ever an indicator.
-  const canFavorite = () =>
-    !props.readOnly &&
-    (props.item().category === "login" || props.item().category === "secureNote");
+  // The daemon applies `favorite` to every type: `cipher_write` sets it before
+  // any type guard. Only a read-only inspector hides the toggle.
+  const canFavorite = () => !props.readOnly;
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
       <View style={{ width: box(), height: box(), alignItems: "center", justifyContent: "center" }}>
@@ -376,6 +373,10 @@ function InspectorHeader(props: { item: () => InspectorView; readOnly?: boolean 
             icon="pencil"
             onPress={store.openCipherEdit}
           />
+        </View>
+      </If>
+      <If when={!props.readOnly}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
           <GhostIconButton
             testID="delete-cipher"
             label="Delete item"
