@@ -144,9 +144,24 @@ mise run hooks        # or ./scripts/install_hooks.sh
 ```
 
 It points `core.hooksPath` at [`.githooks/`](.githooks), whose `pre-push` runs
-`scripts/check_engine_pin.sh`. That check exists because local builds patch the
-engine to the sibling checkout while CI fetches the pinned revision, so a push
-is the moment the two can silently disagree.
+`scripts/check_engine_pin.sh` in strict mode. That check exists because local
+builds patch the engine to the sibling checkout while CI fetches the pinned
+revision, so a push is the moment the two can silently disagree. Locally the
+check is looser on purpose: the sibling only has to *contain* the pin, because
+working on an engine branch ahead of it is normal and the release still ships
+the pin. A push and CI require exact equality.
+
+### Raising the engine pin
+
+```sh
+mise run bump-engine <ref>        # revision, branch or tag in the sibling checkout
+mise run bump-engine <ref> --no-sibling
+```
+
+The task resolves the ref to a full revision before writing, updates `Cargo.toml`,
+and moves the sibling checkout unless it has uncommitted work. It deliberately
+does not write the comment above the pin — it cannot know why a revision is
+worth pinning — so it prints the block to edit and the rest is a human step.
 
 ### GPUI preview
 

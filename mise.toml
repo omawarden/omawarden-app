@@ -48,6 +48,17 @@ run = "nsh build --release"
 description = "Point git at the hooks in .githooks (once per clone)"
 run = "bash scripts/install_hooks.sh"
 
+# `mise run bump-engine <ref>`. Moves the pin, the lock file and (unless
+# --no-sibling) the sibling checkout; leaves the comment's prose to a human,
+# because it cannot know why a revision is worth pinning.
+[tasks.bump-engine]
+description = "Move the engine pin to a revision"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+bash scripts/bump_engine.sh "$@"
+'''
+
 [tasks.package]
 description = "Package a release (TARGET defaults to linux, OUT to .nsh/out)"
 run = '''

@@ -57,7 +57,8 @@ contract that is enforced.**
   compares the revision in `Cargo.toml`, the sibling checkout's `HEAD` when one
   exists, and the presence of the engine's macOS Keychain provider, and fails
   on any disagreement. With no sibling it accepts the pin and leaves fetching
-  to Cargo — the CI shape.
+  to Cargo — the CI shape. *Amended below*: what "disagreement" means depends
+  on who is asking.
 - **Attachment opening is gated on where the engine really writes.** The
   allow-list is the engine's own preview root plus the download directory, and
   the accept/refuse decision is a pure function. The runtime directory comes
@@ -115,6 +116,45 @@ contract that is enforced.**
 
 ## What has been settled since
 
+- **The pin is a floor locally and an exact revision where it is published.**
+  The paragraph above said any disagreement fails, and that was too strong in
+  one direction and too weak in another. The pin still denotes **one exact
+  commit** — a version floor was rejected, because a version string cannot stop
+  credentials reaching a specific binary, and a second comparison input would
+  make "matches" the union of an exact test and an approximate one. What
+  changes is only the **local** test: the sibling checkout must *contain* the
+  pin (`git merge-base --is-ancestor <pin> HEAD`), not equal it. Working on a
+  branch ahead of the pin is the normal way to develop against an unreleased
+  engine, and the release still ships the pin, so every symbol the local build
+  uses exists there too. A push and CI keep exact equality
+  (`ENGINE_PIN_STRICT=1`, implied by `CI`), because those build the pin itself.
+  Anchoring on ancestry rather than on a branch name is what makes it strict:
+  an engine on an unrelated line of history fails even locally, which is the
+  case the earlier "any disagreement" sentence was really aimed at.
+- **A mismatch is graded by version, never decided by it.** The app cannot test
+  ancestry — `commit_matches()` compares SHA prefixes and `probe_version()`
+  reads one line of `-V` — so a four-state `newer`/`older`/`diverged` model was
+  proposed and withdrawn. Version instead grades a message's severity: greater
+  is a neutral note, lesser a warning, and equal-with-a-different-commit a
+  warning, that last case being the only one that catches a sibling branch
+  reporting the same version with different code. The engine's own `-dev`
+  marker is not treated as a safe signal. This is why raising the pin is a
+  tooling problem rather than a comparison one.
+- **Raising the pin is one command, and its silent parts are named.**
+  `mise run bump-engine <ref>` (`scripts/bump_engine.sh`) resolves the ref to a
+  full 40-character revision *before* writing, rewrites only the `rev`, and
+  moves the sibling checkout unless it has uncommitted work or `--no-sibling`
+  says otherwise. It never writes the comment above the pin: the reason a
+  revision is worth pinning is the one thing a script cannot know, so it prints
+  what to replace instead of inventing it. A ref that does not resolve fails
+  loudly and leaves the manifest untouched.
+- **The sibling checkout is not the script's to move when someone else is using
+  it.** The engine checkout is shared with the engine repository's own work, so
+  `bump-engine` refuses to switch it out from under uncommitted changes and says
+  how to finish the move by hand. A bump that cannot move it still succeeds
+  when the new pin is an ancestor of where the sibling already is, because local
+  builds then contain it.
+
 - **This repository has a macOS job of its own.** `.github/workflows/ci.yml`
   gained a `macos-latest` job (`Test & Verify (macos-arm64)`) that runs the same
   gates as Linux: version consistency, the pin check, the privacy check,
@@ -148,11 +188,11 @@ contract that is enforced.**
 - **The engine's macOS code is compiled and tested by CI.** The engine's
   workflow gained a blocking `backend-macos` job on `macos-latest` that runs
   clippy and the whole test suite after provisioning an ephemeral unlocked
-  Keychain. It has run green on the engine's `develop` at the revision this
-  repository pins (`57f8679`: 394 tests plus every integration suite), so the
-  `#[cfg(target_os = "macos")]` blocks — including the Security.framework FFI
-  this work depends on — are exercised on a real target rather than argued
-  about. Filed as
+  Keychain. It has run green on the engine's `develop` at `57f8679` (394 tests
+  plus every integration suite), the revision this repository pinned when the
+  clause was written, and the `#[cfg(target_os = "macos")]` blocks — including
+  the Security.framework FFI this work depends on — are exercised on a real
+  target rather than argued about. Filed as
   [icyleaf/omarchy-bitwarden#432](https://github.com/icyleaf/omarchy-bitwarden/issues/432),
   drafted in `docs/upstream/01-macos-ci-job.md`.
 - **The Rust half is surveyed and the defects it hid are fixed.** A pass over

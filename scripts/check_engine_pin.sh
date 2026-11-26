@@ -19,7 +19,19 @@
 # engine, while CI's resolution needs a git source line, and one lock entry
 # cannot hold both shapes. The immutable revision is what makes the build
 # reproducible, so that is what is compared.
+#
+# What "agrees" means depends on who is asking (ADR 0007, "the pin is a floor
+# locally"). A push or CI builds exactly the pin, so the sibling must *be* it.
+# A local build only has to be descended from it: working on a branch ahead of
+# the pin is the normal way to develop against an unreleased engine, and the
+# release still ships the pin, so every symbol under test exists there too.
+# Callers that must be exact export ENGINE_PIN_STRICT=1; CI implies it.
 set -euo pipefail
+
+STRICT=${ENGINE_PIN_STRICT:-}
+if [ -n "${CI:-}" ]; then
+  STRICT=1
+fi
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 LINE=$(grep -E '^omawarden[[:space:]]*=[[:space:]]*\{.*git[[:space:]]*=' "$ROOT/Cargo.toml" || true)
@@ -100,11 +112,19 @@ if [ "${FROM_CARGO_CHECKOUT:-0}" != "1" ]; then
 
   HEAD_REV=$(git -C "$REPO" rev-parse HEAD)
 
-  if [ "$HEAD_REV" != "$REV" ]; then
+  if [ "$HEAD_REV" = "$REV" ]; then
+    : # exactly the pin
+  elif [ -n "$STRICT" ]; then
     echo "::error::the engine pin has drifted from the sibling checkout" >&2
     echo "  pinned in Cargo.toml: $REV" >&2
     echo "  sibling HEAD:         $HEAD_REV  ($REPO)" >&2
-    echo "  Local builds compile the sibling HEAD, because .cargo/config.toml patches the dependency, while the release compiles the pin. Move the pin, or check the sibling out at it, before relying on either build." >&2
+    echo "  This check is strict: a push and CI build exactly the pin, so the sibling must be checked out at it. Move the pin, or check the sibling out at it, before relying on either build." >&2
+    exit 1
+  elif ! git -C "$REPO" merge-base --is-ancestor "$REV" "$HEAD_REV" 2>/dev/null; then
+    echo "::error::the sibling checkout does not contain the engine pin" >&2
+    echo "  pinned in Cargo.toml: $REV" >&2
+    echo "  sibling HEAD:         $HEAD_REV  ($REPO)" >&2
+    echo "  A local build may run ahead of the pin, but the pin must still be an ancestor: an engine on another line of history can carry symbols the release will never ship, and the build would pass locally and fail in CI. Move the pin, or check the sibling out from a revision that includes it." >&2
     exit 1
   fi
 fi
@@ -120,6 +140,8 @@ fi
 
 if [ "${FROM_CARGO_CHECKOUT:-0}" = "1" ]; then
   echo "Engine pin: $REV (macOS Keychain provider present, inspected in Cargo's checkout)"
-else
+elif [ "$HEAD_REV" = "$REV" ]; then
   echo "Engine pin: $REV (sibling HEAD matches; macOS Keychain provider present)"
+else
+  echo "Engine pin: $REV (sibling HEAD $HEAD_REV is ahead of the pin; macOS Keychain provider present)"
 fi
